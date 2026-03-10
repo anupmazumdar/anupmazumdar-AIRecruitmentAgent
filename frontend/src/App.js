@@ -1949,6 +1949,7 @@ function VideoInterviewStage({ candidateData, setCandidateData, setStage }) {
   const [recorded, setRecorded] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [stream, setStream] = useState(null);
+  const streamRef = useRef(null); // ref so cleanup always has latest stream
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [recordedBlobs, setRecordedBlobs] = useState([]);
   const [timer, setTimer] = useState(0);
@@ -1966,8 +1967,10 @@ function VideoInterviewStage({ candidateData, setCandidateData, setStage }) {
   useEffect(() => {
     startCamera();
     return () => {
-      if (stream) {
-        stream.getTracks().forEach(track => track.stop());
+      // Use ref so cleanup always gets the latest stream even if state is stale
+      if (streamRef.current) {
+        streamRef.current.getTracks().forEach(track => track.stop());
+        streamRef.current = null;
       }
       if (timerRef.current) {
         clearInterval(timerRef.current);
@@ -1975,12 +1978,21 @@ function VideoInterviewStage({ candidateData, setCandidateData, setStage }) {
     };
   }, []);
 
+  const stopCamera = () => {
+    if (streamRef.current) {
+      streamRef.current.getTracks().forEach(track => track.stop());
+      streamRef.current = null;
+      setStream(null);
+    }
+  };
+
   const startCamera = async () => {
     try {
       const mediaStream = await navigator.mediaDevices.getUserMedia({
         video: { width: 1280, height: 720 },
         audio: true
       });
+      streamRef.current = mediaStream; // store in ref for reliable cleanup
       setStream(mediaStream);
       if (videoRef.current) {
         videoRef.current.srcObject = mediaStream;
@@ -2045,6 +2057,8 @@ function VideoInterviewStage({ candidateData, setCandidateData, setStage }) {
 
   const analyzeVideo = async () => {
     setAnalyzing(true);
+    // Stop camera/mic as soon as recording is done — no need to keep it on during analysis
+    stopCamera();
 
     try {
       // Upload to backend for analysis
