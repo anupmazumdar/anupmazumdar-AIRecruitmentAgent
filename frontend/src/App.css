@@ -1,0 +1,42 @@
+/* App.css - TalentAI Recruitment System */
+
+/* You can leave this file empty or minimal since we're using Tailwind CSS */
+/* All styling is done through Tailwind utility classes in the components */
+
+/* Optional: Add any custom CSS here if needed */
+
+.App {
+  min-height: 100vh;
+}
+
+/* Custom scrollbar styling (optional) */
+::-webkit-scrollbar {
+  width: 10px;
+}
+
+::-webkit-scrollbar-track {
+  background: #1e293b;
+}
+
+::-webkit-scrollbar-thumb {
+  background: #4f46e5;
+  border-radius: 5px;
+}
+
+::-webkit-scrollbar-thumb:hover {
+  background: #6366f1;
+}
+
+/* Focus states for accessibility */
+*:focus {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+}
+
+button:focus,
+input:focus,
+select:focus,
+textarea:focus {
+  outline: 2px solid #6366f1;
+  outline-offset: 2px;
+}

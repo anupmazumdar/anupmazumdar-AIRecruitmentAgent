@@ -1,0 +1,33 @@
+{
+  "name": "backend",
+  "version": "2.0.0",
+  "description": "TalentAI Backend - Multi-format resume support with project-focused analysis",
+  "main": "server.js",
+  "scripts": {
+    "start": "node server.js",
+    "dev": "nodemon server.js"
+  },
+  "keywords": ["recruitment", "ai", "resume", "projects"],
+  "author": "",
+  "license": "ISC",
+  "type": "commonjs",
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.74.0",
+    "@google-cloud/storage": "^7.14.0",
+    "bcrypt": "^6.0.0",
+    "cors": "^2.8.6",
+    "dotenv": "^17.3.1",
+    "express": "^5.2.1",
+    "jsonwebtoken": "^9.0.3",
+    "multer": "^2.0.2",
+    "pdf-parse": "^2.4.5",
+    "mammoth": "^1.6.0",
+    "docx": "^8.5.0"
+  },
+  "devDependencies": {
+    "nodemon": "^3.1.11"
+  },
+  "engines": {
+    "node": ">=16.0.0"
+  }
+}
