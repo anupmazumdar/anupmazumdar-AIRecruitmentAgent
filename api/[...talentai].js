@@ -106,16 +106,25 @@ async function uploadFileToCloud(localPath, cloudPath) {
 }
 
 // Helper function to extract text from various document formats
-async function extractTextFromDocument(filePath, mimeType) {
-  const buffer = await fs.readFile(filePath);
+// Accepts either a buffer directly (Vercel memory storage) or a file path (local disk)
+async function extractTextFromDocument(filePathOrBuffer, mimeType) {
+  // If it's already a buffer, use it directly; otherwise read from disk
+  const buffer = Buffer.isBuffer(filePathOrBuffer)
+    ? filePathOrBuffer
+    : await fs.readFile(filePathOrBuffer);
+  const filePath = Buffer.isBuffer(filePathOrBuffer) ? '' : filePathOrBuffer;
 
   try {
-    if (mimeType === 'application/pdf' || filePath.endsWith('.pdf')) {
+    if (mimeType === 'application/pdf' || filePath.endsWith('.pdf') || mimeType === 'application/pdf') {
       // PDF extraction - lazy load to avoid serverless startup crash
       const pdf = getPdf();
       const data = await pdf(buffer);
       return data.text;
-    } else if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || filePath.endsWith('.docx')) {
+    } else if (
+      mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
+      filePath.endsWith('.docx') ||
+      mimeType.includes('docx')
+    ) {
       // DOCX extraction - lazy load
       const mammoth = getMammoth();
       const result = await mammoth.extractRawText({ buffer });
@@ -607,9 +616,12 @@ app.post('/api/candidates/:id/resume', upload.single('resume'), async (req, res)
     }
 
     // Extract text from document
+    // On Vercel memory storage: req.file.buffer exists, no req.file.path
+    // On local disk storage: req.file.path exists
     let resumeText;
     try {
-      resumeText = await extractTextFromDocument(req.file.path, req.file.mimetype);
+      const fileSource = req.file.buffer || req.file.path;
+      resumeText = await extractTextFromDocument(fileSource, req.file.mimetype);
     } catch (extractError) {
       console.error('Text extraction failed:', extractError);
       return res.status(400).json({ error: 'Failed to read resume. Please ensure file is not corrupted or password-protected.' });
