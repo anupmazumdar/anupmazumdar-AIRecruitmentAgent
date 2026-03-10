@@ -1,5 +1,14 @@
 {
     "buildCommand": "npm run build --prefix frontend",
     "outputDirectory": "frontend/build",
-    "framework": "create-react-app"
+    "rewrites": [
+        {
+            "source": "/api/(.*)",
+            "destination": "/api/[...talentai]"
+        },
+        {
+            "source": "/(.*)",
+            "destination": "/index.html"
+        }
+    ]
 }
