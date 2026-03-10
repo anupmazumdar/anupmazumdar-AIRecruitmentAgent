@@ -2,7 +2,7 @@
     "name": "talentai-recruitment",
     "version": "1.0.0",
     "scripts": {
-        "install": "npm install --prefix frontend && npm install --prefix backend",
+        "install": "npm install --prefix frontend && npm install --prefix api",
         "build": "npm run build --prefix frontend"
     }
 }
