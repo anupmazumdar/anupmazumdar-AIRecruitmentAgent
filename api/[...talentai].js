@@ -184,29 +184,30 @@ async function saveSubscriptions() {
 const JWT_SECRET = process.env.JWT_SECRET || 'your_secret_key_change_in_production';
 
 // File upload configuration
-const multerStorage = multer.diskStorage({
-  destination: async (req, file, cb) => {
-    // Vercel serverless functions only have write access to /tmp
-    const baseDir = process.env.VERCEL ? os.tmpdir() : './uploads';
-    const uploadDir = file.fieldname === 'video' ? path.join(baseDir, 'videos') : baseDir;
-    try {
-      if (!process.env.VERCEL) {
+// On Vercel: use memory storage (no disk write access and no persistent filesystem)
+// Locally: use disk storage
+const multerStorage = process.env.VERCEL
+  ? multer.memoryStorage()
+  : multer.diskStorage({
+    destination: async (req, file, cb) => {
+      const baseDir = './uploads';
+      const uploadDir = file.fieldname === 'video' ? path.join(baseDir, 'videos') : baseDir;
+      try {
         await fs.mkdir(uploadDir, { recursive: true });
+        cb(null, uploadDir);
+      } catch (error) {
+        cb(error);
       }
-      cb(null, uploadDir);
-    } catch (error) {
-      cb(error);
+    },
+    filename: (req, file, cb) => {
+      const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
+      cb(null, uniqueSuffix + path.extname(file.originalname));
     }
-  },
-  filename: (req, file, cb) => {
-    const uniqueSuffix = Date.now() + '-' + Math.round(Math.random() * 1E9);
-    cb(null, uniqueSuffix + path.extname(file.originalname));
-  }
-});
+  });
 
 const upload = multer({
   storage: multerStorage,
-  limits: { fileSize: 100 * 1024 * 1024 } // 100MB
+  limits: { fileSize: 50 * 1024 * 1024 } // 50MB local limit
 });
 
 // ==================== AI SERVICE ====================
@@ -733,7 +734,7 @@ Focus on:
 });
 
 // Video interview analysis
-app.post('/api/candidates/:id/video-interview', upload.single('video'), async (req, res) => {
+app.post('/api/candidates/:id/video-interview', async (req, res) => {
   try {
     const candidateId = parseInt(req.params.id);
     const candidate = candidates.find(c => c.id === candidateId);
@@ -742,57 +743,60 @@ app.post('/api/candidates/:id/video-interview', upload.single('video'), async (r
       return res.status(404).json({ error: 'Candidate not found' });
     }
 
-    if (!req.file) {
-      return res.status(400).json({ error: 'No video uploaded' });
+    // On Vercel: skip file upload (4.5MB limit + 10s timeout make video impossible)
+    // Just return simulated analysis directly
+    if (process.env.VERCEL) {
+      const analysis = {
+        bodyLanguageScore: 22,
+        communicationScore: 23,
+        eyeContactScore: 21,
+        presentationScore: 22,
+        totalScore: 88,
+        strengths: ['Professional appearance', 'Clear communication', 'Good eye contact'],
+        improvements: ['Reduce nervous gestures', 'More confident tone'],
+        summary: 'Candidate demonstrated strong professional presence and communication skills.'
+      };
+      candidate.videoInterviewScore = analysis.totalScore;
+      candidate.videoAnalyzedAt = new Date().toISOString();
+      await saveCandidates();
+      return res.json({
+        success: true,
+        videoAnalysis: { analysis, analyzedAt: new Date().toISOString() },
+        score: analysis.totalScore
+      });
     }
 
-    // Upload video to Google Cloud Storage
-    let videoUrl = null;
-    if (useGCS) {
-      const cloudPath = `videos/${candidateId}/${Date.now()}-${req.file.originalname}`;
-      videoUrl = await uploadFileToCloud(req.file.path, cloudPath);
-    }
+    // Local: process with multer
+    upload.single('video')(req, res, async (err) => {
+      if (err) return res.status(400).json({ error: 'File upload failed: ' + err.message });
+      if (!req.file) return res.status(400).json({ error: 'No video uploaded' });
 
-    console.log('Video uploaded:', req.file.filename);
+      let videoUrl = null;
+      if (useGCS) {
+        const cloudPath = `videos/${candidateId}/${Date.now()}-${req.file.originalname}`;
+        videoUrl = await uploadFileToCloud(req.file.path, cloudPath);
+      }
 
-    // Simulate video analysis
-    const analysis = {
-      bodyLanguageScore: 22,
-      communicationScore: 23,
-      eyeContactScore: 21,
-      presentationScore: 22,
-      totalScore: 88,
-      strengths: [
-        "Professional appearance",
-        "Clear communication",
-        "Good eye contact"
-      ],
-      improvements: [
-        "Reduce nervous gestures",
-        "More confident tone"
-      ],
-      summary: "Candidate demonstrated strong professional presence and communication skills."
-    };
+      const analysis = {
+        bodyLanguageScore: 22, communicationScore: 23, eyeContactScore: 21,
+        presentationScore: 22, totalScore: 88,
+        strengths: ['Professional appearance', 'Clear communication', 'Good eye contact'],
+        improvements: ['Reduce nervous gestures', 'More confident tone'],
+        summary: 'Candidate demonstrated strong professional presence and communication skills.'
+      };
 
-    candidate.videoInterviewScore = analysis.totalScore;
-    candidate.videoUrl = videoUrl; // Save GCS URL
-    candidate.videoAnalyzedAt = new Date().toISOString();
-    await saveCandidates(); // Persist to cloud
+      candidate.videoInterviewScore = analysis.totalScore;
+      candidate.videoUrl = videoUrl;
+      candidate.videoAnalyzedAt = new Date().toISOString();
+      await saveCandidates();
 
-    // Clean up uploaded file
-    try {
-      await fs.unlink(req.file.path);
-    } catch (err) {
-      console.error('File cleanup error:', err);
-    }
+      try { await fs.unlink(req.file.path); } catch (e) { }
 
-    res.json({
-      success: true,
-      videoAnalysis: {
-        analysis,
-        analyzedAt: new Date().toISOString()
-      },
-      score: analysis.totalScore
+      res.json({
+        success: true,
+        videoAnalysis: { analysis, analyzedAt: new Date().toISOString() },
+        score: analysis.totalScore
+      });
     });
   } catch (error) {
     console.error('Video interview error:', error);
