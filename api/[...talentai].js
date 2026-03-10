@@ -8,10 +8,12 @@ const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
 const path = require('path');
 const fs = require('fs').promises;
-const pdf = require('pdf-parse');
-const mammoth = require('mammoth');
-const { Storage } = require('@google-cloud/storage');
 const os = require('os');
+
+// Lazy loaders - prevents crashes on Vercel serverless startup
+function getPdf() { return require('pdf-parse'); }
+function getMammoth() { return require('mammoth'); }
+function getStorage() { return require('@google-cloud/storage').Storage; }
 
 const app = express();
 const PORT = process.env.PORT || 3001;
@@ -21,29 +23,28 @@ let storage = null;
 let bucket = null;
 let useGCS = false;
 
-try {
-  // Initialize Google Cloud Storage
-  if (process.env.GOOGLE_CLOUD_PROJECT_ID && process.env.GOOGLE_CLOUD_BUCKET_NAME) {
-    const storageConfig = {
-      projectId: process.env.GOOGLE_CLOUD_PROJECT_ID,
-    };
-
-    // If using service account key file
-    if (process.env.GOOGLE_APPLICATION_CREDENTIALS) {
+function initGCS() {
+  if (useGCS || !process.env.GOOGLE_CLOUD_PROJECT_ID || !process.env.GOOGLE_CLOUD_BUCKET_NAME) return;
+  try {
+    const Storage = getStorage();
+    const storageConfig = { projectId: process.env.GOOGLE_CLOUD_PROJECT_ID };
+    // Only use keyFilename if it's a real file path, not set on Vercel
+    if (process.env.GOOGLE_APPLICATION_CREDENTIALS && !process.env.VERCEL) {
       storageConfig.keyFilename = process.env.GOOGLE_APPLICATION_CREDENTIALS;
     }
-
     storage = new Storage(storageConfig);
     bucket = storage.bucket(process.env.GOOGLE_CLOUD_BUCKET_NAME);
     useGCS = true;
     console.log(`✅ Google Cloud Storage initialized: ${process.env.GOOGLE_CLOUD_BUCKET_NAME}`);
-  } else {
-    console.log('⚠️  Google Cloud Storage not configured. Using local storage.');
+  } catch (error) {
+    console.error('❌ Google Cloud Storage initialization failed:', error.message);
+    useGCS = false;
   }
-} catch (error) {
-  console.error('❌ Google Cloud Storage initialization failed:', error.message);
-  console.log('⚠️  Falling back to local storage.');
-  useGCS = false;
+}
+
+// Initialize GCS lazily only when needed (safe for serverless)
+if (process.env.GOOGLE_CLOUD_PROJECT_ID && process.env.GOOGLE_CLOUD_BUCKET_NAME) {
+  setImmediate(initGCS);
 }
 
 // ==================== DATA PERSISTENCE FUNCTIONS ====================
@@ -110,15 +111,18 @@ async function extractTextFromDocument(filePath, mimeType) {
 
   try {
     if (mimeType === 'application/pdf' || filePath.endsWith('.pdf')) {
-      // PDF extraction
+      // PDF extraction - lazy load to avoid serverless startup crash
+      const pdf = getPdf();
       const data = await pdf(buffer);
       return data.text;
     } else if (mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' || filePath.endsWith('.docx')) {
-      // DOCX extraction
+      // DOCX extraction - lazy load
+      const mammoth = getMammoth();
       const result = await mammoth.extractRawText({ buffer });
       return result.value;
     } else if (mimeType === 'application/msword' || filePath.endsWith('.doc')) {
-      // DOC extraction (basic - may need textract for better results)
+      // DOC extraction
+      const mammoth = getMammoth();
       const result = await mammoth.extractRawText({ buffer });
       return result.value;
     } else if (mimeType === 'text/plain' || filePath.endsWith('.txt')) {
