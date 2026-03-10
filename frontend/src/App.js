@@ -4,6 +4,7 @@
 
 import React, { useState, useEffect, useRef } from 'react';
 import { Upload, CheckCircle, XCircle, User, Briefcase, MessageSquare, Award, Clock, FileText, Users, TrendingUp, Mic, MicOff, Crown, Zap, Sparkles, Check, X, Mail, Lock, Eye, EyeOff, LogOut, Video, VideoOff, Play, Pause, RotateCcw, DollarSign } from 'lucide-react';
+import { Analytics } from '@vercel/analytics/react';
 
 // ==================== SUBSCRIPTION PLANS ====================
 const SUBSCRIPTION_PLANS = {
@@ -177,6 +178,8 @@ export default function AIRecruitmentAgent() {
           selectedPlan={selectedPlan}
         />
       )}
+
+      <Analytics />
     </div>
   );
 }

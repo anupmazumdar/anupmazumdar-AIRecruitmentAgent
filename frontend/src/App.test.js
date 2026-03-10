@@ -1,8 +1,13 @@
+// Mock @vercel/analytics before importing App
+jest.mock('@vercel/analytics/react', () => ({
+  Analytics: () => null
+}), { virtual: true });
+
 import { render, screen } from '@testing-library/react';
 import App from './App';
 
-test('renders learn react link', () => {
+test('renders TalentAI application', () => {
   render(<App />);
-  const linkElement = screen.getByText(/learn react/i);
-  expect(linkElement).toBeInTheDocument();
+  const titleElement = screen.getByText(/TalentAI/i);
+  expect(titleElement).toBeInTheDocument();
 });
