@@ -863,7 +863,7 @@ function CandidatePortal({ setUserType, subscription, authState, logout }) {
         {stage === 'resume' && <ResumeUploadStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} />}
         {stage === 'uploadVideo' && <UploadVideoStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} />}
         {stage === 'quiz' && <TechnicalQuizStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} />}
-        {stage === 'interview' && <TextInterviewStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} />}
+        {stage === 'interview' && <TextInterviewStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} authState={authState} />}
         {stage === 'video' && <VideoInterviewStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} />}
         {stage === 'results' && <ResultsStage candidateData={candidateData} />}
       </div>
@@ -954,7 +954,15 @@ function ProfileStage({ candidateData, setCandidateData, setStage }) {
             <option value="Software Engineer">Software Engineer</option>
             <option value="Data Scientist">Data Scientist</option>
             <option value="Product Manager">Product Manager</option>
+            <option value="Frontend Developer">Frontend Developer</option>
+            <option value="Backend Developer">Backend Developer</option>
+            <option value="Full Stack Developer">Full Stack Developer</option>
+            <option value="DevOps Engineer">DevOps Engineer</option>
             <option value="UI/UX Designer">UI/UX Designer</option>
+            <option value="Machine Learning Engineer">Machine Learning Engineer</option>
+            <option value="Android Developer">Android Developer</option>
+            <option value="iOS Developer">iOS Developer</option>
+            <option value="QA Engineer">QA Engineer</option>
           </select>
         </div>
 
@@ -1754,108 +1762,138 @@ Make questions practical and position-specific.`
 }
 
 // ==================== TEXT INTERVIEW STAGE ====================
-function TextInterviewStage({ candidateData, setCandidateData, setStage }) {
+function TextInterviewStage({ candidateData, setCandidateData, setStage, authState }) {
+  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
   const [messages, setMessages] = useState([]);
   const [currentInput, setCurrentInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [interviewComplete, setInterviewComplete] = useState(false);
-  const [questionCount, setQuestionCount] = useState(0);
-  const maxQuestions = 5;
+  const [questionNumber, setQuestionNumber] = useState(1);
+  const totalQuestions = 5;
+  const [answerScores, setAnswerScores] = useState([]);
+  const [finalScore, setFinalScore] = useState(null);
   const messagesEndRef = useRef(null);
 
-  useEffect(() => {
-    startInterview();
-  }, []);
+  const avgScore = answerScores.length > 0
+    ? Math.round(answerScores.reduce((a, b) => a + b, 0) / answerScores.length)
+    : null;
 
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+  useEffect(() => { startInterview(); }, []);
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
   const startInterview = async () => {
-    const greeting = {
-      role: 'assistant',
-      content: `Hello! I'm your AI interviewer. I'll ask you ${maxQuestions} questions about your experience and the ${candidateData.position} role. Let's begin:\n\nTell me about your background and why you're interested in this position?`
-    };
-    setMessages([greeting]);
-  };
-
-  const sendMessage = async () => {
-    if (!currentInput.trim()) return;
-
-    const userMessage = { role: 'user', content: currentInput };
-    setMessages(prev => [...prev, userMessage]);
-    setCurrentInput('');
     setLoading(true);
-
     try {
-      const apiKey = process.env.REACT_APP_GEMINI_API_KEY || 'AIzaSyCBgr0CY6Q8o7l6Nxzl4wA7M4TdFLR-m6w';
-
-      const conversationContext = messages.map(m => `${m.role === 'user' ? 'Candidate' : 'Interviewer'}: ${m.content}`).join('\n');
-
-      const prompt = questionCount < maxQuestions - 1
-        ? `You are interviewing a candidate for ${candidateData.position}. This is question ${questionCount + 2} of ${maxQuestions}.
-
-Previous conversation:
-${conversationContext}
-Candidate: ${currentInput}
-
-Ask a relevant follow-up interview question based on their response. Focus on: technical skills, problem-solving, teamwork, or specific experiences. Keep it conversational and natural.`
-        : `You are interviewing a candidate for ${candidateData.position}. This is the final question (${maxQuestions} of ${maxQuestions}).
-
-Previous conversation:
-${conversationContext}
-Candidate: ${currentInput}
-
-Thank them for their responses and ask one final question about their career goals or availability. Then provide a brief closing statement.`;
-
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`,
-        {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{ parts: [{ text: prompt }] }]
-          })
-        }
-      );
-
-      const data = await response.json();
-      const aiResponse = data.candidates[0].content.parts[0].text;
-
-      setMessages(prev => [...prev, { role: 'assistant', content: aiResponse }]);
-      setQuestionCount(prev => prev + 1);
-
-      if (questionCount >= maxQuestions - 1) {
-        setTimeout(() => {
-          const score = Math.floor(Math.random() * 15) + 80; // 80-95
-          setCandidateData({ ...candidateData, interviewScore: score });
-          setInterviewComplete(true);
-        }, 2000);
+      const res = await fetch(`${API_URL}/api/interview/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authState?.token}` },
+        body: JSON.stringify({
+          candidateId: candidateData.candidateId || candidateData.id,
+          position: candidateData.position,
+          candidateName: candidateData.name
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setMessages([{ role: 'assistant', content: data.message, questionNumber: 1 }]);
+        setQuestionNumber(1);
       }
-    } catch (error) {
-      console.error('Error:', error);
-      setMessages(prev => [...prev, {
+    } catch {
+      setMessages([{
         role: 'assistant',
-        content: 'I apologize, there was an error. Could you please repeat that?'
+        content: `Hello ${candidateData.name || 'there'}! I'm Alex, your AI interviewer for the ${candidateData.position} role. I'll ask you ${totalQuestions} questions. Let's start — could you walk me through your background and what drew you to this position?`,
+        questionNumber: 1
       }]);
     } finally {
       setLoading(false);
     }
   };
 
+  const sendMessage = async () => {
+    if (!currentInput.trim() || loading) return;
+    const userMsg = currentInput.trim();
+    setCurrentInput('');
+    const updatedMessages = [...messages, { role: 'user', content: userMsg }];
+    setMessages(updatedMessages);
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/interview/message`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authState?.token}` },
+        body: JSON.stringify({
+          position: candidateData.position,
+          candidateName: candidateData.name,
+          questionNumber,
+          totalQuestions,
+          userMessage: userMsg,
+          conversationHistory: updatedMessages.slice(-8)
+        })
+      });
+      const data = await res.json();
+      if (data.success) {
+        const newScores = [...answerScores, data.answerScore];
+        setAnswerScores(newScores);
+        setMessages(prev => [...prev, {
+          role: 'assistant',
+          content: data.message,
+          answerScore: data.answerScore,
+          scoreFeedback: data.scoreFeedback
+        }]);
+        if (data.isComplete) {
+          const computed = Math.round(newScores.reduce((a, b) => a + b, 0) / newScores.length);
+          setFinalScore(computed);
+          setCandidateData(prev => ({ ...prev, interviewScore: computed }));
+          if (candidateData.candidateId || candidateData.id) {
+            fetch(`${API_URL}/api/candidates/${candidateData.candidateId || candidateData.id}/interview-score`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authState?.token}` },
+              body: JSON.stringify({ score: computed })
+            }).catch(() => {});
+          }
+          setTimeout(() => setInterviewComplete(true), 1200);
+        } else {
+          setQuestionNumber(data.questionNumber);
+        }
+      }
+    } catch {
+      setMessages(prev => [...prev, { role: 'assistant', content: 'There was a brief hiccup. Please continue with your answer!' }]);
+    } finally {
+      setLoading(false);
+    }
+  };
+
   if (interviewComplete) {
+    const grade = finalScore >= 85
+      ? { label: 'Excellent', emoji: '🏆', color: 'text-green-400', ring: 'ring-green-500/40', bg: 'from-green-900/30 to-emerald-900/30 border-green-600/30' }
+      : finalScore >= 70
+      ? { label: 'Good', emoji: '👍', color: 'text-yellow-400', ring: 'ring-yellow-500/40', bg: 'from-yellow-900/30 to-orange-900/30 border-yellow-600/30' }
+      : { label: 'Keep Growing', emoji: '📈', color: 'text-red-400', ring: 'ring-red-500/40', bg: 'from-red-900/30 to-pink-900/30 border-red-600/30' };
     return (
       <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-8 border border-slate-700 text-center">
-        <CheckCircle className="mx-auto mb-4 text-green-400" size={64} />
-        <h2 className="text-2xl font-bold mb-4">Interview Complete!</h2>
-        <p className="text-slate-300 mb-2">Thank you for your thoughtful responses.</p>
-        <div className="bg-gradient-to-r from-indigo-600/20 to-purple-600/20 border border-indigo-500/30 rounded-lg p-4 mb-6 inline-block">
-          <p className="text-slate-400 text-sm mb-1">Interview Score</p>
-          <p className="text-3xl font-bold text-indigo-400">{candidateData.interviewScore}/100</p>
+        <div className="text-6xl mb-3">{grade.emoji}</div>
+        <h2 className="text-2xl font-bold mb-1">Interview Complete!</h2>
+        <p className="text-slate-400 mb-6 text-sm">Alex reviewed all {answerScores.length} of your answers</p>
+
+        <div className={`bg-gradient-to-br ${grade.bg} border rounded-2xl p-6 mb-6 inline-block min-w-56 ring-4 ${grade.ring}`}>
+          <p className="text-slate-400 text-xs uppercase tracking-widest mb-1">Your Score</p>
+          <p className={`text-6xl font-black mb-1 ${grade.color}`}>{finalScore}</p>
+          <p className="text-slate-300 text-sm font-semibold uppercase tracking-wide">{grade.label}</p>
         </div>
+
+        {answerScores.length > 0 && (
+          <div className="grid grid-cols-5 gap-2 mb-6">
+            {answerScores.map((s, i) => (
+              <div key={i} className="bg-slate-800/60 rounded-xl p-3 text-center border border-slate-700">
+                <p className="text-xs text-slate-500 mb-1">Q{i + 1}</p>
+                <p className={`text-xl font-bold ${s >= 75 ? 'text-green-400' : s >= 55 ? 'text-yellow-400' : 'text-red-400'}`}>{s}</p>
+              </div>
+            ))}
+          </div>
+        )}
+
         <button
           onClick={() => setStage('video')}
-          className="px-8 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg font-semibold hover:from-indigo-500 hover:to-purple-500 transition-all"
+          className="px-8 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl font-semibold hover:from-indigo-500 hover:to-purple-500 transition-all shadow-lg shadow-indigo-900/30"
         >
           Continue to Video Interview →
         </button>
@@ -1864,38 +1902,72 @@ Thank them for their responses and ask one final question about their career goa
   }
 
   return (
-    <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-8 border border-slate-700">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold">AI Interview</h2>
-        <span className="text-slate-400">Question {questionCount + 1} of {maxQuestions}</span>
+    <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-6 border border-slate-700">
+      {/* Header */}
+      <div className="flex justify-between items-start mb-4">
+        <div>
+          <h2 className="text-xl font-bold flex items-center gap-2">
+            <span className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-sm font-bold">A</span>
+            AI Interview — Alex
+          </h2>
+          <p className="text-slate-400 text-xs mt-0.5 ml-10">{candidateData.position} • Powered by OpenRouter</p>
+        </div>
+        <div className="text-right">
+          <p className="text-xs text-slate-500">Question</p>
+          <p className="text-white font-bold text-lg">{questionNumber} <span className="text-slate-500 text-sm">/ {totalQuestions}</span></p>
+          {avgScore !== null && (
+            <p className={`text-xs font-bold mt-0.5 ${
+              avgScore >= 75 ? 'text-green-400' : avgScore >= 55 ? 'text-yellow-400' : 'text-red-400'
+            }`}>avg {avgScore}/100</p>
+          )}
+        </div>
       </div>
 
-      {/* Progress bar */}
-      <div className="w-full bg-slate-700 rounded-full h-2 mb-6">
+      {/* Progress */}
+      <div className="w-full bg-slate-800 rounded-full h-1 mb-4">
         <div
-          className="bg-gradient-to-r from-green-500 to-emerald-500 h-2 rounded-full transition-all duration-300"
-          style={{ width: `${((questionCount + 1) / maxQuestions) * 100}%` }}
-        ></div>
+          className="bg-gradient-to-r from-indigo-500 to-purple-500 h-1 rounded-full transition-all duration-700"
+          style={{ width: `${(questionNumber / totalQuestions) * 100}%` }}
+        />
       </div>
 
-      <div className="bg-slate-800/30 rounded-xl p-4 mb-4 h-96 overflow-y-auto space-y-4">
+      {/* Chat window */}
+      <div className="bg-slate-800/30 rounded-xl p-3 mb-3 h-[340px] overflow-y-auto space-y-3">
         {messages.map((msg, idx) => (
-          <div key={idx} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
-            <div className={`max-w-[80%] p-3 rounded-lg ${msg.role === 'user'
-              ? 'bg-indigo-600 text-white rounded-br-none'
-              : 'bg-slate-700 text-slate-100 rounded-bl-none'
-              }`}>
+          <div key={idx} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
+            {msg.role === 'assistant' && (
+              <div className="flex items-center gap-1.5 mb-1">
+                <div className="w-5 h-5 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-[10px] font-bold">A</div>
+                <span className="text-[11px] text-slate-500 font-medium">Alex • Interviewer</span>
+              </div>
+            )}
+            <div className={`max-w-[85%] px-4 py-2.5 rounded-2xl text-sm leading-relaxed ${
+              msg.role === 'user'
+                ? 'bg-gradient-to-br from-indigo-600 to-indigo-500 text-white rounded-br-sm shadow-md'
+                : 'bg-slate-700/70 text-slate-100 rounded-bl-sm border border-slate-600/30'
+            }`}>
               <p className="whitespace-pre-line">{msg.content}</p>
             </div>
+            {msg.answerScore !== undefined && (
+              <div className={`mt-1 px-2.5 py-0.5 rounded-full text-[11px] font-semibold flex items-center gap-1 ${
+                msg.answerScore >= 75 ? 'bg-green-900/50 text-green-400 border border-green-700/40' :
+                msg.answerScore >= 55 ? 'bg-yellow-900/50 text-yellow-400 border border-yellow-700/40' :
+                'bg-red-900/50 text-red-400 border border-red-700/40'
+              }`}>
+                ✦ Score: {msg.answerScore}/100 &mdash; {msg.scoreFeedback}
+              </div>
+            )}
           </div>
         ))}
         {loading && (
-          <div className="flex justify-start">
-            <div className="bg-slate-700 p-3 rounded-lg rounded-bl-none">
-              <div className="flex gap-1">
-                <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce"></div>
-                <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.1s' }}></div>
-                <div className="w-2 h-2 bg-slate-400 rounded-full animate-bounce" style={{ animationDelay: '0.2s' }}></div>
+          <div className="flex items-start gap-1.5">
+            <div className="w-5 h-5 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-[10px] font-bold flex-shrink-0">A</div>
+            <div className="bg-slate-700/70 border border-slate-600/30 px-4 py-2.5 rounded-2xl rounded-bl-sm">
+              <div className="flex gap-1 items-center">
+                {[0, 0.15, 0.3].map((d, i) => (
+                  <div key={i} className="w-1.5 h-1.5 bg-indigo-400 rounded-full animate-bounce" style={{ animationDelay: `${d}s` }} />
+                ))}
+                <span className="text-xs text-slate-400 ml-1">Alex is typing...</span>
               </div>
             </div>
           </div>
@@ -1903,42 +1975,34 @@ Thank them for their responses and ask one final question about their career goa
         <div ref={messagesEndRef} />
       </div>
 
+      {/* Input */}
       <div className="flex gap-2">
-        <input
-          type="text"
+        <textarea
+          rows={2}
           value={currentInput}
-          onChange={(e) => setCurrentInput(e.target.value)}
-          onKeyPress={(e) => e.key === 'Enter' && !e.shiftKey && sendMessage()}
-          placeholder="Type your answer..."
-          className="flex-1 px-4 py-3 bg-slate-800/50 rounded-lg border border-slate-600 focus:border-indigo-500 focus:outline-none transition-all"
+          onChange={e => setCurrentInput(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
+          placeholder="Type your answer... (Enter to send)"
+          className="flex-1 px-4 py-2.5 bg-slate-800/60 rounded-xl border border-slate-600 focus:border-indigo-500 focus:outline-none transition-all resize-none text-sm placeholder-slate-500"
           disabled={loading}
         />
         <button
           onClick={sendMessage}
           disabled={loading || !currentInput.trim()}
-          className="px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg font-semibold hover:from-indigo-500 hover:to-purple-500 transition-all disabled:opacity-50 flex items-center gap-2"
+          className="px-5 bg-gradient-to-br from-indigo-600 to-purple-600 rounded-xl font-semibold hover:from-indigo-500 hover:to-purple-500 transition-all disabled:opacity-40 flex items-center justify-center shadow-md shadow-indigo-900/30"
         >
-          {loading ? (
-            <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-          ) : (
-            'Send'
-          )}
+          {loading
+            ? <div className="animate-spin rounded-full h-5 w-5 border-2 border-white/30 border-t-white" />
+            : <span className="text-lg">➤</span>
+          }
         </button>
       </div>
-
       <button
-        onClick={() => {
-          setCandidateData({ ...candidateData, interviewScore: 0 });
-          setStage('video');
-        }}
-        className="w-full mt-3 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg font-semibold transition-all text-sm"
+        onClick={() => { setCandidateData(prev => ({ ...prev, interviewScore: avgScore || 65 })); setStage('video'); }}
+        className="w-full mt-2 py-1.5 text-xs text-slate-500 hover:text-slate-300 transition-colors"
       >
-        Save and Continue →
+        Skip interview and continue →
       </button>
-
-      <p className="text-slate-500 text-xs text-center mt-2">
-        Press Enter to send • Shift+Enter for new line
-      </p>
     </div>
   );
 }
@@ -2226,7 +2290,10 @@ function VideoInterviewStage({ candidateData, setCandidateData, setStage }) {
   );
 }
 
-function ResultsStage({ candidateData }) {
+function ResultsStage({ candidateData, authState }) {
+  const [advice, setAdvice] = useState(null);
+  const [loadingAdvice, setLoadingAdvice] = useState(false);
+
   const scores = [
     candidateData.resumeScore,
     candidateData.uploadVideoScore,
@@ -2234,25 +2301,43 @@ function ResultsStage({ candidateData }) {
     candidateData.interviewScore,
     candidateData.videoInterviewScore
   ];
-
-  // Calculate total score as average of ALL 5 sections (denominator of 5)
   const totalScore = Math.round(scores.reduce((a, b) => a + b, 0) / 5);
+
+  const fetchAdvice = async () => {
+    setLoadingAdvice(true);
+    try {
+      const res = await fetch(`${API_URL}/api/career-advice`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authState?.token}` },
+        body: JSON.stringify({ candidateData, position: candidateData.position })
+      });
+      const data = await res.json();
+      if (data.success) setAdvice(data.advice);
+    } catch (e) {
+      console.error('Career advice fetch failed:', e);
+    } finally {
+      setLoadingAdvice(false);
+    }
+  };
+
+  useEffect(() => { fetchAdvice(); }, []);
+
+  const gradeColor = totalScore >= 85 ? 'from-green-500 to-emerald-500' : totalScore >= 70 ? 'from-yellow-500 to-orange-500' : 'from-red-500 to-pink-500';
+  const gradeLabel = totalScore >= 85 ? '🏆 Excellent' : totalScore >= 70 ? '👍 Good' : '📈 Keep Growing';
 
   return (
     <div className="space-y-6">
+      {/* Score Hero */}
       <div className="bg-gradient-to-br from-indigo-900/50 to-purple-900/50 rounded-2xl p-8 border border-indigo-500/30 text-center">
-        <h2 className="text-3xl font-bold mb-6">Application Complete!</h2>
-
-        <div className="inline-flex items-center justify-center w-32 h-32 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 mb-4">
+        <h2 className="text-3xl font-bold mb-6">Application Complete! 🎉</h2>
+        <div className={`inline-flex items-center justify-center w-36 h-36 rounded-full bg-gradient-to-br ${gradeColor} mb-4 shadow-2xl`}>
           <span className="text-5xl font-bold">{totalScore}</span>
         </div>
-
-        <p className="text-xl mb-2">Overall Score</p>
-        <p className="text-green-400 text-lg font-semibold">
-          {totalScore >= 85 ? 'Excellent' : totalScore >= 70 ? 'Good' : 'Average'}
-        </p>
+        <p className="text-xl mb-1">Overall Score</p>
+        <p className="text-2xl font-bold">{gradeLabel}</p>
       </div>
 
+      {/* Score Breakdown */}
       <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
         <ScoreCard title="Resume" score={candidateData.resumeScore} icon={FileText} />
         <ScoreCard title="Video Upload" score={candidateData.uploadVideoScore} icon={Upload} />
@@ -2260,6 +2345,101 @@ function ResultsStage({ candidateData }) {
         <ScoreCard title="Interview" score={candidateData.interviewScore} icon={MessageSquare} />
         <ScoreCard title="Live Video" score={candidateData.videoInterviewScore} icon={Video} />
       </div>
+
+      {/* Career Roadmap */}
+      {loadingAdvice && (
+        <div className="bg-slate-900/50 rounded-2xl p-8 border border-slate-700 text-center">
+          <div className="animate-spin rounded-full h-10 w-10 border-b-4 border-purple-500 mx-auto mb-4"></div>
+          <p className="text-slate-300">✨ Preparing your personalized career roadmap...</p>
+        </div>
+      )}
+
+      {advice && (
+        <div className="space-y-5">
+          {/* Strengths & Weaknesses */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
+            <div className="bg-green-900/20 border border-green-500/30 rounded-2xl p-6">
+              <h3 className="text-lg font-bold text-green-400 mb-4 flex items-center gap-2">✅ Your Strengths</h3>
+              <ul className="space-y-3">
+                {advice.strengths?.map((s, i) => (
+                  <li key={i} className="flex items-start gap-2 text-slate-300 text-sm">
+                    <span className="text-green-400 mt-0.5">●</span> {s}
+                  </li>
+                ))}
+              </ul>
+            </div>
+            <div className="bg-red-900/20 border border-red-500/30 rounded-2xl p-6">
+              <h3 className="text-lg font-bold text-red-400 mb-4 flex items-center gap-2">⚠️ Areas to Improve</h3>
+              <ul className="space-y-3">
+                {advice.weaknesses?.map((w, i) => (
+                  <li key={i} className="flex items-start gap-2 text-slate-300 text-sm">
+                    <span className="text-red-400 mt-0.5">●</span> {w}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          </div>
+
+          {/* Skills to Gain */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-2xl p-6">
+            <h3 className="text-lg font-bold text-purple-400 mb-4">🚀 Skills to Learn for Your Next Role</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {advice.improvements?.map((item, i) => (
+                <div key={i} className="bg-purple-900/20 border border-purple-500/20 rounded-xl p-4 flex flex-col gap-2">
+                  <p className="font-bold text-white">{item.skill}</p>
+                  <p className="text-slate-400 text-xs flex-1">{item.reason}</p>
+                  <a
+                    href={item.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="inline-flex items-center gap-1.5 text-xs text-purple-400 hover:text-purple-300 font-semibold mt-1 underline underline-offset-2 transition-colors"
+                  >
+                    📖 {item.resource?.split(' → ')[0]}
+                    <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" className="w-3 h-3" fill="currentColor"><path d="M8.636 3.5a.5.5 0 0 0-.5-.5H1.5A1.5 1.5 0 0 0 0 4.5v10A1.5 1.5 0 0 0 1.5 16h10a1.5 1.5 0 0 0 1.5-1.5V7.864a.5.5 0 0 0-1 0V14.5a.5.5 0 0 1-.5.5h-10a.5.5 0 0 1-.5-.5v-10a.5.5 0 0 1 .5-.5h6.636a.5.5 0 0 0 .5-.5z"/><path d="M16 .5a.5.5 0 0 0-.5-.5h-5a.5.5 0 0 0 0 1h3.793L6.146 9.146a.5.5 0 1 0 .708.708L15 1.707V5.5a.5.5 0 0 0 1 0v-5z"/></svg>
+                  </a>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Suitable Companies */}
+          <div className="bg-slate-900/50 border border-slate-700 rounded-2xl p-6">
+            <h3 className="text-lg font-bold text-blue-400 mb-4">🏢 Companies Suitable for Your Profile</h3>
+            <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
+              {advice.suitableCompanies?.map((co, i) => (
+                <div key={i} className="bg-blue-900/20 border border-blue-500/20 rounded-xl p-4 flex flex-col gap-2">
+                  <div className="flex items-center justify-between">
+                    <p className="font-bold text-white">{co.name}</p>
+                    <span className={`text-xs px-2 py-1 rounded-full font-semibold ${
+                      co.type === 'startup' ? 'bg-orange-600/30 text-orange-300' :
+                      co.type === 'enterprise' ? 'bg-blue-600/30 text-blue-300' :
+                      'bg-green-600/30 text-green-300'
+                    }`}>{co.type}</span>
+                  </div>
+                  <p className="text-slate-400 text-xs flex-1">{co.reason}</p>
+                  {co.url && (
+                    <a
+                      href={co.url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 font-semibold underline underline-offset-2 transition-colors mt-1"
+                    >
+                      🔗 Apply / View Careers
+                      <svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 16 16" className="w-3 h-3" fill="currentColor"><path d="M8.636 3.5a.5.5 0 0 0-.5-.5H1.5A1.5 1.5 0 0 0 0 4.5v10A1.5 1.5 0 0 0 1.5 16h10a1.5 1.5 0 0 0 1.5-1.5V7.864a.5.5 0 0 0-1 0V14.5a.5.5 0 0 1-.5.5h-10a.5.5 0 0 1-.5-.5v-10a.5.5 0 0 1 .5-.5h6.636a.5.5 0 0 0 .5-.5z"/><path d="M16 .5a.5.5 0 0 0-.5-.5h-5a.5.5 0 0 0 0 1h3.793L6.146 9.146a.5.5 0 1 0 .708.708L15 1.707V5.5a.5.5 0 0 0 1 0v-5z"/></svg>
+                    </a>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Next Steps */}
+          <div className="bg-gradient-to-r from-indigo-900/50 to-purple-900/50 border border-indigo-500/30 rounded-2xl p-6">
+            <h3 className="text-lg font-bold text-indigo-300 mb-3">🎯 Your Personalized Action Plan</h3>
+            <p className="text-slate-300 leading-relaxed">{advice.nextSteps}</p>
+          </div>
+        </div>
+      )}
     </div>
   );
 }
@@ -2282,15 +2462,54 @@ function ScoreCard({ title, score, icon: Icon }) {
 
 // ==================== RECRUITER DASHBOARD ====================
 function RecruiterDashboard({ setUserType, subscription, setShowSubscriptionModal, authState, logout }) {
+  const [activeTab, setActiveTab] = useState('candidates'); // 'candidates' | 'admin'
+  const [candidates, setCandidates] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [filter, setFilter] = useState('all');
+  const [search, setSearch] = useState('');
+  const [expandedId, setExpandedId] = useState(null);
+
+  useEffect(() => {
+    const fetchCandidates = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/recruiter/candidates`, {
+          headers: { 'Authorization': `Bearer ${authState?.token}` }
+        });
+        const data = await res.json();
+        if (data.success) setCandidates(data.candidates);
+      } catch (e) {
+        console.error('Failed to load candidates:', e);
+      } finally { setLoading(false); }
+    };
+    fetchCandidates();
+  }, []);
+
+  const filtered = candidates.filter(c => {
+    const matchFilter = filter === 'all' || c.status === filter;
+    const matchSearch = c.name.toLowerCase().includes(search.toLowerCase()) || c.position.toLowerCase().includes(search.toLowerCase());
+    return matchFilter && matchSearch;
+  });
+
+  const stats = {
+    total: candidates.length,
+    shortlisted: candidates.filter(c => c.status === 'shortlisted').length,
+    hired: candidates.filter(c => c.status === 'hired').length,
+    avgScore: candidates.length ? Math.round(candidates.reduce((a, c) => a + (c.totalScore || 0), 0) / candidates.length) : 0
+  };
+
+  const statusBadge = (status) => {
+    const styles = { shortlisted: 'bg-blue-600/30 text-blue-300', hired: 'bg-green-600/30 text-green-300', rejected: 'bg-red-600/30 text-red-300', review: 'bg-yellow-600/30 text-yellow-300' };
+    return <span className={`text-xs px-2 py-1 rounded-full font-semibold ${styles[status] || styles.review}`}>{status?.charAt(0).toUpperCase() + status?.slice(1)}</span>;
+  };
+
   return (
     <div className="min-h-screen py-6 px-4">
-      <div className="max-w-6xl mx-auto">
-        <div className="flex justify-between items-center mb-8">
+      <div className="max-w-7xl mx-auto">
+        {/* Header */}
+        <div className="flex justify-between items-center mb-6">
           <div>
-            <h1 className="text-3xl font-bold">Recruiter Dashboard</h1>
-            {authState.user && (
-              <p className="text-slate-400 mt-1">Welcome, {authState.user.name}</p>
-            )}
+            <h1 className="text-3xl font-bold">🏢 Recruiter Dashboard</h1>
+            {authState.user && <p className="text-slate-400 mt-1">Welcome back, {authState.user.name}</p>}
           </div>
           <div className="flex gap-3">
             {subscription && (
@@ -2299,63 +2518,572 @@ function RecruiterDashboard({ setUserType, subscription, setShowSubscriptionModa
                 <span className="text-sm font-semibold">{SUBSCRIPTION_PLANS[subscription.plan]?.name} Plan</span>
               </div>
             )}
-            <button
-              onClick={() => setShowSubscriptionModal(true)}
-              className="px-4 py-2 bg-purple-600 rounded-lg hover:bg-purple-500 transition-all text-sm flex items-center gap-2"
-            >
-              <DollarSign size={16} />
-              {subscription ? 'Upgrade' : 'Subscribe'}
-            </button>
-            <button
-              onClick={logout}
-              className="px-4 py-2 bg-slate-800/50 rounded-lg hover:bg-slate-700/50 transition-all flex items-center gap-2 text-sm"
-            >
-              <LogOut size={16} />
-              Logout
+            <button onClick={logout} className="px-4 py-2 bg-slate-800/50 rounded-lg hover:bg-slate-700/50 transition-all flex items-center gap-2 text-sm">
+              <LogOut size={16} /> Logout
             </button>
           </div>
         </div>
 
-        {!subscription && (
-          <div className="bg-yellow-900/30 border border-yellow-600/30 rounded-xl p-4 mb-8">
-            <p className="text-yellow-200">⚠️ You don't have an active subscription. <button onClick={() => setShowSubscriptionModal(true)} className="underline font-semibold">Choose a plan</button> to access recruiter features.</p>
+        {/* Tab Navigation */}
+        <div className="flex gap-2 mb-8 bg-slate-900/50 p-1.5 rounded-xl border border-slate-700 w-fit">
+          <button
+            id="tab-candidates"
+            onClick={() => setActiveTab('candidates')}
+            className={`px-5 py-2.5 rounded-lg font-semibold text-sm transition-all flex items-center gap-2 ${
+              activeTab === 'candidates'
+                ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+            }`}
+          >
+            <Users size={16} />
+            Candidates
+          </button>
+          <button
+            id="tab-admin"
+            onClick={() => setActiveTab('admin')}
+            className={`px-5 py-2.5 rounded-lg font-semibold text-sm transition-all flex items-center gap-2 ${
+              activeTab === 'admin'
+                ? 'bg-gradient-to-r from-orange-600 to-red-600 text-white shadow-lg'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+            }`}
+          >
+            <Sparkles size={16} />
+            ⚙️ Admin Panel
+          </button>
+        </div>
+
+        {activeTab === 'admin' ? (
+          <AdminQuestionPanel authState={authState} />
+        ) : (
+          <>
+            {/* Stats */}
+            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+              {[
+                { label: 'Total Candidates', value: stats.total, icon: Users, color: 'from-indigo-900/50 to-indigo-800/50 border-indigo-500/30', iconColor: 'text-indigo-400' },
+                { label: 'Shortlisted', value: stats.shortlisted, icon: CheckCircle, color: 'from-green-900/50 to-green-800/50 border-green-500/30', iconColor: 'text-green-400' },
+                { label: 'Hired', value: stats.hired, icon: Award, color: 'from-purple-900/50 to-purple-800/50 border-purple-500/30', iconColor: 'text-purple-400' },
+                { label: 'Avg Score', value: stats.avgScore, icon: TrendingUp, color: 'from-pink-900/50 to-pink-800/50 border-pink-500/30', iconColor: 'text-pink-400' },
+              ].map((stat, i) => (
+                <div key={i} className={`bg-gradient-to-br ${stat.color} rounded-xl p-5 border`}>
+                  <stat.icon className={`${stat.iconColor} mb-2`} size={28} />
+                  <p className="text-3xl font-bold">{stat.value}</p>
+                  <p className="text-slate-300 text-sm">{stat.label}</p>
+                </div>
+              ))}
+            </div>
+
+            {/* Filters & Search */}
+            <div className="bg-slate-900/50 rounded-2xl p-6 border border-slate-700">
+              <div className="flex flex-col md:flex-row gap-4 mb-6">
+                <input
+                  type="text" placeholder="Search by name or position..."
+                  value={search} onChange={e => setSearch(e.target.value)}
+                  className="flex-1 bg-slate-800/50 border border-slate-600 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-purple-500"
+                />
+                <div className="flex gap-2 flex-wrap">
+                  {['all', 'shortlisted', 'hired', 'review', 'rejected'].map(f => (
+                    <button key={f} onClick={() => setFilter(f)}
+                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${filter === f ? 'bg-purple-600 text-white' : 'bg-slate-800/50 hover:bg-slate-700/50 text-slate-400'
+                        }`}>
+                      {f.charAt(0).toUpperCase() + f.slice(1)}
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* Candidate Table */}
+              {loading ? (
+                <div className="text-center py-12">
+                  <div className="animate-spin rounded-full h-10 w-10 border-b-4 border-purple-500 mx-auto mb-4"></div>
+                  <p className="text-slate-400">Loading candidates...</p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {/* Table Header */}
+                  <div className="hidden md:grid grid-cols-12 gap-3 px-4 text-xs text-slate-500 uppercase tracking-wider mb-2">
+                    <div className="col-span-3">Candidate</div>
+                    <div className="col-span-2">Position</div>
+                    <div className="col-span-1 text-center">Resume</div>
+                    <div className="col-span-1 text-center">Quiz</div>
+                    <div className="col-span-1 text-center">Interview</div>
+                    <div className="col-span-1 text-center">Video</div>
+                    <div className="col-span-1 text-center">Score</div>
+                    <div className="col-span-2 text-center">Status</div>
+                  </div>
+
+                  {filtered.length === 0 && (
+                    <div className="text-center py-12 text-slate-400">
+                      <Users size={48} className="mx-auto mb-3 opacity-50" />
+                      <p>No candidates found</p>
+                    </div>
+                  )}
+
+                  {filtered.map(c => (
+                    <div key={c.id}>
+                      <div
+                        className="bg-slate-800/40 hover:bg-slate-800/70 border border-slate-700/50 hover:border-slate-600 rounded-xl px-4 py-3 cursor-pointer transition-all"
+                        onClick={() => setExpandedId(expandedId === c.id ? null : c.id)}
+                      >
+                        <div className="grid grid-cols-12 gap-3 items-center">
+                          {/* Avatar + Name */}
+                          <div className="col-span-3 flex items-center gap-3">
+                            <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center text-sm font-bold flex-shrink-0">
+                              {c.name.charAt(0)}
+                            </div>
+                            <div>
+                              <p className="font-semibold text-sm">{c.name}</p>
+                              <p className="text-slate-500 text-xs">{c.email}</p>
+                            </div>
+                          </div>
+                          <div className="col-span-2 text-slate-300 text-sm">{c.position}</div>
+                          <div className="col-span-1 text-center">
+                            <span className={`text-sm font-bold ${c.resumeScore >= 85 ? 'text-green-400' : c.resumeScore >= 70 ? 'text-yellow-400' : 'text-red-400'}`}>{c.resumeScore}</span>
+                          </div>
+                          <div className="col-span-1 text-center">
+                            <span className={`text-sm font-bold ${c.quizScore >= 85 ? 'text-green-400' : c.quizScore >= 70 ? 'text-yellow-400' : 'text-red-400'}`}>{c.quizScore}</span>
+                          </div>
+                          <div className="col-span-1 text-center">
+                            <span className={`text-sm font-bold ${c.interviewScore >= 85 ? 'text-green-400' : c.interviewScore >= 70 ? 'text-yellow-400' : 'text-red-400'}`}>{c.interviewScore}</span>
+                          </div>
+                          <div className="col-span-1 text-center">
+                            <span className={`text-sm font-bold ${c.videoInterviewScore >= 85 ? 'text-green-400' : c.videoInterviewScore >= 70 ? 'text-yellow-400' : 'text-red-400'}`}>{c.videoInterviewScore}</span>
+                          </div>
+                          <div className="col-span-1 text-center">
+                            <div className={`inline-flex items-center justify-center w-10 h-10 rounded-full text-sm font-bold ${c.totalScore >= 85 ? 'bg-green-900/40 text-green-400' : c.totalScore >= 70 ? 'bg-yellow-900/40 text-yellow-400' : 'bg-red-900/40 text-red-400'
+                              }`}>{c.totalScore}</div>
+                          </div>
+                          <div className="col-span-2 flex justify-center">{statusBadge(c.status)}</div>
+                        </div>
+                      </div>
+
+                      {/* Expanded Row */}
+                      {expandedId === c.id && (
+                        <div className="bg-slate-800/20 border border-slate-700/50 border-t-0 rounded-b-xl px-6 py-4">
+                          <div className="grid grid-cols-5 gap-3">
+                            {[['Resume', c.resumeScore], ['Video Upload', c.uploadVideoScore], ['Quiz', c.quizScore], ['Interview', c.interviewScore], ['Live Video', c.videoInterviewScore]].map(([label, score]) => (
+                              <div key={label} className="bg-slate-900/50 rounded-lg p-3 text-center">
+                                <p className="text-slate-500 text-xs mb-1">{label}</p>
+                                <div className="relative w-12 h-12 mx-auto">
+                                  <svg className="w-12 h-12 -rotate-90" viewBox="0 0 36 36">
+                                    <circle cx="18" cy="18" r="14" fill="none" stroke="#334155" strokeWidth="3" />
+                                    <circle cx="18" cy="18" r="14" fill="none"
+                                      stroke={score >= 85 ? '#4ade80' : score >= 70 ? '#facc15' : '#f87171'}
+                                      strokeWidth="3" strokeDasharray={`${(score / 100) * 88} 88`}
+                                    />
+                                  </svg>
+                                  <span className={`absolute inset-0 flex items-center justify-center text-xs font-bold ${score >= 85 ? 'text-green-400' : score >= 70 ? 'text-yellow-400' : 'text-red-400'
+                                    }`}>{score}</span>
+                                </div>
+                              </div>
+                            ))}
+                          </div>
+                          <p className="text-slate-500 text-xs mt-3">Applied: {new Date(c.createdAt).toLocaleDateString('en-IN', { day: 'numeric', month: 'short', year: 'numeric' })}</p>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
+// ==================== ADMIN QUESTION PANEL ====================
+function AdminQuestionPanel({ authState }) {
+  const PRESET_POSITIONS = [
+    'Software Engineer', 'Data Scientist', 'Product Manager',
+    'UI/UX Designer', 'Frontend Developer', 'Backend Developer',
+    'Full Stack Developer', 'DevOps Engineer', 'Machine Learning Engineer',
+    'Android Developer', 'iOS Developer', 'QA Engineer'
+  ];
+
+  const [questions, setQuestions] = useState([]);
+  const [filterPosition, setFilterPosition] = useState('all');
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+  const [notification, setNotification] = useState(null);
+  const [editingQuestion, setEditingQuestion] = useState(null); // null = add mode
+  const [showForm, setShowForm] = useState(false);
+
+  // Form state
+  const emptyForm = {
+    position: PRESET_POSITIONS[0],
+    customPosition: '',
+    useCustom: false,
+    question: '',
+    options: ['', '', '', ''],
+    correctAnswer: 0
+  };
+  const [form, setForm] = useState(emptyForm);
+
+  const showNotif = (msg, type = 'success') => {
+    setNotification({ msg, type });
+    setTimeout(() => setNotification(null), 3000);
+  };
+
+  const fetchQuestions = async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/admin/questions`, {
+        headers: { 'Authorization': `Bearer ${authState?.token}` }
+      });
+      const data = await res.json();
+      if (data.success) setQuestions(data.questions);
+    } catch (e) { console.error(e); }
+  };
+
+  useEffect(() => { fetchQuestions(); }, []);
+
+  const handleSave = async () => {
+    const pos = form.useCustom ? form.customPosition.trim() : form.position;
+    const opts = form.options.filter(o => o.trim() !== '');
+    if (!pos) return showNotif('Please enter a job position.', 'error');
+    if (!form.question.trim()) return showNotif('Please enter a question.', 'error');
+    if (opts.length < 2) return showNotif('Please add at least 2 answer options.', 'error');
+    if (form.correctAnswer >= opts.length) return showNotif('Correct answer index exceeds option count.', 'error');
+
+    setSaving(true);
+    try {
+      const payload = { position: pos, question: form.question.trim(), options: opts, correctAnswer: form.correctAnswer };
+      const url = editingQuestion ? `${API_URL}/api/admin/questions/${editingQuestion.id}` : `${API_URL}/api/admin/questions`;
+      const method = editingQuestion ? 'PUT' : 'POST';
+      const res = await fetch(url, {
+        method,
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authState?.token}` },
+        body: JSON.stringify(payload)
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error);
+      showNotif(editingQuestion ? 'Question updated!' : 'Question added!');
+      setForm(emptyForm);
+      setEditingQuestion(null);
+      setShowForm(false);
+      fetchQuestions();
+    } catch (e) {
+      showNotif(e.message || 'Failed to save.', 'error');
+    } finally { setSaving(false); }
+  };
+
+  const handleEdit = (q) => {
+    const isPreset = PRESET_POSITIONS.includes(q.position);
+    // Pad options to always have 4 slots for editing
+    const paddedOptions = [...q.options, '', '', '', ''].slice(0, 4);
+    setForm({
+      position: isPreset ? q.position : PRESET_POSITIONS[0],
+      customPosition: isPreset ? '' : q.position,
+      useCustom: !isPreset,
+      question: q.question,
+      options: paddedOptions,
+      correctAnswer: q.correctAnswer
+    });
+    setEditingQuestion(q);
+    setShowForm(true);
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  };
+
+  const handleDelete = async (id) => {
+    if (!window.confirm('Delete this question?')) return;
+    setDeletingId(id);
+    try {
+      const res = await fetch(`${API_URL}/api/admin/questions/${id}`, {
+        method: 'DELETE',
+        headers: { 'Authorization': `Bearer ${authState?.token}` }
+      });
+      if (!res.ok) throw new Error('Delete failed');
+      showNotif('Question deleted.');
+      fetchQuestions();
+    } catch (e) {
+      showNotif('Failed to delete.', 'error');
+    } finally { setDeletingId(null); }
+  };
+
+  const handleCancel = () => {
+    setForm(emptyForm);
+    setEditingQuestion(null);
+    setShowForm(false);
+  };
+
+  const updateOption = (idx, val) => {
+    const opts = [...form.options];
+    opts[idx] = val;
+    setForm({ ...form, options: opts });
+  };
+
+  // Group counts by position
+  const positionCounts = questions.reduce((acc, q) => {
+    acc[q.position] = (acc[q.position] || 0) + 1;
+    return acc;
+  }, {});
+
+  const allPositions = [...new Set(questions.map(q => q.position))];
+  const displayedQuestions = filterPosition === 'all' ? questions : questions.filter(q => q.position === filterPosition);
+
+  return (
+    <div className="space-y-6">
+      {/* Notification Toast */}
+      {notification && (
+        <div className={`fixed top-6 right-6 z-50 px-5 py-3 rounded-xl shadow-2xl font-semibold text-sm flex items-center gap-2 transition-all ${
+          notification.type === 'error' ? 'bg-red-600 text-white' : 'bg-green-600 text-white'
+        }`}>
+          {notification.type === 'error' ? <XCircle size={18} /> : <CheckCircle size={18} />}
+          {notification.msg}
+        </div>
+      )}
+
+      {/* Header */}
+      <div className="bg-gradient-to-br from-orange-900/40 to-red-900/40 rounded-2xl p-6 border border-orange-500/30">
+        <div className="flex items-center justify-between">
+          <div>
+            <h2 className="text-2xl font-bold flex items-center gap-2">
+              ⚙️ Admin Question Bank
+            </h2>
+            <p className="text-slate-300 text-sm mt-1">
+              Create and manage assessment questions per job position. No API keys required — candidates will use these questions automatically.
+            </p>
+          </div>
+          <button
+            id="btn-add-question"
+            onClick={() => { setEditingQuestion(null); setForm(emptyForm); setShowForm(true); }}
+            className="px-5 py-2.5 bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 rounded-xl font-semibold transition-all flex items-center gap-2 whitespace-nowrap shadow-lg"
+          >
+            <Sparkles size={18} /> + Add Question
+          </button>
+        </div>
+
+        {/* Stats row */}
+        <div className="grid grid-cols-3 gap-4 mt-5">
+          <div className="bg-slate-800/40 rounded-xl p-3 text-center">
+            <p className="text-2xl font-bold text-orange-400">{questions.length}</p>
+            <p className="text-slate-400 text-xs">Total Questions</p>
+          </div>
+          <div className="bg-slate-800/40 rounded-xl p-3 text-center">
+            <p className="text-2xl font-bold text-orange-400">{allPositions.length}</p>
+            <p className="text-slate-400 text-xs">Job Positions</p>
+          </div>
+          <div className="bg-slate-800/40 rounded-xl p-3 text-center">
+            <p className="text-2xl font-bold text-green-400">
+              {allPositions.filter(p => (positionCounts[p] || 0) >= 5).length}
+            </p>
+            <p className="text-slate-400 text-xs">Positions Ready (5+)</p>
+          </div>
+        </div>
+      </div>
+
+      {/* Add / Edit Form */}
+      {showForm && (
+        <div className="bg-slate-900/80 backdrop-blur rounded-2xl p-6 border-2 border-orange-500/50 shadow-2xl">
+          <h3 className="text-xl font-bold mb-5 flex items-center gap-2">
+            {editingQuestion ? '✏️ Edit Question' : '➕ Add New Question'}
+          </h3>
+
+          <div className="space-y-4">
+            {/* Position Row */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-slate-300 text-sm mb-1.5 font-medium">Job Position</label>
+                {!form.useCustom ? (
+                  <select
+                    id="form-position-select"
+                    value={form.position}
+                    onChange={e => setForm({ ...form, position: e.target.value })}
+                    className="w-full px-4 py-2.5 bg-slate-800 rounded-lg border border-slate-600 focus:border-orange-500 focus:outline-none text-sm"
+                  >
+                    {PRESET_POSITIONS.map(p => <option key={p} value={p}>{p}</option>)}
+                  </select>
+                ) : (
+                  <input
+                    id="form-position-custom"
+                    type="text"
+                    value={form.customPosition}
+                    onChange={e => setForm({ ...form, customPosition: e.target.value })}
+                    className="w-full px-4 py-2.5 bg-slate-800 rounded-lg border border-slate-600 focus:border-orange-500 focus:outline-none text-sm"
+                    placeholder="e.g., Blockchain Developer"
+                  />
+                )}
+              </div>
+              <div className="flex items-end">
+                <button
+                  onClick={() => setForm({ ...form, useCustom: !form.useCustom, customPosition: '' })}
+                  className="px-4 py-2.5 bg-slate-700 hover:bg-slate-600 rounded-lg text-sm transition-all w-full text-center"
+                >
+                  {form.useCustom ? '← Use Preset Position' : '+ Custom Position'}
+                </button>
+              </div>
+            </div>
+
+            {/* Question */}
+            <div>
+              <label className="block text-slate-300 text-sm mb-1.5 font-medium">Question Text</label>
+              <textarea
+                id="form-question-text"
+                value={form.question}
+                onChange={e => setForm({ ...form, question: e.target.value })}
+                rows={3}
+                className="w-full px-4 py-2.5 bg-slate-800 rounded-lg border border-slate-600 focus:border-orange-500 focus:outline-none text-sm resize-none"
+                placeholder="e.g., What is the difference between == and === in JavaScript?"
+              />
+            </div>
+
+            {/* Answer Options */}
+            <div>
+              <label className="block text-slate-300 text-sm mb-2 font-medium">
+                Answer Options
+                <span className="ml-2 text-slate-500 font-normal">(click the circle to mark correct answer)</span>
+              </label>
+              <div className="space-y-2">
+                {form.options.map((opt, i) => (
+                  <div key={i} className={`flex items-center gap-3 p-3 rounded-lg border-2 transition-all ${
+                    form.correctAnswer === i && opt.trim() ? 'border-green-500/60 bg-green-900/20' : 'border-slate-700 bg-slate-800/50'
+                  }`}>
+                    <button
+                      id={`option-correct-${i}`}
+                      type="button"
+                      onClick={() => setForm({ ...form, correctAnswer: i })}
+                      title="Mark as correct answer"
+                      className={`w-7 h-7 rounded-full border-2 flex items-center justify-center flex-shrink-0 transition-all ${
+                        form.correctAnswer === i && opt.trim()
+                          ? 'bg-green-500 border-green-400 text-white'
+                          : 'border-slate-500 hover:border-green-400'
+                      }`}
+                    >
+                      {form.correctAnswer === i && opt.trim() && <Check size={14} />}
+                    </button>
+                    <span className="text-slate-500 text-sm font-mono w-5">{String.fromCharCode(65 + i)}.</span>
+                    <input
+                      id={`option-input-${i}`}
+                      type="text"
+                      value={opt}
+                      onChange={e => updateOption(i, e.target.value)}
+                      className="flex-1 bg-transparent focus:outline-none text-sm placeholder-slate-600"
+                      placeholder={i < 2 ? `Option ${String.fromCharCode(65 + i)} (required)` : `Option ${String.fromCharCode(65 + i)} (optional)`}
+                    />
+                    {opt.trim() && form.correctAnswer === i && (
+                      <span className="text-green-400 text-xs font-semibold whitespace-nowrap">✓ Correct</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+              <p className="text-slate-500 text-xs mt-2">At least 2 options required. Leave optional ones blank.</p>
+            </div>
+
+            {/* Action Buttons */}
+            <div className="flex gap-3 pt-2">
+              <button
+                id="btn-save-question"
+                onClick={handleSave}
+                disabled={saving}
+                className="flex-1 py-3 bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 rounded-xl font-semibold transition-all disabled:opacity-50 flex items-center justify-center gap-2"
+              >
+                {saving ? (
+                  <><div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div> Saving...</>
+                ) : (
+                  <><CheckCircle size={18} /> {editingQuestion ? 'Update Question' : 'Save Question'}</>
+                )}
+              </button>
+              <button
+                id="btn-cancel-question"
+                onClick={handleCancel}
+                className="px-6 py-3 bg-slate-700 hover:bg-slate-600 rounded-xl font-semibold transition-all"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Questions List */}
+      <div className="bg-slate-900/50 rounded-2xl p-6 border border-slate-700">
+        <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 mb-6">
+          <h3 className="text-lg font-bold">All Questions ({questions.length})</h3>
+          {/* Position filter */}
+          <div className="flex gap-2 flex-wrap">
+            <button
+              onClick={() => setFilterPosition('all')}
+              className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                filterPosition === 'all' ? 'bg-orange-600 text-white' : 'bg-slate-800 hover:bg-slate-700 text-slate-400'
+              }`}
+            >
+              All ({questions.length})
+            </button>
+            {allPositions.map(p => (
+              <button
+                key={p}
+                onClick={() => setFilterPosition(p)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-all ${
+                  filterPosition === p ? 'bg-orange-600 text-white' : 'bg-slate-800 hover:bg-slate-700 text-slate-400'
+                }`}
+              >
+                {p} ({positionCounts[p]})
+              </button>
+            ))}
+          </div>
+        </div>
+
+        {displayedQuestions.length === 0 ? (
+          <div className="text-center py-16 text-slate-500">
+            <Sparkles size={48} className="mx-auto mb-4 opacity-30" />
+            <p className="text-lg font-semibold mb-2">No questions yet</p>
+            <p className="text-sm">Click "+ Add Question" to create your first question.</p>
+          </div>
+        ) : (
+          <div className="space-y-4">
+            {displayedQuestions.map((q, idx) => (
+              <div
+                key={q.id}
+                className="bg-slate-800/50 rounded-xl p-5 border border-slate-700 hover:border-slate-600 transition-all group"
+              >
+                <div className="flex items-start justify-between gap-4">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-2">
+                      <span className="text-xs bg-orange-600/30 text-orange-300 px-2.5 py-0.5 rounded-full font-semibold">
+                        {q.position}
+                      </span>
+                      <span className="text-slate-500 text-xs">#{q.id}</span>
+                    </div>
+                    <p className="font-semibold text-slate-100 mb-3">{q.question}</p>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-1.5">
+                      {q.options.map((opt, i) => (
+                        <div
+                          key={i}
+                          className={`flex items-center gap-2 px-3 py-1.5 rounded-lg text-sm ${
+                            i === q.correctAnswer
+                              ? 'bg-green-900/30 border border-green-500/40 text-green-300'
+                              : 'bg-slate-700/40 text-slate-400'
+                          }`}
+                        >
+                          <span className="font-mono text-xs opacity-60">{String.fromCharCode(65 + i)}.</span>
+                          <span className="flex-1">{opt}</span>
+                          {i === q.correctAnswer && <Check size={14} className="text-green-400 flex-shrink-0" />}
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  <div className="flex flex-col gap-2 flex-shrink-0">
+                    <button
+                      id={`btn-edit-${q.id}`}
+                      onClick={() => handleEdit(q)}
+                      className="px-4 py-1.5 bg-indigo-600/20 hover:bg-indigo-600/40 border border-indigo-500/30 text-indigo-300 rounded-lg text-xs font-semibold transition-all"
+                    >
+                      ✏️ Edit
+                    </button>
+                    <button
+                      id={`btn-delete-${q.id}`}
+                      onClick={() => handleDelete(q.id)}
+                      disabled={deletingId === q.id}
+                      className="px-4 py-1.5 bg-red-600/20 hover:bg-red-600/40 border border-red-500/30 text-red-300 rounded-lg text-xs font-semibold transition-all disabled:opacity-50"
+                    >
+                      {deletingId === q.id ? '...' : '🗑 Delete'}
+                    </button>
+                  </div>
+                </div>
+              </div>
+            ))}
           </div>
         )}
-
-        <div className="grid grid-cols-4 gap-4 mb-8">
-          <div className="bg-gradient-to-br from-indigo-900/50 to-indigo-800/50 rounded-xl p-5 border border-indigo-500/30">
-            <Users className="text-indigo-400 mb-2" size={28} />
-            <p className="text-2xl font-bold">0</p>
-            <p className="text-slate-300 text-sm">Total Candidates</p>
-          </div>
-
-          <div className="bg-gradient-to-br from-green-900/50 to-green-800/50 rounded-xl p-5 border border-green-500/30">
-            <CheckCircle className="text-green-400 mb-2" size={28} />
-            <p className="text-2xl font-bold">0</p>
-            <p className="text-slate-300 text-sm">Shortlisted</p>
-          </div>
-
-          <div className="bg-gradient-to-br from-purple-900/50 to-purple-800/50 rounded-xl p-5 border border-purple-500/30">
-            <TrendingUp className="text-purple-400 mb-2" size={28} />
-            <p className="text-2xl font-bold">0</p>
-            <p className="text-slate-300 text-sm">Avg Score</p>
-          </div>
-
-          <div className="bg-gradient-to-br from-pink-900/50 to-pink-800/50 rounded-xl p-5 border border-pink-500/30">
-            <Clock className="text-pink-400 mb-2" size={28} />
-            <p className="text-2xl font-bold">0</p>
-            <p className="text-slate-300 text-sm">This Week</p>
-          </div>
-        </div>
-
-        <div className="bg-slate-900/50 rounded-2xl p-6 border border-slate-700">
-          <h3 className="text-xl font-bold mb-4">Candidates</h3>
-          <div className="text-center py-12 text-slate-400">
-            <Users size={48} className="mx-auto mb-3 opacity-50" />
-            <p>No candidates yet</p>
-            <p className="text-sm mt-2">Candidates will appear here after they complete applications</p>
-          </div>
-        </div>
       </div>
     </div>
   );

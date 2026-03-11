@@ -1,5 +1,6 @@
 // COMPLETE BACKEND SERVER - ALL FEATURES
 // Includes: Auth, Subscriptions, Multi-AI, Video Analysis, Multi-format Resume Support, Google Cloud Storage
+require('dotenv').config(); // Load .env variables into process.env
 
 const express = require('express');
 const cors = require('cors');
@@ -159,22 +160,26 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 let users = [];
 let candidates = [];
 let subscriptions = [];
+let questionBank = []; // Admin-managed questions
 let userId = 1;
 let candidateId = 1;
 let subscriptionId = 1;
+let questionId = 1;
 
 // Load data from cloud on startup
 async function initializeData() {
   users = await loadDataFromCloud('users.json', []);
   candidates = await loadDataFromCloud('candidates.json', []);
   subscriptions = await loadDataFromCloud('subscriptions.json', []);
+  questionBank = await loadDataFromCloud('questionBank.json', []);
 
   // Set IDs to max + 1
   if (users.length > 0) userId = Math.max(...users.map(u => u.id)) + 1;
   if (candidates.length > 0) candidateId = Math.max(...candidates.map(c => c.id)) + 1;
   if (subscriptions.length > 0) subscriptionId = Math.max(...subscriptions.map(s => s.id)) + 1;
+  if (questionBank.length > 0) questionId = Math.max(...questionBank.map(q => q.id)) + 1;
 
-  console.log(`📊 Data loaded: ${users.length} users, ${candidates.length} candidates, ${subscriptions.length} subscriptions`);
+  console.log(`📊 Data loaded: ${users.length} users, ${candidates.length} candidates, ${questionBank.length} questions`);
 }
 
 // Auto-save functions
@@ -188,6 +193,10 @@ async function saveCandidates() {
 
 async function saveSubscriptions() {
   await saveDataToCloud('subscriptions.json', subscriptions);
+}
+
+async function saveQuestionBank() {
+  await saveDataToCloud('questionBank.json', questionBank);
 }
 
 const JWT_SECRET = process.env.JWT_SECRET || 'your_secret_key_change_in_production';
@@ -221,28 +230,67 @@ const upload = multer({
 
 // ==================== AI SERVICE ====================
 async function callAI(prompt, systemPrompt = "") {
-  const provider = process.env.AI_PROVIDER || 'gemini';
+  // Priority: OpenRouter > env-specified provider > Gemini > OpenAI > Claude
+  // OpenRouter key takes top priority — it supports 100+ models via one key
+  if (process.env.OPENROUTER_API_KEY) {
+    try {
+      return await callOpenRouter(prompt, systemPrompt);
+    } catch (err) {
+      console.error('OpenRouter error, trying next provider:', err.message);
+    }
+  }
 
+  const provider = process.env.AI_PROVIDER || 'gemini';
   try {
     switch (provider) {
-      case 'gemini':
-        return await callGemini(prompt, systemPrompt);
-      case 'openai':
-        return await callOpenAI(prompt, systemPrompt);
-      case 'claude':
-        return await callClaude(prompt, systemPrompt);
-      default:
-        return await callGemini(prompt, systemPrompt);
+      case 'gemini': return await callGemini(prompt, systemPrompt);
+      case 'openai': return await callOpenAI(prompt, systemPrompt);
+      case 'claude': return await callClaude(prompt, systemPrompt);
+      default:       return await callGemini(prompt, systemPrompt);
     }
   } catch (error) {
     console.error(`AI Error (${provider}):`, error.message);
-    // Fallback to Gemini if other provider fails
     if (provider !== 'gemini') {
       console.log('Falling back to Gemini...');
       return await callGemini(prompt, systemPrompt);
     }
     throw error;
   }
+}
+
+// ── OpenRouter (OpenAI-compatible, 100+ models, free tier available) ──────────
+async function callOpenRouter(prompt, systemPrompt = "") {
+  const apiKey = process.env.OPENROUTER_API_KEY;
+  if (!apiKey) throw new Error('OpenRouter API key not configured');
+
+  // Default to a free/cheap model — override via OPENROUTER_MODEL env var
+  // Free models: mistralai/mistral-7b-instruct, google/gemma-3-27b-it:free, meta-llama/llama-3.1-8b-instruct:free
+  const model = process.env.OPENROUTER_MODEL || 'mistralai/mistral-7b-instruct:free';
+
+  const messages = [];
+  if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
+  messages.push({ role: 'user', content: prompt });
+
+  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+    method: 'POST',
+    headers: {
+      'Content-Type': 'application/json',
+      'Authorization': `Bearer ${apiKey}`,
+      'HTTP-Referer': 'http://localhost:3000',  // Required by OpenRouter
+      'X-Title': 'TalentAI Recruitment'          // Shown in OpenRouter dashboard
+    },
+    body: JSON.stringify({
+      model,
+      messages,
+      temperature: 0.7,
+      max_tokens: 2048
+    })
+  });
+
+  const data = await response.json();
+  if (!response.ok) throw new Error(data.error?.message || `OpenRouter API error: ${response.status}`);
+
+  return data.choices[0]?.message?.content || '';
 }
 
 async function callGemini(prompt, systemPrompt = "") {
@@ -466,12 +514,92 @@ app.post('/api/subscriptions', authenticateToken, async (req, res) => {
 
 // ==================== CANDIDATE ROUTES ====================
 
+// ==================== ADMIN QUESTION BANK ROUTES ====================
+
+// GET all questions (optionally filter by position)
+app.get('/api/admin/questions', authenticateToken, (req, res) => {
+  const { position } = req.query;
+  const filtered = position
+    ? questionBank.filter(q => q.position.toLowerCase() === position.toLowerCase())
+    : questionBank;
+  res.json({ success: true, questions: filtered });
+});
+
+// GET all unique positions that have questions
+app.get('/api/admin/positions', authenticateToken, (req, res) => {
+  const positions = [...new Set(questionBank.map(q => q.position))];
+  res.json({ success: true, positions });
+});
+
+// POST create a new question
+app.post('/api/admin/questions', authenticateToken, async (req, res) => {
+  try {
+    const { position, question, options, correctAnswer } = req.body;
+    if (!position || !question || !options || options.length < 2 || correctAnswer === undefined) {
+      return res.status(400).json({ error: 'Missing required fields: position, question, options (min 2), correctAnswer' });
+    }
+    const newQuestion = {
+      id: questionId++,
+      position,
+      question,
+      options,
+      correctAnswer: parseInt(correctAnswer),
+      createdAt: new Date().toISOString()
+    };
+    questionBank.push(newQuestion);
+    await saveQuestionBank();
+    res.status(201).json({ success: true, question: newQuestion });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to create question' });
+  }
+});
+
+// PUT update an existing question
+app.put('/api/admin/questions/:id', authenticateToken, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const idx = questionBank.findIndex(q => q.id === id);
+    if (idx === -1) return res.status(404).json({ error: 'Question not found' });
+    const { position, question, options, correctAnswer } = req.body;
+    questionBank[idx] = { ...questionBank[idx], position, question, options, correctAnswer: parseInt(correctAnswer), updatedAt: new Date().toISOString() };
+    await saveQuestionBank();
+    res.json({ success: true, question: questionBank[idx] });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update question' });
+  }
+});
+
+// DELETE a question
+app.delete('/api/admin/questions/:id', authenticateToken, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const idx = questionBank.findIndex(q => q.id === id);
+    if (idx === -1) return res.status(404).json({ error: 'Question not found' });
+    questionBank.splice(idx, 1);
+    await saveQuestionBank();
+    res.json({ success: true, message: 'Question deleted' });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to delete question' });
+  }
+});
+
 // Generate quiz questions
 app.post('/api/generate-quiz', async (req, res) => {
   try {
     const { position, numQuestions = 5 } = req.body;
 
-    const prompt = `Generate ${numQuestions} technical multiple-choice questions for a ${position} position.
+    // 1. Check admin question bank first (no API key needed)
+    const adminQuestions = questionBank.filter(q => q.position.toLowerCase() === (position || '').toLowerCase());
+    if (adminQuestions.length >= numQuestions) {
+      // Shuffle and pick requested count
+      const shuffled = adminQuestions.sort(() => Math.random() - 0.5).slice(0, numQuestions);
+      return res.json({ success: true, questions: shuffled, source: 'admin' });
+    }
+
+    // 2. Try AI generation only if API key is available
+    const hasApiKey = process.env.GOOGLE_GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
+    if (hasApiKey) {
+      const prompt = `Generate ${numQuestions} technical multiple-choice questions for a ${position} position.
 
 Return ONLY a valid JSON array with this exact structure:
 [
@@ -483,91 +611,195 @@ Return ONLY a valid JSON array with this exact structure:
 ]
 
 Make questions practical and position-specific.`;
-
-    const systemPrompt = "You are a technical interviewer. Return only valid JSON, no markdown, no explanations.";
-
-    try {
-      const response = await callAI(prompt, systemPrompt);
-      const cleaned = response.replace(/```json|```/g, '').trim();
-      const questions = JSON.parse(cleaned);
-
-      res.json({
-        success: true,
-        questions
-      });
-    } catch (aiError) {
-      console.error('AI generation error, using fallback:', aiError);
-      res.json({
-        success: true,
-        questions: getFallbackQuestions(position, numQuestions)
-      });
+      const systemPrompt = "You are a technical interviewer. Return only valid JSON, no markdown, no explanations.";
+      try {
+        const response = await callAI(prompt, systemPrompt);
+        const cleaned = response.replace(/```json|```/g, '').trim();
+        const questions = JSON.parse(cleaned);
+        return res.json({ success: true, questions, source: 'ai' });
+      } catch (aiError) {
+        console.error('AI generation error, falling back to built-in questions:', aiError.message);
+      }
     }
+
+    // 3. Built-in fallback question bank (no API key needed)
+    return res.json({
+      success: true,
+      questions: getFallbackQuestions(position, numQuestions),
+      source: 'fallback'
+    });
   } catch (error) {
     console.error('Quiz generation error:', error);
     res.status(500).json({ error: 'Failed to generate quiz' });
   }
 });
 
-function getFallbackQuestions(position, count) {
-  const questions = {
+function getFallbackQuestions(position, count = 5) {
+  const bank = {
+
+    // ============================================================
+    // SOFTWARE ENGINEER
+    // ============================================================
     "Software Engineer": [
-      {
-        question: "What is the time complexity of binary search?",
-        options: ["O(n)", "O(log n)", "O(n²)", "O(1)"],
-        correctAnswer: 1
-      },
-      {
-        question: "Which data structure uses LIFO principle?",
-        options: ["Queue", "Stack", "Tree", "Hash Table"],
-        correctAnswer: 1
-      },
-      {
-        question: "What does REST stand for?",
-        options: ["Remote Execution Standard Transfer", "Representational State Transfer", "Real-time Execution State Transfer", "Resource Execution State Transfer"],
-        correctAnswer: 1
-      },
-      {
-        question: "Which HTTP method is idempotent?",
-        options: ["POST", "PUT", "PATCH", "All of the above"],
-        correctAnswer: 1
-      },
-      {
-        question: "What is the purpose of version control systems?",
-        options: ["Code backup only", "Track changes and collaboration", "Compile code", "Debug applications"],
-        correctAnswer: 1
-      }
+      { question: "What is the time complexity of binary search?", options: ["O(n)", "O(log n)", "O(n²)", "O(1)"], correctAnswer: 1 },
+      { question: "Which data structure uses the LIFO principle?", options: ["Queue", "Linked List", "Stack", "Hash Table"], correctAnswer: 2 },
+      { question: "What does REST stand for?", options: ["Remote Execution Standard Transfer", "Representational State Transfer", "Real-time Execution State Transfer", "Resource Execution Standard Transfer"], correctAnswer: 1 },
+      { question: "Which HTTP method is idempotent and safe?", options: ["POST", "PUT", "DELETE", "GET"], correctAnswer: 3 },
+      { question: "What is the purpose of a hash table?", options: ["Sort elements quickly", "Store key-value pairs for O(1) average lookup", "Traverse trees", "Manage memory allocation"], correctAnswer: 1 },
+      { question: "Which SOLID principle states a class should have only one reason to change?", options: ["Open/Closed", "Liskov Substitution", "Single Responsibility", "Interface Segregation"], correctAnswer: 2 },
+      { question: "What is a deadlock in concurrent programming?", options: ["A slow network request", "A situation where two or more threads wait for each other indefinitely", "A memory overflow error", "A thread that runs without stopping"], correctAnswer: 1 },
     ],
+
+    // ============================================================
+    // DATA SCIENTIST
+    // ============================================================
     "Data Scientist": [
-      {
-        question: "What is overfitting in machine learning?",
-        options: ["Model performs well on training data but poorly on test data", "Model performs poorly on all data", "Model is too simple", "Model training takes too long"],
-        correctAnswer: 0
-      },
-      {
-        question: "Which algorithm is best for classification?",
-        options: ["Linear Regression", "K-Means", "Random Forest", "PCA"],
-        correctAnswer: 2
-      },
-      {
-        question: "What does SQL stand for?",
-        options: ["Simple Query Language", "Structured Query Language", "System Query Language", "Standard Query Logic"],
-        correctAnswer: 1
-      },
-      {
-        question: "What is the purpose of cross-validation?",
-        options: ["Speed up training", "Assess model performance", "Reduce features", "Clean data"],
-        correctAnswer: 1
-      },
-      {
-        question: "What is a confusion matrix used for?",
-        options: ["Data cleaning", "Feature selection", "Evaluating classification models", "Optimizing hyperparameters"],
-        correctAnswer: 2
-      }
-    ]
+      { question: "What is overfitting in machine learning?", options: ["Model performs well on train data but poorly on test data", "Model performs poorly on all data", "Model is too simple", "Model training takes too long"], correctAnswer: 0 },
+      { question: "Which metric is best for imbalanced classification datasets?", options: ["Accuracy", "Mean Squared Error", "F1 Score", "R² Score"], correctAnswer: 2 },
+      { question: "What does PCA stand for?", options: ["Predictive Component Analysis", "Principal Component Analysis", "Probabilistic Cluster Algorithm", "Partial Correlation Analysis"], correctAnswer: 1 },
+      { question: "Which algorithm is a boosting ensemble method?", options: ["Random Forest", "K-Means", "XGBoost", "PCA"], correctAnswer: 2 },
+      { question: "What is the bias-variance tradeoff?", options: ["Choosing between accuracy and speed", "Balancing underfitting (high bias) and overfitting (high variance)", "Splitting data into training and testing", "Normalizing features before training"], correctAnswer: 1 },
+      { question: "What does a p-value less than 0.05 typically indicate?", options: ["The null hypothesis is true", "The result is statistically significant", "The model is overfitting", "The dataset is too small"], correctAnswer: 1 },
+      { question: "Which technique is used to handle missing values?", options: ["Regularization", "Imputation", "Backpropagation", "Gradient descent"], correctAnswer: 1 },
+    ],
+
+    // ============================================================
+    // PRODUCT MANAGER
+    // ============================================================
+    "Product Manager": [
+      { question: "What does MVP stand for in product development?", options: ["Most Viable Product", "Minimum Viable Product", "Maximum Value Proposition", "Minimum Variable Process"], correctAnswer: 1 },
+      { question: "Which framework is commonly used for prioritizing product features?", options: ["Scrum", "RICE (Reach, Impact, Confidence, Effort)", "Kanban", "SWOT"], correctAnswer: 1 },
+      { question: "What is a product roadmap?", options: ["A technical architecture diagram", "A high-level visual summary of product vision and direction over time", "A list of all bugs to fix", "A financial projection document"], correctAnswer: 1 },
+      { question: "What is a KPI?", options: ["Key Product Interface", "Key Performance Indicator", "Knowledge Process Integration", "Key Priority Index"], correctAnswer: 1 },
+      { question: "What does OKR stand for?", options: ["Outcome Key Results", "Objectives and Key Results", "Operational Key Requirements", "Output Knowledge Repository"], correctAnswer: 1 },
+      { question: "What is the main purpose of A/B testing in a product?", options: ["Fixing bugs faster", "Comparing two versions to see which performs better", "Scaling the database", "Onboarding new team members"], correctAnswer: 1 },
+      { question: "Which agile ceremony is used to reflect on the team process?", options: ["Sprint Planning", "Daily Standup", "Retrospective", "Backlog Grooming"], correctAnswer: 2 },
+    ],
+
+    // ============================================================
+    // FRONTEND DEVELOPER
+    // ============================================================
+    "Frontend Developer": [
+      { question: "What does the CSS 'box model' consist of?", options: ["Content, padding, border, margin", "Width, height, font, color", "Flexbox, grid, float, position", "Header, body, footer, sidebar"], correctAnswer: 0 },
+      { question: "Which JavaScript method is used to make asynchronous HTTP requests?", options: ["setTimeout()", "fetch()", "querySelector()", "addEventListener()"], correctAnswer: 1 },
+      { question: "What is the Virtual DOM in React?", options: ["A database for React apps", "A lightweight in-memory copy of the real DOM used for efficient updates", "A browser API", "A CSS preprocessor"], correctAnswer: 1 },
+      { question: "What does 'async/await' do in JavaScript?", options: ["Runs code in parallel threads", "Handles promises in a synchronous-looking syntax", "Compiles TypeScript to JavaScript", "Creates web workers"], correctAnswer: 1 },
+      { question: "Which CSS unit is relative to the root element's font size?", options: ["em", "px", "rem", "vh"], correctAnswer: 2 },
+      { question: "What is the purpose of webpack?", options: ["A CSS framework", "A JavaScript testing framework", "A module bundler for web assets", "A package manager"], correctAnswer: 2 },
+      { question: "What does 'semantic HTML' mean?", options: ["Using HTML that is SEO-optimized", "Using HTML elements that convey meaning about their content", "Minifying HTML for performance", "Using only HTML5 elements"], correctAnswer: 1 },
+    ],
+
+    // ============================================================
+    // BACKEND DEVELOPER
+    // ============================================================
+    "Backend Developer": [
+      { question: "What is the difference between SQL and NoSQL databases?", options: ["SQL is slower, NoSQL is faster", "SQL uses structured tables; NoSQL uses flexible schemas like documents or key-value", "SQL is for frontend, NoSQL is for backend", "SQL is open source, NoSQL is proprietary"], correctAnswer: 1 },
+      { question: "What is a RESTful API?", options: ["An API using only WebSockets", "An API that follows REST architectural constraints (stateless, resource-based)", "An API that uses GraphQL exclusively", "An API that runs on the server only"], correctAnswer: 1 },
+      { question: "What does JWT stand for?", options: ["Java Web Toolkit", "JSON Web Token", "JavaScript Worker Thread", "Java Web Transaction"], correctAnswer: 1 },
+      { question: "What is middleware in Express.js?", options: ["A database ORM", "Functions that execute during the request-response cycle", "A CSS framework", "A testing library"], correctAnswer: 1 },
+      { question: "What is database indexing used for?", options: ["Encrypting data", "Speeding up data retrieval operations", "Backing up data", "Normalizing tables"], correctAnswer: 1 },
+      { question: "Which HTTP status code indicates a resource was successfully created?", options: ["200", "204", "201", "301"], correctAnswer: 2 },
+      { question: "What is the purpose of environment variables in a backend app?", options: ["Style the UI", "Store configuration and secrets outside source code", "Manage database schemas", "Speed up compilation"], correctAnswer: 1 },
+    ],
+
+    // ============================================================
+    // FULL STACK DEVELOPER
+    // ============================================================
+    "Full Stack Developer": [
+      { question: "What is CORS and why is it important?", options: ["A database query language", "A browser security mechanism that controls cross-origin HTTP requests", "A CSS animation property", "A node package manager command"], correctAnswer: 1 },
+      { question: "What is the difference between server-side rendering (SSR) and client-side rendering (CSR)?", options: ["SSR is faster to code; CSR is more secure", "SSR renders HTML on the server for each request; CSR renders in the browser using JavaScript", "SSR uses React; CSR uses Node.js", "SSR is only for mobile apps"], correctAnswer: 1 },
+      { question: "Which database type is best for storing hierarchical/tree-structured data?", options: ["Relational (SQL)", "Document (MongoDB)", "Column-family (Cassandra)", "All are equally suitable"], correctAnswer: 1 },
+      { question: "What is a WebSocket used for?", options: ["Running server-side scripts", "Full-duplex real-time communication between client and server", "Serving static files", "Authentication"], correctAnswer: 1 },
+      { question: "What tool is commonly used to containerize full-stack applications?", options: ["Webpack", "Docker", "Babel", "Nginx alone"], correctAnswer: 1 },
+      { question: "What is the purpose of an ORM (Object-Relational Mapper)?", options: ["Style web components", "Map database tables to programming objects to simplify queries", "Bundle JavaScript modules", "Compress images"], correctAnswer: 1 },
+      { question: "What does CI/CD stand for?", options: ["Code Integration / Code Deployment", "Continuous Integration / Continuous Delivery", "Customer Interface / Customer Data", "Cloud Infrastructure / Cloud Delivery"], correctAnswer: 1 },
+    ],
+
+    // ============================================================
+    // DEVOPS ENGINEER
+    // ============================================================
+    "DevOps Engineer": [
+      { question: "What is Infrastructure as Code (IaC)?", options: ["Writing backend code", "Managing infrastructure through configuration files instead of manual processes", "A cloud provider service", "A programming language for servers"], correctAnswer: 1 },
+      { question: "Which tool is used for container orchestration?", options: ["Jenkins", "Ansible", "Kubernetes", "Terraform"], correctAnswer: 2 },
+      { question: "What is the purpose of a load balancer?", options: ["Increase server storage", "Distribute incoming traffic across multiple servers", "Monitor application logs", "Encrypt network traffic"], correctAnswer: 1 },
+      { question: "What does 'Blue-Green Deployment' mean?", options: ["Deploying to dev and prod simultaneously", "Running two identical environments and switching traffic between them for zero-downtime releases", "Using blue and green color themes in dashboards", "A two-step code review process"], correctAnswer: 1 },
+      { question: "Which tool is most commonly used for infrastructure provisioning on AWS?", options: ["Ansible", "Chef", "Terraform", "Puppet"], correctAnswer: 2 },
+      { question: "What is a Docker image?", options: ["A screenshot of a running container", "A read-only template used to create containers", "A virtual machine", "A cloud storage bucket"], correctAnswer: 1 },
+      { question: "What does SLA stand for in DevOps/SRE?", options: ["Server Latency Agreement", "Service Level Agreement", "Software Lifecycle Architecture", "Scalable Load Algorithm"], correctAnswer: 1 },
+    ],
+
+    // ============================================================
+    // UI/UX DESIGNER
+    // ============================================================
+    "UI/UX Designer": [
+      { question: "What does 'affordance' mean in UX design?", options: ["The cost of a design project", "A property of an object that shows users how to use it", "The color palette of an app", "The number of screens in a prototype"], correctAnswer: 1 },
+      { question: "What is a user persona?", options: ["An actual user being tested", "A fictional character representing a user segment to guide design decisions", "A login page design", "A brand mascot"], correctAnswer: 1 },
+      { question: "Which principle states that users should always know where they are in a system?", options: ["Fitts's Law", "Hick's Law", "Nielsen's Visibility of System Status", "Gestalt Principle"], correctAnswer: 2 },
+      { question: "What is the purpose of a wireframe?", options: ["Define the final visual design", "Create a low-fidelity layout to plan structure and functionality", "Write the front-end code", "Conduct usability testing"], correctAnswer: 1 },
+      { question: "What does WCAG stand for?", options: ["Web Content Accessibility Guidelines", "Web Color and Graphics standard", "Website Compliance and Governance", "Web Component Architecture Guide"], correctAnswer: 0 },
+      { question: "What is a heuristic evaluation?", options: ["A user survey method", "An expert review of a UI against usability principles", "An A/B test on two designs", "A focus group session"], correctAnswer: 1 },
+      { question: "What is the F-pattern in web reading?", options: ["Users read in the shape of the letter F, focusing on top and left content", "Users skip the first paragraph", "Users read from right to left", "Users only read bullet points"], correctAnswer: 0 },
+    ],
+
+    // ============================================================
+    // MACHINE LEARNING ENGINEER
+    // ============================================================
+    "Machine Learning Engineer": [
+      { question: "What is gradient descent?", options: ["A data visualization technique", "An optimization algorithm that minimizes a loss function by iteratively updating parameters", "A regularization method", "A type of neural network layer"], correctAnswer: 1 },
+      { question: "What is transfer learning?", options: ["Transferring data between databases", "Reusing a pre-trained model on a new but related task", "Converting a model from one language to another", "Moving ML models to production"], correctAnswer: 1 },
+      { question: "What does 'batch normalization' do in deep learning?", options: ["Groups training data into batches", "Normalizes inputs of each layer to speed up training and improve stability", "Reduces the model size", "Increases the learning rate"], correctAnswer: 1 },
+      { question: "What is a hyperparameter in ML?", options: ["A parameter learned during training", "A configuration setting set before training begins (e.g., learning rate)", "A type of neural network", "An output of the model"], correctAnswer: 1 },
+      { question: "What is the purpose of dropout in neural networks?", options: ["Reduce model size permanently", "Randomly deactivate neurons during training to prevent overfitting", "Speed up inference", "Improve data loading"], correctAnswer: 1 },
+      { question: "Which framework is most commonly used for building deep learning models?", options: ["Scikit-learn", "NumPy", "PyTorch / TensorFlow", "Pandas"], correctAnswer: 2 },
+      { question: "What is the vanishing gradient problem?", options: ["Gradients become too large, causing instability", "Gradients become very small, making deep network layers learn very slowly or not at all", "The model forgets training data", "Loss function returns NaN"], correctAnswer: 1 },
+    ],
+
+    // ============================================================
+    // ANDROID DEVELOPER
+    // ============================================================
+    "Android Developer": [
+      { question: "What language is primarily used for modern Android development?", options: ["Java", "Swift", "Kotlin", "Dart"], correctAnswer: 2 },
+      { question: "What is the purpose of an Android Manifest file?", options: ["Store app assets", "Declare app components, permissions, and metadata", "Define UI layouts", "Manage gradle dependencies"], correctAnswer: 1 },
+      { question: "What is an Activity in Android?", options: ["A background service", "A single screen with a user interface", "A database helper class", "A broadcast receiver"], correctAnswer: 1 },
+      { question: "What is Jetpack Compose?", options: ["A music app", "Android's modern declarative UI toolkit", "A testing framework", "A dependency injection library"], correctAnswer: 1 },
+      { question: "What is the role of ViewModel in Android MVVM architecture?", options: ["Handle UI rendering", "Survive configuration changes and hold UI-related data", "Manage database operations only", "Send network requests"], correctAnswer: 1 },
+      { question: "Which library is commonly used for dependency injection in Android?", options: ["Retrofit", "Room", "Hilt / Dagger", "Glide"], correctAnswer: 2 },
+      { question: "What is the difference between Service and IntentService?", options: ["No difference", "Service runs on main thread; IntentService runs on a worker thread and stops when done", "IntentService is deprecated from API 1", "Service is only for background audio"], correctAnswer: 1 },
+    ],
+
+    // ============================================================
+    // IOS DEVELOPER
+    // ============================================================
+    "iOS Developer": [
+      { question: "What language is used for modern iOS development?", options: ["Objective-C", "Kotlin", "Flutter", "Swift"], correctAnswer: 3 },
+      { question: "What is SwiftUI?", options: ["A testing framework", "Apple's declarative UI framework for building UIs across Apple platforms", "A networking library", "A database for iOS"], correctAnswer: 1 },
+      { question: "What is ARC in iOS development?", options: ["Advanced Runtime Compiler", "Automatic Reference Counting — manages memory automatically", "App Resource Controller", "Application Rendering Cache"], correctAnswer: 1 },
+      { question: "What is the role of AppDelegate in an iOS app?", options: ["Handle network requests", "Entry point that manages app-level events and lifecycle", "Define the main UI", "Manage Core Data"], correctAnswer: 1 },
+      { question: "What is Core Data used for in iOS?", options: ["Networking", "Local data persistence and object graph management", "Push notifications", "UI animations"], correctAnswer: 1 },
+      { question: "What is the MVVM pattern?", options: ["Model-View-ViewModel: separates logic from UI using a ViewModel", "A design pattern for database schemas", "A network protocol", "A testing methodology"], correctAnswer: 0 },
+      { question: "What does Xcode Instruments help with?", options: ["Writing Swift code", "Profiling and debugging performance, memory, and energy issues", "Submitting apps to the App Store", "Designing UI mockups"], correctAnswer: 1 },
+    ],
+
+    // ============================================================
+    // QA ENGINEER
+    // ============================================================
+    "QA Engineer": [
+      { question: "What is the difference between black-box and white-box testing?", options: ["Black-box tests internal code; white-box tests the UI", "Black-box tests without knowledge of internals; white-box tests with full code knowledge", "No difference", "Black-box is automated; white-box is manual"], correctAnswer: 1 },
+      { question: "What is regression testing?", options: ["Testing new features only", "Re-testing after changes to ensure existing functionality still works", "Testing on multiple devices", "Performance load testing"], correctAnswer: 1 },
+      { question: "What does TDD stand for?", options: ["Test Data Development", "Test-Driven Development", "Technical Design Document", "Total Defect Density"], correctAnswer: 1 },
+      { question: "What is a test case?", options: ["A bug report", "A set of conditions and expected results used to determine if a system works correctly", "A production incident", "A user story"], correctAnswer: 1 },
+      { question: "Which tool is commonly used for API testing?", options: ["Selenium", "Postman", "JUnit", "Jira"], correctAnswer: 1 },
+      { question: "What is smoke testing?", options: ["Testing all edge cases", "A quick preliminary test to check basic functionality before deeper testing", "Performance testing under heavy load", "Testing in a staging environment only"], correctAnswer: 1 },
+      { question: "What is a defect's 'severity' vs 'priority'?", options: ["They are the same concept", "Severity = impact on system functionality; Priority = urgency of fixing it", "Priority = impact; Severity = timeline", "Severity is set by developers; Priority by stakeholders"], correctAnswer: 1 },
+    ],
   };
 
-  const questionSet = questions[position] || questions["Software Engineer"];
-  return questionSet.slice(0, count);
+  // Case-insensitive position matching
+  const key = Object.keys(bank).find(k => k.toLowerCase() === (position || '').toLowerCase()) || 'Software Engineer';
+  const questionSet = bank[key];
+  // Shuffle for variety, then slice
+  const shuffled = questionSet.sort(() => Math.random() - 0.5);
+  return shuffled.slice(0, count);
 }
 
 // Create candidate
@@ -816,14 +1048,520 @@ app.post('/api/candidates/:id/video-interview', async (req, res) => {
   }
 });
 
+// ==================== CAREER ADVICE (100% LOCAL — NO API KEYS) ====================
+
+// Comprehensive local career advice engine
+function generateLocalCareerAdvice(position, totalScore, resumeScore, quizScore, interviewScore) {
+  const pos = (position || 'Software Engineer').trim();
+  const tier = totalScore >= 85 ? 'high' : totalScore >= 65 ? 'mid' : 'low';
+
+  // ── POSITION-SPECIFIC SKILL DATABASE ───────────────────────────────────────
+  const SKILLS_DB = {
+    'Software Engineer': {
+      skills: [
+        { skill: 'Data Structures & Algorithms', reason: 'Core requirement for FAANG and top-tier tech interviews', url: 'https://leetcode.com/explore/learn/', tag: 'LeetCode Explore' },
+        { skill: 'System Design', reason: 'Essential for mid-to-senior SWE roles; covers scalability & architecture', url: 'https://github.com/donnemartin/system-design-primer', tag: 'System Design Primer (GitHub)' },
+        { skill: 'Clean Code & Design Patterns', reason: 'Improves code quality and makes you a better team collaborator', url: 'https://refactoring.guru/design-patterns', tag: 'Refactoring.Guru' },
+        { skill: 'Git & Version Control', reason: 'Non-negotiable for any professional software role', url: 'https://www.atlassian.com/git/tutorials', tag: 'Atlassian Git Tutorials' },
+        { skill: 'REST API Design', reason: 'Backend/full-stack teams need solid API design skills', url: 'https://restfulapi.net/', tag: 'RestfulAPI.net' },
+        { skill: 'Cloud Fundamentals (AWS/GCP)', reason: 'Cloud skills are now expected at most tech companies', url: 'https://aws.amazon.com/training/digital/', tag: 'AWS Free Digital Training' },
+      ],
+      companies: {
+        high:  [{ name: 'Google', type: 'enterprise', url: 'https://careers.google.com', reason: 'Strong systems knowledge and high quiz/interview scores match Google SWE expectations' }, { name: 'Microsoft', type: 'enterprise', url: 'https://careers.microsoft.com', reason: 'Excellent written communication and solid technical skills fit Microsoft engineering culture' }, { name: 'Razorpay', type: 'mid-size', url: 'https://razorpay.com/jobs/', reason: 'Fast-growing fintech startup in India with excellent SWE roles and competitive pay' }],
+        mid:   [{ name: 'Infosys', type: 'enterprise', url: 'https://www.infosys.com/careers/', reason: 'Large-scale projects and structured training for software engineers at mid level' }, { name: 'Zoho Corporation', type: 'mid-size', url: 'https://careers.zohocorp.com', reason: 'Product-focused company with strong engineering culture and India-based HQ' }, { name: 'Freshworks', type: 'mid-size', url: 'https://www.freshworks.com/company/careers/', reason: 'Chennai-based SaaS with growing global engineering teams' }],
+        low:   [{ name: 'Wipro', type: 'enterprise', url: 'https://careers.wipro.com', reason: 'Strong fresher hiring programs with structured onboarding and training' }, { name: 'Cognizant', type: 'enterprise', url: 'https://careers.cognizant.com', reason: 'Ideal for entry-level engineers; strong mentorship and client-based projects' }, { name: 'TCS (Tata Consultancy Services)', type: 'enterprise', url: 'https://www.tcs.com/careers', reason: 'Largest IT employer in India; great for beginners to build foundations' }]
+      },
+      strengths_high: ['Strong grasp of algorithms and data structures', 'Demonstrated ability to design scalable systems', 'Clear technical communication in interviews'],
+      strengths_mid:  ['Good foundational programming knowledge', 'Solid problem-solving approach', 'Eagerness to learn and grow demonstrated'],
+      strengths_low:  ['Shows willingness to learn new technologies', 'Basic understanding of software development lifecycle', 'Good attitude towards improvement'],
+      weaknesses_high: ['System design depth could be improved for senior roles', 'Broaden knowledge of distributed systems concepts', 'Practice more behavioral interview questions (STAR method)'],
+      weaknesses_mid:  ['Technical quiz performance needs strengthening', 'More hands-on project experience is needed', 'Interview confidence and articulation needs work'],
+      weaknesses_low:  ['Core programming fundamentals need significant practice', 'Needs real project experience to back up knowledge', 'Interview preparation and mock sessions are essential'],
+    },
+
+    'Data Scientist': {
+      skills: [
+        { skill: 'Python for Data Science', reason: 'Python is the #1 language for data science globally', url: 'https://www.kaggle.com/learn/python', tag: 'Kaggle Learn (Free)' },
+        { skill: 'Machine Learning with Scikit-learn', reason: 'Standard ML library used across industry for rapid prototyping', url: 'https://scikit-learn.org/stable/tutorial/index.html', tag: 'Scikit-learn Docs' },
+        { skill: 'SQL for Data Analysis', reason: 'Every data role requires SQL for querying and transforming data', url: 'https://mode.com/sql-tutorial/', tag: 'Mode SQL Tutorial (Free)' },
+        { skill: 'Data Visualization (Matplotlib/Tableau)', reason: 'Communicating insights visually is a critical skill', url: 'https://www.tableau.com/learn/training', tag: 'Tableau Free Training' },
+        { skill: 'Statistics & Probability', reason: 'Statistical foundations underpin every ML model decision', url: 'https://www.khanacademy.org/math/statistics-probability', tag: 'Khan Academy Statistics' },
+        { skill: 'Deep Learning (PyTorch/TensorFlow)', reason: 'Advanced DS roles increasingly require DL knowledge', url: 'https://www.fast.ai/', tag: 'fast.ai (Free Course)' },
+      ],
+      companies: {
+        high:  [{ name: 'Amazon', type: 'enterprise', url: 'https://amazon.jobs', reason: 'Heavy ML usage in recommendations, Alexa and fulfillment optimization' }, { name: 'Flipkart', type: 'mid-size', url: 'https://tech.flipkart.com/jobs/', reason: "India's biggest e-commerce company with a strong data science team" }, { name: 'DataWeave', type: 'startup', url: 'https://dataweave.com/careers', reason: 'AI-powered retail analytics startup perfect for high-performing data scientists' }],
+        mid:   [{ name: 'Mu Sigma', type: 'mid-size', url: 'https://www.mu-sigma.com/careers', reason: 'Decision sciences company with strong data analytics focus' }, { name: 'ICICI Bank Analytics', type: 'enterprise', url: 'https://www.icicicareers.com', reason: 'Financial data and risk analytics team — growing data science division' }, { name: 'Ola', type: 'mid-size', url: 'https://www.olacabs.com/careers', reason: 'Ride-hailing platform with complex routing & demand forecasting problems' }],
+        low:   [{ name: 'Accenture AI', type: 'enterprise', url: 'https://www.accenture.com/in-en/careers', reason: 'Large consulting firm with strong AI/data entry programs' }, { name: 'Capgemini', type: 'enterprise', url: 'https://www.capgemini.com/in-en/careers/', reason: 'Good entry points into data teams via consulting projects' }, { name: 'Innodatatics', type: 'startup', url: 'https://innodatatics.com/careers/', reason: 'Data analytics services firm ideal for beginners building portfolio' }]
+      },
+      strengths_high: ['Strong understanding of machine learning algorithms and evaluation metrics', 'Demonstrated statistical thinking in problem-solving', 'Good ability to extract insights from complex data'],
+      strengths_mid:  ['Solid foundational understanding of data concepts', 'Basic ML model building and evaluation skills', 'Good Python/SQL proficiency'],
+      strengths_low:  ['Interest in data-driven thinking is evident', 'Basic analytical skills present', 'Understands core data science terminology'],
+      weaknesses_high: ['Deep learning proficiency could be improved', 'Experiment tracking and MLOps understanding worth developing', 'Presentation of insights to non-technical stakeholders'],
+      weaknesses_mid:  ['Statistical depth needs strengthening', 'Hands-on Kaggle competition experience recommended', 'Need more real-world dataset projects in portfolio'],
+      weaknesses_low:  ['Core Python and SQL skills must be solidified', 'Needs to build first complete end-to-end ML project', 'Understanding of model evaluation and validation is weak'],
+    },
+
+    'Product Manager': {
+      skills: [
+        { skill: 'Product Strategy & Roadmapping', reason: 'Core PM skill — required at every level and every interview', url: 'https://www.productplan.com/learn/what-is-a-product-roadmap/', tag: 'ProductPlan Guide (Free)' },
+        { skill: 'User Research & Interviews', reason: 'PMs who understand users build better products', url: 'https://www.nngroup.com/articles/user-interviews/', tag: 'Nielsen Norman Group' },
+        { skill: 'Data-Driven Decision Making', reason: 'Modern PMs are expected to work with metrics and analytics', url: 'https://www.coursera.org/learn/data-driven-decision-making', tag: 'Coursera (Audit Free)' },
+        { skill: 'Agile & Scrum Framework', reason: 'Most tech teams run on Agile — PMs must master it', url: 'https://www.atlassian.com/agile/scrum', tag: 'Atlassian Agile Guide' },
+        { skill: 'Wireframing with Figma', reason: 'PMs who can prototype ideas get better traction with design teams', url: 'https://www.figma.com/resources/learn-design/', tag: 'Figma Learn (Free)' },
+        { skill: 'Stakeholder Communication', reason: 'Communicating across engineering, design, and business is essential', url: 'https://www.mindtools.com/pages/article/stakeholder-analysis.htm', tag: 'MindTools Guide' },
+      ],
+      companies: {
+        high:  [{ name: 'Swiggy', type: 'mid-size', url: 'https://careers.swiggy.com', reason: 'Fast-growing consumer tech — strong PM culture with high ownership' }, { name: 'PhonePe', type: 'mid-size', url: 'https://www.phonepe.com/careers/', reason: 'Fintech platform with deep product challenges in payments and UX' }, { name: 'Atlassian', type: 'enterprise', url: 'https://www.atlassian.com/company/careers', reason: 'Developer-tools company that values PMs with technical understanding' }],
+        mid:   [{ name: 'Paytm', type: 'mid-size', url: 'https://paytm.com/about/job-openings/', reason: 'Large India fintech with multiple product verticals' }, { name: 'MakeMyTrip', type: 'mid-size', url: 'https://careers.makemytrip.com/', reason: 'Travel tech with classic B2C product challenges — good PM growth' }, { name: 'Nykaa', type: 'mid-size', url: 'https://www.nykaa.com/careers', reason: 'E-commerce beauty platform with strong consumer product focus' }],
+        low:   [{ name: 'Internshala', type: 'startup', url: 'https://internshala.com/jobs/', reason: 'Great for entry-level APM roles with learning-oriented teams' }, { name: 'Sprinklr', type: 'mid-size', url: 'https://www.sprinklr.com/careers/', reason: 'SaaS platform with structured APM programs' }, { name: 'Razorpay APM', type: 'mid-size', url: 'https://razorpay.com/jobs/', reason: 'Well-known APM program for early-career PMs' }]
+      },
+      strengths_high: ['Strong understanding of product lifecycle and go-to-market strategy', 'Clear prioritization skills demonstrated through quiz results', 'Strong communication and stakeholder alignment ability'],
+      strengths_mid:  ['Good grasp of agile ceremonies and sprint planning', 'Understands MVPs and feature prioritization basics', 'User empathy apparent in interview responses'],
+      strengths_low:  ['Shows genuine interest in user-centric thinking', 'Basic familiarity with product tools', 'Curious mindset ideal for learning PM craft'],
+      weaknesses_high: ['Strengthen data analysis and SQL querying skills', 'Practice mock PM interviews (case studies)', 'Build deeper experience with OKR setting and tracking'],
+      weaknesses_mid:  ['Needs more hands-on experience with real product scenarios', 'Data-driven storytelling needs improvement', 'Sharpen knowledge of A/B testing methodologies'],
+      weaknesses_low:  ['Must build clarity on core PM frameworks (RICE, MoSCoW)', 'Needs to complete a product case study from scratch', 'Interview answers lack structure — practice the STAR method'],
+    },
+
+    'Frontend Developer': {
+      skills: [
+        { skill: 'React.js (Hooks & Context)', reason: 'React dominates the frontend job market — deep knowledge is essential', url: 'https://react.dev/learn', tag: 'Official React Docs (Free)' },
+        { skill: 'CSS & Responsive Design', reason: 'Pixel-perfect, mobile-friendly UIs are non-negotiable', url: 'https://web.dev/learn/css/', tag: 'web.dev CSS Course (Google, Free)' },
+        { skill: 'JavaScript (ES6+)', reason: 'Mastering modern JS is the foundation of all frontend work', url: 'https://javascript.info/', tag: 'javascript.info (Free)' },
+        { skill: 'TypeScript', reason: 'Most mid-to-large companies now require TypeScript proficiency', url: 'https://www.typescriptlang.org/docs/', tag: 'TypeScript Official Docs' },
+        { skill: 'Performance Optimization', reason: 'Core Web Vitals and page load speed are critical in 2024', url: 'https://web.dev/explore/fast', tag: 'web.dev Performance (Google)' },
+        { skill: 'Testing (Jest + React Testing Library)', reason: 'Untested UI code is a liability — testing is expected in senior roles', url: 'https://testing-library.com/docs/react-testing-library/intro/', tag: 'Testing Library Docs' },
+      ],
+      companies: {
+        high:  [{ name: 'Groww', type: 'mid-size', url: 'https://groww.in/careers', reason: 'Fintech with extremely polished frontend — ideal for senior React devs' }, { name: 'Zepto', type: 'startup', url: 'https://zepto.teamtailor.com/', reason: 'Fast-growing quick-commerce with aggressive frontend hiring' }, { name: 'Shopify', type: 'enterprise', url: 'https://www.shopify.com/careers', reason: 'World-class frontend engineering with strong React/TypeScript culture' }],
+        mid:   [{ name: 'Meesho', type: 'mid-size', url: 'https://meesho.io/careers', reason: 'Social commerce with complex frontend product challenges' }, { name: 'Urban Company', type: 'mid-size', url: 'https://careers.urbancompany.com/', reason: 'Consumer app with strong UI focus and growing frontend team' }, { name: 'Cred', type: 'startup', url: 'https://cred.club/careers', reason: 'Known for exceptional UI/UX — excellent environment for frontend devs' }],
+        low:   [{ name: 'Uplers', type: 'startup', url: 'https://www.uplers.com/careers/', reason: 'Remote-first agency — good for building frontend portfolio quickly' }, { name: 'HCL Technologies', type: 'enterprise', url: 'https://www.hcltech.com/careers', reason: 'Large IT firm with steady frontend project opportunities' }, { name: 'BrowserStack', type: 'mid-size', url: 'https://www.browserstack.com/careers', reason: 'Testing infrastructure company with strong frontend engineering team' }]
+      },
+      strengths_high: ['Excellent command of React and modern JavaScript ecosystem', 'Strong visual and layout problem-solving demonstrated', 'Solid understanding of browser rendering and performance'],
+      strengths_mid:  ['Good HTML/CSS/JS fundamentals', 'Understands component-based architecture', 'Comfortable with responsive design principles'],
+      strengths_low:  ['Familiarity with basic HTML & CSS', 'Willing to learn modern frameworks', 'Good eye for visual design'],
+      weaknesses_high: ['TypeScript adoption could strengthen maintainability of code', 'Improve unit testing habits', 'Explore accessibility (ARIA) best practices'],
+      weaknesses_mid:  ['JavaScript fundamentals (closures, async) need more depth', 'Need more real-world React project practice', 'Performance and optimization concepts need work'],
+      weaknesses_low:  ['Must build first complete responsive website from scratch', 'JavaScript basics must be thoroughly mastered', 'Framework knowledge is lacking — start with React fundamentals'],
+    },
+
+    'Backend Developer': {
+      skills: [
+        { skill: 'Node.js & Express.js', reason: 'Most widely used backend stack in startups and scale-ups', url: 'https://nodejs.org/en/learn/getting-started/introduction-to-nodejs', tag: 'Node.js Official Docs' },
+        { skill: 'Database Design (SQL & NoSQL)', reason: 'Data modeling is fundamental to every backend system', url: 'https://www.postgresql.org/docs/current/tutorial.html', tag: 'PostgreSQL Tutorial (Free)' },
+        { skill: 'REST & GraphQL API Design', reason: 'Building and consuming APIs is the core of backend development', url: 'https://graphql.org/learn/', tag: 'GraphQL Official Guide' },
+        { skill: 'Authentication & Security (JWT/OAuth)', reason: 'Security is now a baseline requirement — not optional', url: 'https://auth0.com/docs/get-started', tag: 'Auth0 Docs (Free)' },
+        { skill: 'Caching with Redis', reason: 'Redis is used at nearly every high-traffic backend system', url: 'https://redis.io/learn/', tag: 'Redis Learn (Free)' },
+        { skill: 'System Design for Backend', reason: 'Understanding load balancers, queues and microservices separates good from great', url: 'https://github.com/donnemartin/system-design-primer', tag: 'System Design Primer' },
+      ],
+      companies: {
+        high:  [{ name: 'Juspay', type: 'startup', url: 'https://juspay.in/careers', reason: 'High-scale payments backend engineering with Haskell/Java — top-tier tech' }, { name: 'Dunzo', type: 'startup', url: 'https://www.dunzo.com/careers', reason: 'Real-time logistics platform with complex backend challenges' }, { name: 'AWS (India)', type: 'enterprise', url: 'https://amazon.jobs/en/teams/aws', reason: 'World-class distributed systems engineering environment' }],
+        mid:   [{ name: 'Postman', type: 'mid-size', url: 'https://www.postman.com/careers/', reason: 'API-first tooling company — ideal for backend devs' }, { name: 'HashedIn by Deloitte', type: 'mid-size', url: 'https://hashedin.com/careers/', reason: 'Product engineering company with solid backend projects' }, { name: 'Chargebee', type: 'mid-size', url: 'https://www.chargebee.com/careers/', reason: 'SaaS billing platform with complex transactional backend systems' }],
+        low:   [{ name: 'Mindtree', type: 'enterprise', url: 'https://www.mindtree.com/careers', reason: 'Good backend exposure through enterprise client projects' }, { name: 'Persistent Systems', type: 'enterprise', url: 'https://www.persistent.com/careers/', reason: 'Technology company with structured backend engineering training' }, { name: 'Nagarro', type: 'mid-size', url: 'https://www.nagarro.com/en/careers', reason: 'Fast-growing digital engineering firm with backend openings' }]
+      },
+      strengths_high: ['Deep understanding of API design and database systems', 'Strong security-first thinking demonstrated', 'Excellent understanding of scalable architecture patterns'],
+      strengths_mid:  ['Solid grasp of core backend concepts like REST and databases', 'Good understanding of authentication patterns', 'Comfortable with server-side logic'],
+      strengths_low:  ['Basic understanding of how web servers work', 'Familiarity with at least one backend language', 'Good foundation for structured learning'],
+      weaknesses_high: ['Improve knowledge of event-driven architecture and message queues', 'Explore Kubernetes and container orchestration', 'Deepen understanding of database query optimization'],
+      weaknesses_mid:  ['Redis and caching strategies are weak', 'Need more API versioning and security depth', 'Build a complete backend project with auth, DB, and tests'],
+      weaknesses_low:  ['Must learn HTTP fundamentals and REST thoroughly', 'Database design basics need solid practice', 'Start with building a simple CRUD API from scratch'],
+    },
+
+    'Full Stack Developer': {
+      skills: [
+        { skill: 'React.js + Node.js (MERN Stack)', reason: 'Full stack roles expect end-to-end product building ability', url: 'https://www.mongodb.com/mern-stack', tag: 'MongoDB MERN Guide' },
+        { skill: 'Docker & Containerization', reason: 'Full stack developers are expected to deploy their own apps today', url: 'https://docs.docker.com/get-started/', tag: 'Docker Getting Started' },
+        { skill: 'PostgreSQL & MongoDB', reason: 'Knowing both SQL and NoSQL makes you versatile across roles', url: 'https://www.postgresqltutorial.com/', tag: 'PostgreSQL Tutorial (Free)' },
+        { skill: 'CI/CD Pipelines (GitHub Actions)', reason: 'Automate builds and deployments — expected in modern teams', url: 'https://docs.github.com/en/actions', tag: 'GitHub Actions Docs' },
+        { skill: 'TypeScript (Frontend + Backend)', reason: 'Type safety across the stack greatly reduces bugs in collaboration', url: 'https://www.typescriptlang.org/docs/handbook/intro.html', tag: 'TypeScript Handbook' },
+        { skill: 'GraphQL & REST APIs', reason: 'Handling data on both sides of the stack is core to full-stack work', url: 'https://graphql.org/learn/', tag: 'GraphQL Official Docs' },
+      ],
+      companies: {
+        high:  [{ name: 'Notion', type: 'mid-size', url: 'https://www.notion.so/careers', reason: 'Product-led company that values full-stack ownership and initiative' }, { name: 'Vercel', type: 'startup', url: 'https://vercel.com/careers', reason: 'Frontend infrastructure company — ideal for JS full-stack devs' }, { name: 'Supabase', type: 'startup', url: 'https://supabase.com/careers', reason: 'Open-source Firebase alternative — full-stack expertise highly valued' }],
+        mid:   [{ name: 'Lenskart', type: 'mid-size', url: 'https://lenskart.com/careers', reason: 'India-based consumer brand with strong full-stack product teams' }, { name: 'upGrad', type: 'mid-size', url: 'https://careers.upgrad.com/', reason: 'EdTech company with complex full-stack engineering work' }, { name: 'Shiprocket', type: 'startup', url: 'https://www.shiprocket.in/careers/', reason: 'Logistics tech company scaling fast with full-stack needs' }],
+        low:   [{ name: 'freeCodeCamp Contributor', type: 'startup', url: 'https://contribute.freecodecamp.org/', reason: 'Contribute to open-source while building your full-stack portfolio' }, { name: 'Toptal', type: 'enterprise', url: 'https://www.toptal.com/full-stack-developer-jobs', reason: 'Freelance platform for remote full-stack projects once basics are solid' }, { name: 'Hexaware Technologies', type: 'enterprise', url: 'https://hexaware.com/careers/', reason: 'IT company with entry-level full-stack opportunities' }]
+      },
+      strengths_high: ['Comfortable across the entire development stack', 'Strong deployment and DevOps awareness', 'Excellent product ownership and delivery mindset'],
+      strengths_mid:  ['Good at bridging frontend and backend concerns', 'Understands the full request-response cycle', 'Comfortable with both UI and API work'],
+      strengths_low:  ['Broad curiosity across tech layers', 'Basic familiarity with frontend and backend tools', 'Good learning mindset for full-stack growth'],
+      weaknesses_high: ['Deepen knowledge of distributed systems at scale', 'Improve testing coverage (unit + integration)', 'Explore infrastructure-as-code (Terraform)'],
+      weaknesses_mid:  ['Docker and deployment workflows need strengthening', 'TypeScript on both frontend and backend is a priority', 'Need more complex real-world projects to demonstrate depth'],
+      weaknesses_low:  ['Must pick one stack (MERN/MEAN) and build a complete project', 'Frontend and backend knowledge are both shallow — focus on depth first', 'Learn deployment to Vercel/Heroku as a starting point'],
+    },
+
+    'DevOps Engineer': {
+      skills: [
+        { skill: 'Docker & Kubernetes', reason: 'Container orchestration is the #1 skill in modern DevOps', url: 'https://kubernetes.io/docs/tutorials/kubernetes-basics/', tag: 'Kubernetes Official Tutorial' },
+        { skill: 'Terraform (Infrastructure as Code)', reason: 'IaC is now standard for all cloud infrastructure management', url: 'https://developer.hashicorp.com/terraform/tutorials', tag: 'HashiCorp Terraform Tutorials' },
+        { skill: 'CI/CD (GitHub Actions / Jenkins)', reason: 'Automating pipelines is the core of every DevOps job', url: 'https://docs.github.com/en/actions/learn-github-actions', tag: 'GitHub Actions Docs' },
+        { skill: 'Linux & Bash Scripting', reason: 'Deep Linux knowledge is essential for any server/infrastructure role', url: 'https://linuxcommand.org/lc3_learning_the_shell.php', tag: 'Linux Command (Free)' },
+        { skill: 'AWS / GCP Cloud Services', reason: 'Cloud certifications dramatically improve DevOps job market value', url: 'https://aws.amazon.com/certification/', tag: 'AWS Certification Guide' },
+        { skill: 'Monitoring (Prometheus + Grafana)', reason: 'Observability is critical for production system health', url: 'https://grafana.com/tutorials/', tag: 'Grafana Tutorials (Free)' },
+      ],
+      companies: {
+        high:  [{ name: 'Netflix Technology', type: 'enterprise', url: 'https://jobs.netflix.com', reason: 'Pioneered chaos engineering and advanced DevOps — best-in-class for senior DevOps' }, { name: 'CloudSEK', type: 'startup', url: 'https://cloudsek.com/careers', reason: 'Cybersecurity startup with strong DevOps and cloud security practice' }, { name: 'Razorpay DevOps', type: 'mid-size', url: 'https://razorpay.com/jobs/', reason: 'High-scale payment infrastructure with excellent DevOps engineering culture' }],
+        mid:   [{ name: 'Akamai Technologies', type: 'enterprise', url: 'https://www.akamai.com/careers', reason: 'CDN and cloud company — ideal DevOps environment for mid-level engineers' }, { name: 'Clarisights', type: 'startup', url: 'https://clarisights.com/careers/', reason: 'Data platform startup with modern DevOps stack' }, { name: 'Indeed India', type: 'mid-size', url: 'https://indeed.com/cmp/Indeed/jobs', reason: 'Job platform with solid infrastructure engineering team' }],
+        low:   [{ name: 'NTT Data', type: 'enterprise', url: 'https://www.nttdata.com/global/en/careers', reason: 'Good structured DevOps training for entry-level engineers' }, { name: 'Mphasis', type: 'enterprise', url: 'https://www.mphasis.com/careers.html', reason: 'IT firm with cloud and DevOps service lines for freshers' }, { name: 'Xoriant', type: 'mid-size', url: 'https://www.xoriant.com/careers', reason: 'Engineering and technology solutions firm with DevOps team' }]
+      },
+      strengths_high: ['Strong cloud infrastructure knowledge', 'Good understanding of CI/CD pipeline design', 'Security-conscious approach to systems management'],
+      strengths_mid:  ['Comfortable with Docker and basic Kubernetes', 'Understands Linux administration', 'Familiar with cloud fundamentals'],
+      strengths_low:  ['Basic awareness of DevOps concepts and terminology', 'Interest in automation and infrastructure', 'Good foundation for structured DevOps training'],
+      weaknesses_high: ['Deepen SRE practices — SLOs, SLAs, error budgets', 'Expand multi-cloud (AWS + GCP) knowledge', 'Explore FinOps and cloud cost optimization'],
+      weaknesses_mid:  ['Terraform and IaC need more hands-on practice', 'Monitoring and alerting setup needs work', 'Kubernetes at scale (stateful sets, networking) needs improvement'],
+      weaknesses_low:  ['Must start with Linux and Bash fundamentals', 'Learn Docker from scratch — build and deploy a containerized app', 'Get AWS Cloud Practitioner certification as first milestone'],
+    },
+
+    'UI/UX Designer': {
+      skills: [
+        { skill: 'Figma (Prototyping & Design Systems)', reason: 'Figma is the industry standard for UI design — mastery is non-negotiable', url: 'https://help.figma.com/hc/en-us/categories/360002051613-Getting-started', tag: 'Figma Official Tutorials' },
+        { skill: 'User Research Methods', reason: 'Designs backed by user research create better products', url: 'https://www.nngroup.com/articles/which-ux-research-methods/', tag: 'Nielsen Norman Group (Free)' },
+        { skill: 'Accessibility (WCAG Guidelines)', reason: 'Inclusive design is now mandated by many governments and companies', url: 'https://www.w3.org/WAI/WCAG21/quickref/', tag: 'W3C WCAG Quick Reference' },
+        { skill: 'Design Systems (Atomic Design)', reason: 'Scalable design systems are expected in mid-to-large product teams', url: 'https://atomicdesign.bradfrost.com/', tag: 'Atomic Design by Brad Frost' },
+        { skill: 'Usability Testing', reason: 'Validating designs with real users reduces costly rework', url: 'https://www.usability.gov/how-to-and-tools/methods/usability-testing.html', tag: 'Usability.gov Guide' },
+        { skill: 'Motion Design (Principle / After Effects)', reason: 'Micro-animations and transitions are now expected in premium products', url: 'https://www.youtube.com/c/DesignCourse', tag: 'DesignCourse YouTube (Free)' },
+      ],
+      companies: {
+        high:  [{ name: 'Cred', type: 'startup', url: 'https://cred.club/careers', reason: "Known for India's best UI/UX — highly competitive, perfect for senior designers" }, { name: 'Zeta', type: 'startup', url: 'https://zeta.tech/careers', reason: 'Banking and fintech with extraordinary design standards' }, { name: 'Figma (Global)', type: 'enterprise', url: 'https://figma.com/careers', reason: 'The design tool company itself — ultimate destination for top UX designers' }],
+        mid:   [{ name: 'Myntra', type: 'mid-size', url: 'https://careers.myntra.com/', reason: 'Fashion e-commerce with strong design culture and Dresscode design system' }, { name: 'Juspay', type: 'startup', url: 'https://juspay.in/careers', reason: 'Payment UX is a craft — Juspay values design excellence' }, { name: 'Clevertap', type: 'mid-size', url: 'https://clevertap.com/company/careers/', reason: 'Marketing SaaS with complex dashboard and data visualization design' }],
+        low:   [{ name: 'Designshack', type: 'startup', url: 'https://designshack.net', reason: 'Online platform to build design portfolio with tutorials' }, { name: 'Toptal Design', type: 'enterprise', url: 'https://www.toptal.com/designers', reason: 'Freelance platform for UX designers once portfolio is ready' }, { name: 'Razorpay Design Team', type: 'mid-size', url: 'https://razorpay.com/jobs/', reason: 'Product design internships and junior openings available regularly' }]
+      },
+      strengths_high: ['Strong visual hierarchy and layout design skills', 'Deep understanding of user-centered design principles', 'Excellent prototyping and stakeholder communication ability'],
+      strengths_mid:  ['Good Figma skills and component mindset', 'Understands user flows and usability basics', 'Comfortable with design critique and iteration'],
+      strengths_low:  ['Good eye for visual aesthetics', 'Basic Figma or design tool familiarity', 'Eager to learn UI standards and patterns'],
+      weaknesses_high: ['Motion design and interaction animation could be stronger', 'Explore design system governance and contribution', 'Deepen knowledge of accessibility and inclusive design'],
+      weaknesses_mid:  ['User research execution (conducting interviews) needs practice', 'Figma auto-layout and components need deeper knowledge', 'Portfolio case studies should show full design thinking process'],
+      weaknesses_low:  ['Must complete first full design project with user research and testing', 'Figma fundamentals must be thoroughly practiced', 'Build a 3-project portfolio before applying to junior roles'],
+    },
+
+    'Machine Learning Engineer': {
+      skills: [
+        { skill: 'PyTorch for Deep Learning', reason: 'PyTorch dominates ML research and production at most top companies', url: 'https://pytorch.org/tutorials/', tag: 'PyTorch Official Tutorials' },
+        { skill: 'MLOps (MLflow + DVC)', reason: 'Production ML requires versioning, tracking and deployment skills', url: 'https://mlflow.org/docs/latest/index.html', tag: 'MLflow Docs (Free)' },
+        { skill: 'Feature Engineering & EDA', reason: 'Data quality determines model quality — this skill is underrated', url: 'https://www.kaggle.com/learn/feature-engineering', tag: 'Kaggle Feature Engineering' },
+        { skill: 'Transformer Architecture (NLP)', reason: 'LLMs and transformers are reshaping every ML product', url: 'https://huggingface.co/learn/nlp-course/chapter1/1', tag: 'Hugging Face NLP Course (Free)' },
+        { skill: 'Model Deployment (FastAPI + Docker)', reason: 'MLE must be able to ship models as APIs — not just train them', url: 'https://fastapi.tiangolo.com/tutorial/', tag: 'FastAPI Official Docs' },
+        { skill: 'Mathematics (Linear Algebra + Calculus)', reason: 'Understanding math behind ML separates engineers from practitioners', url: 'https://www.khanacademy.org/math/linear-algebra', tag: 'Khan Academy Linear Algebra (Free)' },
+      ],
+      companies: {
+        high:  [{ name: 'Google DeepMind (India)', type: 'enterprise', url: 'https://deepmind.google/about/careers/', reason: 'World leader in AI research — suitable for exceptional ML engineers' }, { name: 'Sarvam AI', type: 'startup', url: 'https://www.sarvam.ai/careers', reason: 'Indian language AI startup — cutting-edge NLP with strong mission' }, { name: 'InMobi', type: 'mid-size', url: 'https://www.inmobi.com/company/careers/', reason: 'Ad-tech with sophisticated ML for targeting and personalization' }],
+        mid:   [{ name: 'Uniphore', type: 'mid-size', url: 'https://www.uniphore.com/company/careers/', reason: 'Conversational AI company with real-world NLP use cases' }, { name: 'Wadhwani AI', type: 'startup', url: 'https://www.wadhwaniai.org/careers', reason: 'AI for social good — health and agriculture ML models' }, { name: 'Locus.sh', type: 'startup', url: 'https://locus.sh/careers/', reason: 'Supply chain AI with complex optimization and routing ML' }],
+        low:   [{ name: 'Kaggle Competition', type: 'startup', url: 'https://www.kaggle.com/competitions', reason: 'Build portfolio by competing in ML challenges before applying to jobs' }, { name: 'Analytics Vidhya Jobs', type: 'mid-size', url: 'https://www.analyticsvidhya.com/jobs/', reason: 'Platform listing ML jobs suited to all levels in India' }, { name: 'Sigmoid Analytics', type: 'mid-size', url: 'https://www.sigmoid.com/careers/', reason: 'Data engineering and ML services firm with entry-level openings' }]
+      },
+      strengths_high: ['Deep understanding of neural network architectures', 'Good grasp of optimization and loss function theory', 'Strong ability to implement and tune production ML models'],
+      strengths_mid:  ['Comfortable with standard ML algorithms and evaluation', 'Good Python and data manipulation skills', 'Understands the training-validation-test pipeline'],
+      strengths_low:  ['Interest in AI and machine learning is clear', 'Basic understanding of supervised learning concepts', 'Good starting foundation for structured ML learning'],
+      weaknesses_high: ['Improve MLOps and model monitoring skills', 'Deepen knowledge of transformers and attention mechanisms', 'Explore reinforcement learning and its production applications'],
+      weaknesses_mid:  ['Deep learning frameworks (PyTorch) need more practice', 'Model deployment and serving knowledge is weak', 'Need to complete at least 2 Kaggle competitions for experience'],
+      weaknesses_low:  ['Must master Python and NumPy/Pandas fundamentals first', 'Complete fast.ai or Andrew Ng ML course before job hunting', 'Build first end-to-end ML project with a real dataset'],
+    },
+
+    'Android Developer': {
+      skills: [
+        { skill: 'Kotlin & Coroutines', reason: 'Kotlin is now the primary language for Android — coroutines are essential for async code', url: 'https://developer.android.com/kotlin/coroutines', tag: 'Android Developers (Official)' },
+        { skill: 'Jetpack Compose', reason: 'Google has replaced XML layouts with Compose — it is the future of Android UI', url: 'https://developer.android.com/jetpack/compose/tutorial', tag: 'Jetpack Compose Tutorial' },
+        { skill: 'MVVM + Clean Architecture', reason: 'Scalable Android apps require proper architecture patterns', url: 'https://developer.android.com/topic/architecture', tag: 'Android Architecture Guide' },
+        { skill: 'Retrofit & OkHttp (Networking)', reason: 'REST API integration is core to virtually every Android app', url: 'https://square.github.io/retrofit/', tag: 'Retrofit Docs' },
+        { skill: 'Room Database', reason: 'Local data persistence using Room is an expected Android skill', url: 'https://developer.android.com/training/data-storage/room', tag: 'Room Persistence Docs' },
+        { skill: 'Firebase (Auth + Firestore)', reason: 'Firebase services accelerate app development and are widely used', url: 'https://firebase.google.com/docs/android/setup', tag: 'Firebase Android Docs' },
+      ],
+      companies: {
+        high:  [{ name: 'PhonePe', type: 'mid-size', url: 'https://www.phonepe.com/careers/', reason: "India's largest payment app — demands top-tier Android engineering" }, { name: 'Dream11', type: 'mid-size', url: 'https://www.dream11.com/careers.html', reason: 'High-scale fantasy sports platform with millions of concurrent Android users' }, { name: 'Google India', type: 'enterprise', url: 'https://careers.google.com', reason: 'Core Android team contributions and high-impact mobile product work' }],
+        mid:   [{ name: 'ShareChat', type: 'mid-size', url: 'https://sharechat.com/careers', reason: 'Social media platform for Bharat — strong Android-first product' }, { name: 'Dailyhunt', type: 'mid-size', url: 'https://www.dailyhunt.in/careers', reason: 'News + content app with large Android user base in India' }, { name: 'Navi', type: 'startup', url: 'https://www.navi.com/careers/', reason: 'Fintech startup with great Android engineering team' }],
+        low:   [{ name: 'Tekion Corp', type: 'mid-size', url: 'https://tekion.com/company/careers', reason: 'Automotive SaaS with structured Android development programs' }, { name: 'Fynd', type: 'startup', url: 'https://careers.fynd.com/', reason: 'Commerce OS startup with entry-level Android openings' }, { name: 'GameDuell India', type: 'startup', url: 'https://www.gameduell.in', reason: 'Mobile gaming company suitable for entry-level Android devs' }]
+      },
+      strengths_high: ['Strong Kotlin and coroutines mastery', 'Excellent Jetpack Compose and Material Design knowledge', 'Clear architecture thinking with MVVM or Clean Architecture'],
+      strengths_mid:  ['Comfortable building Android apps with Activities and Fragments', 'Good understanding of Android lifecycle', 'Familiar with network calls and REST integration'],
+      strengths_low:  ['Basic Android project setup and understanding', 'Familiar with XML layouts', 'Good interest in mobile development'],
+      weaknesses_high: ['Explore multi-module architecture for large apps', 'Improve CI/CD for Android (Fastlane, GitHub Actions)', 'Contribute to open-source Android libraries'],
+      weaknesses_mid:  ['Migrate from XML to Jetpack Compose', 'Strengthen Hilt dependency injection knowledge', 'Learn unit and UI testing with Espresso'],
+      weaknesses_low:  ['Build first complete Android app published to Play Store', 'Learn Kotlin fundamentals thoroughly before frameworks', 'Complete Udacity Android development course'],
+    },
+
+    'iOS Developer': {
+      skills: [
+        { skill: 'Swift & Swift Concurrency (async/await)', reason: 'Modern Swift with structured concurrency is now the standard for iOS', url: 'https://docs.swift.org/swift-book/', tag: 'Swift Official Book (Free)' },
+        { skill: 'SwiftUI', reason: "Apple's declarative UI framework replaces UIKit for most new apps", url: 'https://developer.apple.com/tutorials/swiftui/', tag: 'Apple SwiftUI Tutorials' },
+        { skill: 'Combine Framework (Reactive)', reason: 'Reactive programming with Combine powers modern iOS data flows', url: 'https://developer.apple.com/documentation/combine', tag: 'Apple Combine Docs' },
+        { skill: 'Core Data & CloudKit', reason: 'Persistence layer knowledge is required for data-heavy iOS apps', url: 'https://developer.apple.com/documentation/coredata', tag: 'Core Data Docs' },
+        { skill: 'App Store Submission & TestFlight', reason: 'Shipping apps through App Store is an expected senior iOS skill', url: 'https://developer.apple.com/testflight/', tag: 'Apple TestFlight Guide' },
+        { skill: 'Instruments (Performance Profiling)', reason: 'Memory leaks and battery drain are top app review rejection reasons', url: 'https://developer.apple.com/forums/tags/instruments', tag: 'Apple Developer Forums' },
+      ],
+      companies: {
+        high:  [{ name: 'Swiggy', type: 'mid-size', url: 'https://careers.swiggy.com', reason: 'Consumer app with very high iOS engineering standards and scale' }, { name: 'Apple India', type: 'enterprise', url: 'https://www.apple.com/jobs/in/', reason: 'Contribute to Apple platform developer tools and core iOS SDK' }, { name: 'Zomato', type: 'mid-size', url: 'https://www.zomato.com/careers', reason: 'Food-tech leader with complex iOS real-time delivery features' }],
+        mid:   [{ name: 'Ola', type: 'mid-size', url: 'https://www.olacabs.com/careers', reason: 'Ride-hailing super-app with strong iOS engineering team' }, { name: 'Practo', type: 'mid-size', url: 'https://practojobs.com/', reason: 'HealthTech with complex iOS patient and doctor apps' }, { name: 'Slice', type: 'startup', url: 'https://sliceit.com/careers', reason: 'Fintech startup with a beautiful and performant iOS app' }],
+        low:   [{ name: 'Codecademy iOS Track', type: 'startup', url: 'https://www.codecademy.com/learn/learn-swift', reason: 'Build your Swift skills with structured guided projects' }, { name: 'Outcome Health', type: 'mid-size', url: 'https://www.outcomehealth.com/careers', reason: 'HealthTech with iOS app development roles' }, { name: 'Gojek India', type: 'mid-size', url: 'https://www.gojek.com/en-id/careers/', reason: 'Super-app platform with structured iOS onboarding for junior devs' }]
+      },
+      strengths_high: ['Strong Swift and SwiftUI expertise', 'Clear understanding of Apple design guidelines (HIG)', 'Excellent app performance awareness using Instruments'],
+      strengths_mid:  ['Good foundational Swift programming', 'Comfortable with UIKit and basic SwiftUI', 'Understands iOS app lifecycle well'],
+      strengths_low:  ['Basic Swift syntax knowledge', 'Familiar with Xcode environment', 'Good curiosity about Apple platform development'],
+      weaknesses_high: ['Explore SwiftUI + Combine deeper integration patterns', 'Contribute to open-source iOS frameworks on GitHub', 'Improve knowledge of App Store optimization (ASO)'],
+      weaknesses_mid:  ['Transition from UIKit to SwiftUI more aggressively', 'Implement proper async/await concurrency in projects', 'Ship a complete app to the App Store as portfolio piece'],
+      weaknesses_low:  ['Complete Apple SwiftUI tutorials from scratch', 'Build and publish first iOS app to App Store', 'Study Apple Human Interface Guidelines thoroughly'],
+    },
+
+    'QA Engineer': {
+      skills: [
+        { skill: 'Selenium & WebDriver', reason: 'Most widely used browser automation framework in the industry', url: 'https://www.selenium.dev/documentation/', tag: 'Selenium Official Docs' },
+        { skill: 'API Testing with Postman', reason: 'API testing is now a core QA skill at every software company', url: 'https://learning.postman.com/docs/getting-started/introduction/', tag: 'Postman Learning Center' },
+        { skill: 'Test Automation Framework Design', reason: 'Writing maintainable, scalable test frameworks separates senior QA', url: 'https://testng.org/doc/', tag: 'TestNG Docs' },
+        { skill: 'Performance Testing (JMeter)', reason: 'Load testing is expected in QA roles at any company with scale', url: 'https://jmeter.apache.org/usermanual/get-started.html', tag: 'Apache JMeter Guide' },
+        { skill: 'SQL for QA (Test Data Management)', reason: 'Writing SQL queries to verify data integrity is a critical QA skill', url: 'https://sqlzoo.net/', tag: 'SQLZoo (Free Interactive)' },
+        { skill: 'Behavior-Driven Development (Cucumber)', reason: 'BDD connects QA with business requirements — expected at product companies', url: 'https://cucumber.io/docs/guides/10-minute-tutorial/', tag: 'Cucumber 10-min Tutorial' },
+      ],
+      companies: {
+        high:  [{ name: 'Browserstack', type: 'mid-size', url: 'https://www.browserstack.com/careers', reason: 'The leading cross-browser testing platform — ideal for senior QA engineers' }, { name: 'Microsoft India SDET', type: 'enterprise', url: 'https://careers.microsoft.com', reason: 'Large-scale SDET/QA roles with cutting-edge automation tools' }, { name: 'Atlassian India', type: 'enterprise', url: 'https://www.atlassian.com/company/careers', reason: 'Developer tools with excellent QA engineering culture' }],
+        mid:   [{ name: 'Testlio', type: 'mid-size', url: 'https://testlio.com/company/careers/', reason: 'QA-as-a-service company — great for experienced QA engineers' }, { name: 'Mfine', type: 'startup', url: 'https://mfine.co/careers/', reason: 'HealthTech startup with complex testing challenges across platforms' }, { name: 'Darwinbox', type: 'mid-size', url: 'https://darwinbox.com/careers', reason: 'HR SaaS with growing QA automation team' }],
+        low:   [{ name: 'QA Wolf', type: 'startup', url: 'https://www.qawolf.com/careers', reason: 'QA automation company with structured entry-level programs' }, { name: 'Testbook', type: 'startup', url: 'https://testbook.com/careers', reason: 'EdTech with entry-level SDET positions' }, { name: 'Mphasis QA Practice', type: 'enterprise', url: 'https://www.mphasis.com/careers.html', reason: 'IT firm with structured QA onboarding and certification paths' }]
+      },
+      strengths_high: ['Strong test strategy and risk-based testing mindset', 'Excellent automation framework design knowledge', 'Good at performance, security and regression testing'],
+      strengths_mid:  ['Comfortable with basic test case design and execution', 'Familiar with SDLC and bug lifecycle management', 'Good API testing fundamentals with Postman'],
+      strengths_low:  ['Understanding of QA basics and test planning', 'Familiarity with bug reporting tools (Jira, Bugzilla)', 'Good attention to detail for manual testing'],
+      weaknesses_high: ['Explore AI-powered test generation tools', 'Improve CI/CD integration with test automation pipelines', 'Deepen security testing and penetration testing knowledge'],
+      weaknesses_mid:  ['Build first Selenium + TestNG automation framework', 'SQL query writing for test data verification needs improvement', 'Performance testing with JMeter needs hands-on practice'],
+      weaknesses_low:  ['Must strengthen SQL for data-layer verification', 'Build first automated test suite even for a simple web page', 'Get ISTQB Foundation Level certification as first milestone'],
+    },
+  };
+
+  // ── MATCH POSITION ──────────────────────────────────────────────────────────
+  const KEY = Object.keys(SKILLS_DB).find(k => k.toLowerCase() === pos.toLowerCase()) || 'Software Engineer';
+  const data = SKILLS_DB[KEY];
+
+  // ── PICK TOP 3 SKILLS (shuffle for variety) ─────────────────────────────────
+  const shuffledSkills = data.skills.sort(() => Math.random() - 0.5).slice(0, 3);
+  const improvements = shuffledSkills.map(s => ({
+    skill: s.skill,
+    reason: s.reason,
+    url: s.url,
+    resource: `${s.tag} → ${s.url}`
+  }));
+
+  // ── COMPANIES ───────────────────────────────────────────────────────────────
+  const suitableCompanies = data.companies[tier];
+
+  // ── SCORE-ADAPTIVE STRENGTHS / WEAKNESSES ───────────────────────────────────
+  const strengths = data[`strengths_${tier}`];
+  const weaknesses = data[`weaknesses_${tier}`];
+
+  // ── INDIVIDUAL SCORE INSIGHTS ───────────────────────────────────────────────
+  const lowScores = [];
+  if (resumeScore < 60) lowScores.push('resume presentation');
+  if (quizScore < 60) lowScores.push('technical knowledge');
+  if (interviewScore < 60) lowScores.push('interview communication');
+
+  const nextSteps = tier === 'high'
+    ? `Excellent performance across all assessment areas! Focus on ${improvements[0].skill} and ${improvements[1].skill} to reach the next career level. Apply with confidence to mid-level and senior positions at top-tier companies listed above.`
+    : tier === 'mid'
+    ? `Good overall performance${lowScores.length ? `, with opportunity to improve your ${lowScores.join(' and ')}` : ''}. Prioritize hands-on projects in ${improvements[0].skill} over the next 60 days and target mid-level roles. Build 2 strong portfolio projects before applying.`
+    : `Focus on foundational skills: ${improvements.map(i => i.skill).join(', ')}. Spend 90 days building core competency before actively job-hunting. Starting with open-source contributions and freelance projects will significantly boost your profile.`;
+
+  return { strengths, weaknesses, improvements, suitableCompanies, nextSteps };
+}
+
+app.post('/api/career-advice', (req, res) => {
+  try {
+    const { candidateData, position } = req.body;
+    const {
+      resumeScore = 0, quizScore = 0, interviewScore = 0,
+      videoInterviewScore = 0, uploadVideoScore = 0
+    } = candidateData || {};
+
+    const totalScore = Math.round(
+      (resumeScore + quizScore + interviewScore + videoInterviewScore + uploadVideoScore) / 5
+    );
+
+    const advice = generateLocalCareerAdvice(
+      position, totalScore, resumeScore, quizScore, interviewScore
+    );
+
+    return res.json({ success: true, advice });
+  } catch (error) {
+    console.error('Career advice error:', error);
+    res.status(500).json({ error: 'Failed to generate career advice' });
+  }
+});
+
+// ==================== RECRUITER PANEL ====================
+const DUMMY_CANDIDATES = [
+  { id: 101, name: 'Arjun Sharma', email: 'arjun.sharma@example.com', position: 'Software Engineer', resumeScore: 88, quizScore: 82, interviewScore: 79, videoInterviewScore: 91, uploadVideoScore: 85, totalScore: 85, createdAt: '2026-03-01T09:00:00Z', status: 'shortlisted' },
+  { id: 102, name: 'Priya Nair', email: 'priya.nair@example.com', position: 'Data Scientist', resumeScore: 93, quizScore: 90, interviewScore: 88, videoInterviewScore: 86, uploadVideoScore: 90, totalScore: 89, createdAt: '2026-03-02T10:30:00Z', status: 'shortlisted' },
+  { id: 103, name: 'Rahul Mehta', email: 'rahul.mehta@example.com', position: 'Frontend Developer', resumeScore: 72, quizScore: 68, interviewScore: 74, videoInterviewScore: 70, uploadVideoScore: 71, totalScore: 71, createdAt: '2026-03-03T11:00:00Z', status: 'review' },
+  { id: 104, name: 'Sneha Kapoor', email: 'sneha.kapoor@example.com', position: 'Product Manager', resumeScore: 85, quizScore: 88, interviewScore: 92, videoInterviewScore: 89, uploadVideoScore: 87, totalScore: 88, createdAt: '2026-03-04T14:00:00Z', status: 'shortlisted' },
+  { id: 105, name: 'Vikram Singh', email: 'vikram.singh@example.com', position: 'Backend Developer', resumeScore: 60, quizScore: 55, interviewScore: 62, videoInterviewScore: 58, uploadVideoScore: 60, totalScore: 59, createdAt: '2026-03-05T09:30:00Z', status: 'rejected' },
+  { id: 106, name: 'Aisha Khan', email: 'aisha.khan@example.com', position: 'UI/UX Designer', resumeScore: 91, quizScore: 87, interviewScore: 85, videoInterviewScore: 93, uploadVideoScore: 89, totalScore: 89, createdAt: '2026-03-06T10:00:00Z', status: 'shortlisted' },
+  { id: 107, name: 'Rohit Verma', email: 'rohit.verma@example.com', position: 'DevOps Engineer', resumeScore: 76, quizScore: 80, interviewScore: 73, videoInterviewScore: 77, uploadVideoScore: 75, totalScore: 76, createdAt: '2026-03-07T13:00:00Z', status: 'review' },
+  { id: 108, name: 'Meera Patel', email: 'meera.patel@example.com', position: 'Full Stack Developer', resumeScore: 95, quizScore: 92, interviewScore: 90, videoInterviewScore: 94, uploadVideoScore: 93, totalScore: 93, createdAt: '2026-03-08T09:00:00Z', status: 'hired' },
+];
+
+app.get('/api/recruiter/candidates', authenticateToken, async (req, res) => {
+  try {
+    // Merge real candidates with dummy data
+    const realCandidates = candidates.map(c => ({
+      ...c,
+      totalScore: Math.round(((c.resumeScore || 0) + (c.quizScore || 0) + (c.interviewScore || 0) + (c.videoInterviewScore || 0) + (c.uploadVideoScore || 0)) / 5),
+      status: c.status || 'review'
+    }));
+    const allCandidates = [...DUMMY_CANDIDATES, ...realCandidates];
+    res.json({ success: true, candidates: allCandidates });
+  } catch (error) {
+    console.error('Recruiter candidates error:', error);
+    res.status(500).json({ error: 'Failed to fetch candidates' });
+  }
+});
+
+// ==================== AI-POWERED TEXT INTERVIEW ENGINE ====================
+
+// Start a new interview session — generates questions tailored to the position
+app.post('/api/interview/start', async (req, res) => {
+  try {
+    const { candidateId, position, candidateName } = req.body;
+
+    const sessionId = `interview_${candidateId}_${Date.now()}`;
+
+    const systemPrompt = `You are Alex, a senior technical recruiter at a top tech company. 
+You are conducting a professional job interview for a ${position} position.
+Your style: professional yet warm, ask follow-up questions, probe depth of knowledge.
+Always acknowledge the candidate's answer before asking the next question.`;
+
+    const prompt = `Generate an opening greeting and the first interview question for ${candidateName || 'the candidate'} 
+applying for the ${position} role.
+
+Return ONLY valid JSON:
+{
+  "sessionId": "${sessionId}",
+  "message": "Your warm opening greeting + first question",
+  "questionNumber": 1,
+  "totalQuestions": 5
+}
+
+The first question should assess their motivation and background for this role.`;
+
+    try {
+      const response = await callAI(prompt, systemPrompt);
+      const cleaned = response.replace(/```json|```/g, '').trim();
+      const parsed = JSON.parse(cleaned);
+      return res.json({ success: true, ...parsed });
+    } catch {
+      // Fallback opening question
+      return res.json({
+        success: true,
+        sessionId,
+        message: `Hello ${candidateName || 'there'}! Welcome, and thank you for taking the time to interview with us today. I'm Alex, and I'll be conducting your interview for the ${position} position. Let's start with a classic — could you walk me through your background and tell me what drew you to this ${position} role specifically?`,
+        questionNumber: 1,
+        totalQuestions: 5
+      });
+    }
+  } catch (error) {
+    console.error('Interview start error:', error);
+    res.status(500).json({ error: 'Failed to start interview' });
+  }
+});
+
+// Process an interview message and return AI response + score
+app.post('/api/interview/message', async (req, res) => {
+  try {
+    const { position, candidateName, questionNumber, totalQuestions, userMessage, conversationHistory } = req.body;
+
+    const isLastQuestion = questionNumber >= totalQuestions;
+
+    const systemPrompt = `You are Alex, a senior technical recruiter interviewing ${candidateName || 'a candidate'} for a ${position} position.
+Be professional, insightful, and evaluate answers for: technical depth, communication clarity, relevant experience, and problem-solving.
+Acknowledge what was good about their answer, then ${isLastQuestion ? 'wrap up the interview warmly' : 'ask the next question which should go deeper on a different aspect of the role'}.`;
+
+    const historyText = (conversationHistory || []).slice(-6).map(m =>
+      `${m.role === 'user' ? 'Candidate' : 'Interviewer'}: ${m.content}`
+    ).join('\n');
+
+    const nextTopics = {
+      2: 'a specific technical challenge or project they are proud of',
+      3: 'how they handle conflict, pressure, or ambiguity at work',
+      4: 'their approach to learning new technologies or skills',
+      5: 'where they see themselves in 3 years and why this company'
+    };
+    const nextTopic = nextTopics[questionNumber + 1] || 'their strengths and areas of growth';
+
+    const prompt = `Conversation so far:
+${historyText}
+
+Candidate just said: "${userMessage}"
+This was question ${questionNumber} of ${totalQuestions}.
+
+${isLastQuestion
+  ? 'This is the final question. Evaluate their answer, thank them warmly, and tell them next steps.'
+  : `Acknowledge their answer specifically (mention something they said), score it mentally, then ask question ${questionNumber + 1} about: ${nextTopic}.`
+}
+
+Return ONLY this JSON:
+{
+  "message": "Your response as Alex the interviewer",
+  "answerScore": <number 0-100 rating how well they answered this specific question>,
+  "scoreFeedback": "<one sentence explaining the score>",
+  "isComplete": ${isLastQuestion},
+  "questionNumber": ${isLastQuestion ? questionNumber : questionNumber + 1}
+}`;
+
+    try {
+      const response = await callAI(prompt, systemPrompt);
+      const cleaned = response.replace(/```json|```/g, '').trim();
+      const parsed = JSON.parse(cleaned);
+      return res.json({ success: true, ...parsed });
+    } catch {
+      // Smart fallback
+      const fallbackScore = userMessage.length > 150 ? 72 : userMessage.length > 80 ? 60 : 45;
+      const fallbackMessages = [
+        `Thank you for sharing that. It's great to see your ${position}-related experience. Now, tell me about a specific technical challenge you've overcome — what was the situation and how did you approach solving it?`,
+        `Interesting perspective! Handling challenges well is key in this role. How do you typically manage stress or tight deadlines? Can you give me a real example?`,
+        `That's a solid answer. Continuous learning is crucial in tech. What's the last new technology or tool you learned, and how did you apply it?`,
+        `Great to hear your growth mindset. Last question — where do you see yourself in 3 years, and why does this ${position} role fit your career path?`,
+        `Thank you so much for your time today! You've given thoughtful answers throughout our conversation. Our team will review everything and get back to you within 5-7 business days. Best of luck!`
+      ];
+      return res.json({
+        success: true,
+        message: fallbackMessages[questionNumber - 1] || fallbackMessages[fallbackMessages.length - 1],
+        answerScore: fallbackScore,
+        scoreFeedback: userMessage.length > 150 ? 'Detailed and well-structured answer.' : 'Answer could be more detailed with specific examples.',
+        isComplete: isLastQuestion,
+        questionNumber: isLastQuestion ? questionNumber : questionNumber + 1
+      });
+    }
+  } catch (error) {
+    console.error('Interview message error:', error);
+    res.status(500).json({ error: 'Failed to process interview message' });
+  }
+});
+
+// Save final interview score for a candidate
+app.post('/api/candidates/:id/interview-score', async (req, res) => {
+  try {
+    const candidateId = parseInt(req.params.id);
+    const candidate = candidates.find(c => c.id === candidateId);
+    if (!candidate) return res.status(404).json({ error: 'Candidate not found' });
+
+    const { score } = req.body;
+    candidate.interviewScore = Math.round(score);
+    candidate.interviewCompletedAt = new Date().toISOString();
+    await saveCandidates();
+
+    res.json({ success: true, interviewScore: candidate.interviewScore });
+  } catch (error) {
+    console.error('Save interview score error:', error);
+    res.status(500).json({ error: 'Failed to save interview score' });
+  }
+});
+
 // ==================== HEALTH CHECK ====================
 app.get('/api/health', (req, res) => {
+  const aiProvider = process.env.OPENROUTER_API_KEY
+    ? `openrouter (${process.env.OPENROUTER_MODEL || 'mistralai/mistral-7b-instruct:free'})`
+    : process.env.AI_PROVIDER || 'gemini';
   res.json({
     status: 'ok',
     timestamp: new Date().toISOString(),
-    aiProvider: process.env.AI_PROVIDER || 'gemini'
+    aiProvider,
+    openRouter: !!process.env.OPENROUTER_API_KEY,
+    cloudStorage: useGCS
   });
 });
+
 
 // ==================== START SERVER ====================
 async function startServer() {
