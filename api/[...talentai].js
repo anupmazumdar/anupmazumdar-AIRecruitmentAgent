@@ -1213,7 +1213,8 @@ app.post('/api/candidates/:id/resume', upload.single('resume'), async (req, res)
     // AI analysis with focus on projects
     const prompt = `Analyze this resume for a ${candidate.position} position. 
 
-**SPECIAL FOCUS: Real-Life Projects**
+**SPECIAL FOCUS: ATS Friendliness & Real-Life Projects**
+Evaluate if the resume is ATS-friendly. If it's not (e.g., poor formatting, lack of keywords), provide specific suggestions on how to improve it.
 Pay special attention to identifying and evaluating practical projects, real-world experience, and hands-on work.
 
 Resume Text:
@@ -1238,19 +1239,21 @@ Provide analysis in this EXACT JSON format:
   ],
   "improvements": [
     "Add more quantifiable metrics to projects",
-    "Include project outcomes and results"
+    "Include project outcomes and results",
+    "How to make resume more ATS friendly if ATS score is low"
   ],
   "projectAnalysis": "Detailed evaluation of hands-on experience and practical skills demonstrated through projects"
 }
 
 Focus on:
-1. Identifying ALL real-life projects (personal, professional, open-source, freelance)
-2. Technologies and tools used in practice
-3. Problem-solving demonstrated through projects
-4. Impact and outcomes of project work
-5. Hands-on technical skills vs theoretical knowledge`;
+1. ATS Friendliness: Is the format clean? Are there enough keywords? If the score is low, suggest how to make it better in 'improvements'.
+2. Identifying ALL real-life projects (personal, professional, open-source, freelance).
+3. Technologies and tools used in practice.
+4. Problem-solving demonstrated through projects.
+5. Impact and outcomes of project work.
+6. Hands-on technical skills vs theoretical knowledge.`;
 
-    const systemPrompt = "You are TalentAI, an expert ATS system that specializes in evaluating practical project experience. Return only valid JSON.";
+    const systemPrompt = "You are TalentAI, an expert ATS system that specializes in evaluating ATS formatting and practical project experience. Return only valid JSON.";
 
     try {
       const analysis = await callAI(prompt, systemPrompt);
@@ -1701,7 +1704,7 @@ function generateLocalCareerAdvice(position, totalScore, resumeScore, quizScore,
   return { strengths, weaknesses, improvements, suitableCompanies, nextSteps };
 }
 
-app.post('/api/career-advice', (req, res) => {
+app.post('/api/career-advice', async (req, res) => {
   try {
     const { candidateData, position } = req.body;
     const {
@@ -1713,9 +1716,62 @@ app.post('/api/career-advice', (req, res) => {
       (resumeScore + quizScore + interviewScore + videoInterviewScore + uploadVideoScore) / 5
     );
 
+    const hasApiKey = process.env.OPENROUTER_API_KEY || process.env.GOOGLE_GEMINI_API_KEY || process.env.OPENAI_API_KEY;
+
+    if (hasApiKey) {
+      // Use AI for dynamic generation
+      const prompt = `Generate a personalized career roadmap for a ${position} candidate.
+Their overall performance score across all assessments is ${totalScore}/100.
+Their individual scores are: Resume: ${resumeScore}, Quiz: ${quizScore}, Interview: ${interviewScore}.
+
+Provide an EXACT JSON response with the following format NO MARKDOWN and do not add any additional text or formatting:
+{
+  "strengths": ["string", "string"],
+  "weaknesses": ["string", "string"],
+  "improvements": [
+    {
+      "skill": "Specific skill name",
+      "reason": "Why they need this",
+      "url": "https://actual-course-or-video-url.com",
+      "resource": "Name of the resource (e.g., Course, Video, Website)"
+    }
+  ],
+  "suitableCompanies": [
+    {
+      "name": "Company Name",
+      "type": "startup", // "startup", "mid-size", or "enterprise"
+      "reason": "Why this company is a good fit and if they are known to be hiring",
+      "url": "https://careers.company.com"
+    }
+  ],
+  "nextSteps": "A personalized action plan paragraph. MUST INCLUDE specific advice on how to improve their GitHub, LinkedIn, and other professional profiles to stand out."
+}
+
+INSTRUCTIONS:
+1. Provide exactly 3 specific structured "improvements" linking to real courses, videos, or websites.
+2. Suggest exactly 3 real companies ("suitableCompanies") that match their skill level (${totalScore}/100) and indicate if they are actively hiring for ${position}.
+3. Create a detailed "nextSteps" paragraph that evaluates their scores and tells them EXACTLY how to improve their GitHub, LinkedIn, or portfolio.`
+
+      const systemPrompt = "You are a top-tier technical career coach. Return ONLY valid JSON.";
+      
+      try {
+        const response = await callAI(prompt, systemPrompt);
+        let cleaned = response.replace(/```json|```/g, '').trim();
+        const match = cleaned.match(/\{[\s\S]*\}/);
+        if (match) cleaned = match[0];
+        const advice = JSON.parse(cleaned);
+        return res.json({ success: true, advice });
+      } catch (aiError) {
+        console.error('AI career advice error, falling back locally', aiError);
+      }
+    }
+
+    // Fallback local logic
     const advice = generateLocalCareerAdvice(
       position, totalScore, resumeScore, quizScore, interviewScore
     );
+    // Append the profile improvement note for fallback
+    advice.nextSteps += " Lastly, make sure to improve your GitHub by pinning real-world projects with detailed READMEs, and optimize your LinkedIn by highlighting exact technologies and quantifiable achievements.";
 
     return res.json({ success: true, advice });
   } catch (error) {
