@@ -1561,7 +1561,7 @@ function TechnicalQuizStage({ candidateData, setCandidateData, setStage }) {
         const res = await fetch(`${API_URL}/api/generate-quiz`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({ position: candidateData.position, numQuestions: 10 })
+          body: JSON.stringify({ position: candidateData.position, numQuestions: TOTAL_QUESTIONS })
         });
         const data = await res.json();
         if (data.success) { setQuestions(data.questions); setSource('fallback'); }
