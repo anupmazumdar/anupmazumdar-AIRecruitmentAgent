@@ -145,6 +145,8 @@ export default function AIRecruitmentAgent() {
             authState={authState}
             logout={logout}
           />
+        ) : userType === 'superadmin' ? (
+          <SuperAdminDashboard authState={authState} logout={logout} />
         ) : (
           <RecruiterDashboard
             setUserType={setUserType}
@@ -1497,269 +1499,251 @@ function UploadVideoStage({ candidateData, setCandidateData, setStage }) {
 
 // ==================== TECHNICAL QUIZ STAGE ====================
 function TechnicalQuizStage({ candidateData, setCandidateData, setStage }) {
+  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
+  const TOTAL_QUESTIONS = 30;
+  const TIME_LIMIT = 30 * 60; // 30 minutes in seconds
+
   const [loading, setLoading] = useState(true);
   const [questions, setQuestions] = useState([]);
   const [currentQuestion, setCurrentQuestion] = useState(0);
   const [answers, setAnswers] = useState({});
   const [quizComplete, setQuizComplete] = useState(false);
   const [score, setScore] = useState(0);
+  const [timeLeft, setTimeLeft] = useState(TIME_LIMIT);
+  const [source, setSource] = useState('');
+  const [reviewPage, setReviewPage] = useState(0);
+  const timerRef = useRef(null);
+  const REVIEW_PER_PAGE = 10;
 
+  useEffect(() => { generateQuestions(); }, []);
+
+  // Countdown timer
   useEffect(() => {
-    generateQuestions();
-  }, []);
+    if (!loading && !quizComplete && questions.length > 0) {
+      timerRef.current = setInterval(() => {
+        setTimeLeft(prev => {
+          if (prev <= 1) {
+            clearInterval(timerRef.current);
+            calculateScore();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(timerRef.current);
+  }, [loading, quizComplete, questions]);
+
+  const formatTime = (secs) => {
+    const m = Math.floor(secs / 60).toString().padStart(2, '0');
+    const s = (secs % 60).toString().padStart(2, '0');
+    return `${m}:${s}`;
+  };
 
   const generateQuestions = async () => {
     setLoading(true);
     try {
-      const apiKey = process.env.REACT_APP_GEMINI_API_KEY || 'AIzaSyCBgr0CY6Q8o7l6Nxzl4wA7M4TdFLR-m6w';
-
-      const response = await fetch(
-        `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`,
-        {
+      const res = await fetch(`${API_URL}/api/generate-quiz`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ position: candidateData.position, numQuestions: TOTAL_QUESTIONS })
+      });
+      const data = await res.json();
+      if (data.success && data.questions?.length > 0) {
+        setQuestions(data.questions);
+        setSource(data.source || 'ai');
+      } else {
+        throw new Error('No questions returned');
+      }
+    } catch {
+      // Inline fallback — fetch from backend's built-in bank
+      try {
+        const res = await fetch(`${API_URL}/api/generate-quiz`, {
           method: 'POST',
           headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            contents: [{
-              parts: [{
-                text: `Generate 5 technical multiple-choice questions for a ${candidateData.position} position. 
-                
-Return ONLY a valid JSON array with this exact structure (no markdown, no extra text):
-[
-  {
-    "question": "Question text here?",
-    "options": ["Option A", "Option B", "Option C", "Option D"],
-    "correctAnswer": 0
-  }
-]
-
-Make questions practical and position-specific.`
-              }]
-            }],
-            generationConfig: {
-              temperature: 0.7,
-              maxOutputTokens: 2048
-            }
-          })
-        }
-      );
-
-      const data = await response.json();
-      let aiResponse = data.candidates[0].content.parts[0].text;
-
-      // Clean up response
-      aiResponse = aiResponse.replace(/```json\n?/g, '').replace(/```\n?/g, '').trim();
-      const generatedQuestions = JSON.parse(aiResponse);
-
-      setQuestions(generatedQuestions);
-    } catch (error) {
-      console.error('Error generating questions:', error);
-      // Fallback questions
-      setQuestions(getFallbackQuestions(candidateData.position));
+          body: JSON.stringify({ position: candidateData.position, numQuestions: 10 })
+        });
+        const data = await res.json();
+        if (data.success) { setQuestions(data.questions); setSource('fallback'); }
+      } catch { setQuestions([]); }
     } finally {
       setLoading(false);
     }
   };
 
-  const getFallbackQuestions = (position) => {
-    const questions = {
-      "Software Engineer": [
-        {
-          question: "What is the time complexity of binary search?",
-          options: ["O(n)", "O(log n)", "O(n²)", "O(1)"],
-          correctAnswer: 1
-        },
-        {
-          question: "Which data structure uses LIFO principle?",
-          options: ["Queue", "Stack", "Tree", "Hash Table"],
-          correctAnswer: 1
-        },
-        {
-          question: "What does REST stand for?",
-          options: ["Remote Execution Standard Transfer", "Representational State Transfer", "Real-time Execution State Transfer", "Resource Execution State Transfer"],
-          correctAnswer: 1
-        },
-        {
-          question: "Which HTTP method is idempotent?",
-          options: ["POST", "PUT", "PATCH", "All of the above"],
-          correctAnswer: 1
-        },
-        {
-          question: "What is the purpose of version control systems?",
-          options: ["Code backup only", "Track changes and collaboration", "Compile code", "Debug applications"],
-          correctAnswer: 1
-        }
-      ],
-      "Data Scientist": [
-        {
-          question: "What is overfitting in machine learning?",
-          options: ["Model performs well on training data but poorly on test data", "Model performs poorly on all data", "Model is too simple", "Model training takes too long"],
-          correctAnswer: 0
-        },
-        {
-          question: "Which algorithm is best for classification?",
-          options: ["Linear Regression", "K-Means", "Random Forest", "PCA"],
-          correctAnswer: 2
-        },
-        {
-          question: "What does SQL stand for?",
-          options: ["Simple Query Language", "Structured Query Language", "System Query Language", "Standard Query Logic"],
-          correctAnswer: 1
-        },
-        {
-          question: "What is the purpose of cross-validation?",
-          options: ["Speed up training", "Assess model performance", "Reduce features", "Clean data"],
-          correctAnswer: 1
-        },
-        {
-          question: "What is a confusion matrix used for?",
-          options: ["Data cleaning", "Feature selection", "Evaluating classification models", "Optimizing hyperparameters"],
-          correctAnswer: 2
-        }
-      ]
-    };
-
-    return questions[position] || questions["Software Engineer"];
-  };
-
-  const handleAnswer = (optionIndex) => {
-    setAnswers({ ...answers, [currentQuestion]: optionIndex });
-  };
-
-  const handleNext = () => {
-    if (currentQuestion < questions.length - 1) {
-      setCurrentQuestion(currentQuestion + 1);
-    } else {
-      calculateScore();
-    }
-  };
-
-  const calculateScore = () => {
+  const calculateScore = (answersOverride) => {
+    clearInterval(timerRef.current);
+    const ans = answersOverride || answers;
     let correct = 0;
-    questions.forEach((q, idx) => {
-      if (answers[idx] === q.correctAnswer) correct++;
-    });
+    questions.forEach((q, idx) => { if (ans[idx] === q.correctAnswer) correct++; });
     const finalScore = Math.round((correct / questions.length) * 100);
     setScore(finalScore);
-    setCandidateData({ ...candidateData, quizScore: finalScore });
+    setCandidateData(prev => ({ ...prev, quizScore: finalScore }));
     setQuizComplete(true);
   };
 
-  if (loading) {
-    return (
-      <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-8 border border-slate-700 text-center">
-        <div className="animate-spin rounded-full h-12 w-12 border-b-2 border-indigo-500 mx-auto mb-4"></div>
-        <p className="text-slate-300">Generating personalized questions for {candidateData.position}...</p>
-        <p className="text-slate-400 text-sm mt-2">This may take 5-10 seconds</p>
+  const handleAnswer = (idx) => setAnswers(prev => ({ ...prev, [currentQuestion]: idx }));
+
+  const handleNext = () => {
+    if (currentQuestion < questions.length - 1) setCurrentQuestion(q => q + 1);
+    else calculateScore();
+  };
+
+  const isTimeLow = timeLeft <= 300 && timeLeft > 0; // last 5 mins
+  const answered = Object.keys(answers).length;
+
+  if (loading) return (
+    <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-10 border border-slate-700 text-center">
+      <div className="w-16 h-16 rounded-full bg-gradient-to-br from-indigo-600 to-purple-600 flex items-center justify-center mx-auto mb-4 animate-pulse">
+        <Sparkles size={28} />
       </div>
-    );
-  }
+      <h3 className="text-xl font-bold mb-2">AI is building your quiz...</h3>
+      <p className="text-slate-400 text-sm">Generating 30 personalized questions for <span className="text-indigo-400 font-semibold">{candidateData.position}</span></p>
+      <p className="text-slate-500 text-xs mt-2">Powered by OpenRouter • This takes ~10 seconds</p>
+    </div>
+  );
 
   if (quizComplete) {
+    const correct = questions.filter((q, i) => answers[i] === q.correctAnswer).length;
+    const pageQuestions = questions.slice(reviewPage * REVIEW_PER_PAGE, (reviewPage + 1) * REVIEW_PER_PAGE);
+    const grade = score >= 80 ? { label: 'Excellent', color: 'text-green-400', bg: 'from-green-900/30 to-emerald-900/30 border-green-600/30' }
+      : score >= 60 ? { label: 'Good', color: 'text-yellow-400', bg: 'from-yellow-900/30 to-amber-900/30 border-yellow-600/30' }
+      : { label: 'Needs Work', color: 'text-red-400', bg: 'from-red-900/30 to-pink-900/30 border-red-600/30' };
     return (
-      <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-8 border border-slate-700">
+      <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-6 border border-slate-700">
         <div className="text-center mb-6">
-          <div className="inline-flex items-center justify-center w-24 h-24 rounded-full bg-gradient-to-br from-indigo-500 to-purple-500 mb-4">
-            <span className="text-3xl font-bold">{score}</span>
+          <div className={`inline-block bg-gradient-to-br ${grade.bg} border rounded-2xl px-8 py-5 mb-3`}>
+            <p className="text-xs text-slate-400 uppercase tracking-widest mb-1">Quiz Score</p>
+            <p className={`text-6xl font-black ${grade.color}`}>{score}</p>
+            <p className="text-slate-300 text-sm font-semibold mt-1">{grade.label} • {correct}/{questions.length} correct</p>
           </div>
-          <h2 className="text-2xl font-bold mb-2">Quiz Complete!</h2>
-          <p className="text-slate-400">You scored {score} out of 100</p>
+          <div className="flex justify-center gap-4 text-sm text-slate-400">
+            <span>✅ {correct} correct</span>
+            <span>❌ {questions.length - correct} wrong</span>
+            <span>⏱ 30 min quiz</span>
+          </div>
         </div>
 
-        <div className="space-y-3 mb-6">
-          {questions.map((q, idx) => (
-            <div key={idx} className={`p-4 rounded-lg border ${answers[idx] === q.correctAnswer ? 'bg-green-900/20 border-green-500/30' : 'bg-red-900/20 border-red-500/30'}`}>
-              <div className="flex items-start gap-2 mb-2">
-                {answers[idx] === q.correctAnswer ? (
-                  <CheckCircle className="text-green-400 flex-shrink-0 mt-1" size={18} />
-                ) : (
-                  <XCircle className="text-red-400 flex-shrink-0 mt-1" size={18} />
-                )}
-                <p className="text-sm font-semibold">{q.question}</p>
-              </div>
-              <p className="text-xs text-slate-400 ml-6">Your answer: {q.options[answers[idx]]}</p>
-              {answers[idx] !== q.correctAnswer && (
-                <p className="text-xs text-green-400 ml-6 mt-1">✓ Correct: {q.options[q.correctAnswer]}</p>
-              )}
+        {/* Compact review */}
+        <div className="mb-4">
+          <div className="flex justify-between items-center mb-3">
+            <h3 className="font-semibold text-slate-300 text-sm">Review — {reviewPage * REVIEW_PER_PAGE + 1}–{Math.min((reviewPage + 1) * REVIEW_PER_PAGE, questions.length)} of {questions.length}</h3>
+            <div className="flex gap-2">
+              <button disabled={reviewPage === 0} onClick={() => setReviewPage(p => p - 1)}
+                className="px-3 py-1 rounded-lg bg-slate-700 text-xs disabled:opacity-40 hover:bg-slate-600 transition-all">← Prev</button>
+              <button disabled={(reviewPage + 1) * REVIEW_PER_PAGE >= questions.length} onClick={() => setReviewPage(p => p + 1)}
+                className="px-3 py-1 rounded-lg bg-slate-700 text-xs disabled:opacity-40 hover:bg-slate-600 transition-all">Next →</button>
             </div>
-          ))}
+          </div>
+          <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
+            {pageQuestions.map((q, i) => {
+              const idx = reviewPage * REVIEW_PER_PAGE + i;
+              const correct = answers[idx] === q.correctAnswer;
+              return (
+                <div key={idx} className={`p-3 rounded-xl border text-sm ${correct ? 'bg-green-900/20 border-green-700/30' : 'bg-red-900/20 border-red-700/30'}`}>
+                  <div className="flex gap-2 items-start">
+                    <span className="flex-shrink-0">{correct ? '✅' : '❌'}</span>
+                    <div className="flex-1 min-w-0">
+                      <p className="font-medium text-white text-xs leading-snug">{q.question}</p>
+                      <p className="text-slate-400 text-xs mt-0.5">Your: {q.options[answers[idx]] || '—'}</p>
+                      {!correct && <p className="text-green-400 text-xs">✓ {q.options[q.correctAnswer]}</p>}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
 
-        <button
-          onClick={() => setStage('interview')}
-          className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg font-semibold hover:from-indigo-500 hover:to-purple-500 transition-all"
-        >
-          Continue to Interview →
+        <button onClick={() => setStage('interview')}
+          className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl font-semibold hover:from-indigo-500 hover:to-purple-500 transition-all shadow-lg shadow-indigo-900/30">
+          Continue to AI Interview →
         </button>
       </div>
     );
   }
 
   const currentQ = questions[currentQuestion];
+  if (!currentQ) return null;
 
   return (
-    <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-8 border border-slate-700">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold">Technical Assessment</h2>
-        <span className="text-slate-400">Question {currentQuestion + 1} of {questions.length}</span>
-      </div>
-
-      {/* Progress bar */}
-      <div className="w-full bg-slate-700 rounded-full h-2 mb-8">
-        <div
-          className="bg-gradient-to-r from-indigo-500 to-purple-500 h-2 rounded-full transition-all duration-300"
-          style={{ width: `${((currentQuestion + 1) / questions.length) * 100}%` }}
-        ></div>
-      </div>
-
-      <div className="mb-8">
-        <p className="text-lg mb-6">{currentQ.question}</p>
-
-        <div className="space-y-3">
-          {currentQ.options.map((option, idx) => (
-            <button
-              key={idx}
-              onClick={() => handleAnswer(idx)}
-              className={`w-full p-4 rounded-lg text-left transition-all border-2 ${answers[currentQuestion] === idx
-                ? 'bg-indigo-600 border-indigo-500 shadow-lg'
-                : 'bg-slate-800/50 border-slate-600 hover:border-indigo-500 hover:bg-slate-800'
-                }`}
-            >
-              <div className="flex items-center gap-3">
-                <div className={`w-6 h-6 rounded-full border-2 flex items-center justify-center ${answers[currentQuestion] === idx ? 'border-white bg-white' : 'border-slate-500'
-                  }`}>
-                  {answers[currentQuestion] === idx && (
-                    <div className="w-3 h-3 rounded-full bg-indigo-600"></div>
-                  )}
-                </div>
-                <span>{option}</span>
-              </div>
-            </button>
-          ))}
+    <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-6 border border-slate-700">
+      {/* Header */}
+      <div className="flex justify-between items-center mb-4">
+        <div>
+          <h2 className="text-xl font-bold">Technical Assessment</h2>
+          <div className="flex items-center gap-2 mt-0.5">
+            <span className="text-slate-400 text-xs">Q {currentQuestion + 1} / {questions.length}</span>
+            {source === 'ai' && <span className="text-xs bg-purple-900/40 text-purple-300 border border-purple-700/30 px-2 py-0.5 rounded-full">✨ AI Generated</span>}
+            {source === 'admin' && <span className="text-xs bg-blue-900/40 text-blue-300 border border-blue-700/30 px-2 py-0.5 rounded-full">📋 Admin Bank</span>}
+          </div>
+        </div>
+        {/* Timer */}
+        <div className={`flex items-center gap-2 px-4 py-2 rounded-xl border font-mono font-bold text-lg transition-all ${
+          isTimeLow ? 'bg-red-900/30 border-red-500/50 text-red-400 animate-pulse' : 'bg-slate-800/60 border-slate-600 text-white'
+        }`}>
+          ⏱ {formatTime(timeLeft)}
         </div>
       </div>
 
-      <div className="space-y-3">
-        <button
-          onClick={handleNext}
-          disabled={answers[currentQuestion] === undefined}
-          className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg font-semibold hover:from-indigo-500 hover:to-purple-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed"
-        >
-          {currentQuestion < questions.length - 1 ? 'Next Question →' : 'Finish Quiz'}
-        </button>
+      {/* Progress bar */}
+      <div className="w-full bg-slate-800 rounded-full h-1.5 mb-1">
+        <div className="bg-gradient-to-r from-indigo-500 to-purple-500 h-1.5 rounded-full transition-all duration-300"
+          style={{ width: `${((currentQuestion + 1) / questions.length) * 100}%` }} />
+      </div>
+      <div className="flex justify-between text-xs text-slate-500 mb-5">
+        <span>{answered} answered</span>
+        <span>{questions.length - answered} remaining</span>
+      </div>
 
-        <button
-          onClick={() => {
-            setCandidateData({ ...candidateData, quizScore: 0 });
-            setStage('interview');
-          }}
-          className="w-full py-2 bg-slate-700 hover:bg-slate-600 rounded-lg font-semibold transition-all text-sm"
-        >
-          Save and Continue →
+      {/* Question */}
+      <p className="text-base font-medium mb-5 leading-relaxed">{currentQ.question}</p>
+
+      {/* Options */}
+      <div className="space-y-2.5 mb-6">
+        {currentQ.options.map((option, idx) => (
+          <button key={idx} onClick={() => handleAnswer(idx)}
+            className={`w-full p-3.5 rounded-xl text-left transition-all border-2 flex items-center gap-3 ${
+              answers[currentQuestion] === idx
+                ? 'bg-indigo-600/30 border-indigo-500 shadow-md'
+                : 'bg-slate-800/40 border-slate-700 hover:border-indigo-500/60 hover:bg-slate-800'
+            }`}>
+            <div className={`w-7 h-7 rounded-full border-2 flex items-center justify-center flex-shrink-0 text-xs font-bold ${
+              answers[currentQuestion] === idx ? 'border-indigo-400 bg-indigo-500 text-white' : 'border-slate-500 text-slate-400'
+            }`}>{['A','B','C','D'][idx]}</div>
+            <span className="text-sm">{option}</span>
+          </button>
+        ))}
+      </div>
+
+      {/* Navigation */}
+      <div className="flex gap-3 mb-4">
+        <button onClick={() => setCurrentQuestion(q => Math.max(0, q - 1))} disabled={currentQuestion === 0}
+          className="flex-1 py-2.5 bg-slate-700/50 hover:bg-slate-700 rounded-xl text-sm font-semibold disabled:opacity-30 transition-all">
+          ← Prev
+        </button>
+        <button onClick={handleNext} disabled={answers[currentQuestion] === undefined}
+          className="flex-[2] py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 hover:from-indigo-500 hover:to-purple-500 rounded-xl font-semibold text-sm disabled:opacity-40 transition-all">
+          {currentQuestion < questions.length - 1 ? 'Next →' : '🏁 Submit Quiz'}
         </button>
       </div>
+
+      {/* Mini question navigator */}
+      <div className="flex flex-wrap gap-1 justify-center">
+        {questions.map((_, i) => (
+          <button key={i} onClick={() => setCurrentQuestion(i)}
+            className={`w-6 h-6 rounded text-[10px] font-bold transition-all ${
+              i === currentQuestion ? 'bg-indigo-500 text-white' :
+              answers[i] !== undefined ? 'bg-green-900/60 text-green-300 border border-green-700/30' :
+              'bg-slate-700 text-slate-400 hover:bg-slate-600'
+            }`}>{i + 1}</button>
+        ))}
+      </div>
+      <p className="text-center text-xs text-slate-500 mt-2">Click any number to jump to that question</p>
     </div>
   );
 }
+
 
 // ==================== TEXT INTERVIEW STAGE ====================
 function TextInterviewStage({ candidateData, setCandidateData, setStage, authState }) {
@@ -2456,6 +2440,260 @@ function ScoreCard({ title, score, icon: Icon }) {
       <Icon className="mx-auto mb-2 text-slate-400" size={24} />
       <div className="text-sm text-slate-400 mb-1">{title}</div>
       <div className={`text-2xl font-bold ${getColor(score)}`}>{score}</div>
+    </div>
+  );
+}
+
+// ==================== SUPER-ADMIN DASHBOARD ====================
+function SuperAdminDashboard({ authState, logout }) {
+  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
+  const [recruiters, setRecruiters] = useState([]);
+  const [stats, setStats] = useState(null);
+  const [candidates, setCandidates] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [search, setSearch] = useState('');
+  const [selectedRecruiter, setSelectedRecruiter] = useState(null);
+  const [activeTab, setActiveTab] = useState('recruiters');
+  const [note, setNote] = useState('');
+  const [saving, setSaving] = useState(null);
+
+  const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authState?.token}` };
+
+  useEffect(() => { fetchAll(); }, []);
+
+  const fetchAll = async () => {
+    setLoading(true);
+    try {
+      const [rRes, sRes, cRes] = await Promise.all([
+        fetch(`${API_URL}/api/superadmin/recruiters`, { headers }),
+        fetch(`${API_URL}/api/superadmin/stats`, { headers }),
+        fetch(`${API_URL}/api/candidates`, { headers })
+      ]);
+      const [rData, sData, cData] = await Promise.all([rRes.json(), sRes.json(), cRes.json()]);
+      if (rData.success) setRecruiters(rData.recruiters);
+      if (sData.success) setStats(sData.stats);
+      if (cData.success) setCandidates(cData.candidates || []);
+    } catch (e) { console.error(e); }
+    setLoading(false);
+  };
+
+  const toggleAccess = async (recruiter) => {
+    setSaving(recruiter.id);
+    try {
+      const res = await fetch(`${API_URL}/api/superadmin/recruiters/${recruiter.id}/access`, {
+        method: 'PUT', headers,
+        body: JSON.stringify({ canViewCandidates: !recruiter.canViewCandidates, accessNote: note })
+      });
+      const data = await res.json();
+      if (data.success) {
+        setRecruiters(prev => prev.map(r => r.id === recruiter.id ? { ...r, canViewCandidates: data.recruiter.canViewCandidates } : r));
+      }
+    } catch (e) { console.error(e); }
+    setSaving(null);
+  };
+
+  const filtered = recruiters.filter(r =>
+    r.name?.toLowerCase().includes(search.toLowerCase()) ||
+    r.email?.toLowerCase().includes(search.toLowerCase()) ||
+    r.company?.toLowerCase().includes(search.toLowerCase())
+  );
+
+  const statCards = stats ? [
+    { label: 'Total Recruiters', value: stats.recruiterCount, icon: '👥', color: 'from-blue-600 to-indigo-600' },
+    { label: 'Active Access', value: stats.activeRecruiters, icon: '🟢', color: 'from-green-600 to-emerald-600' },
+    { label: 'Candidates', value: stats.candidateCount, icon: '🎯', color: 'from-purple-600 to-pink-600' },
+    { label: 'Avg Score', value: `${stats.avgScore}/100`, icon: '📊', color: 'from-orange-600 to-amber-600' }
+  ] : [];
+
+  return (
+    <div className="min-h-screen py-6 px-4">
+      {/* Header */}
+      <div className="max-w-7xl mx-auto mb-6 flex justify-between items-center">
+        <div>
+          <h1 className="text-3xl font-black bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">Super Admin</h1>
+          <p className="text-slate-400 text-sm mt-0.5">Manage recruiters & platform access</p>
+        </div>
+        <button onClick={logout} className="px-4 py-2 bg-slate-800/50 rounded-xl hover:bg-slate-700/50 transition-all flex items-center gap-2 text-sm border border-slate-700">
+          <LogOut size={14} /> Logout
+        </button>
+      </div>
+
+      {/* Stats row */}
+      {stats && (
+        <div className="max-w-7xl mx-auto grid grid-cols-4 gap-4 mb-6">
+          {statCards.map((s, i) => (
+            <div key={i} className={`bg-gradient-to-br ${s.color} rounded-2xl p-5 relative overflow-hidden`}>
+              <div className="absolute top-3 right-4 text-3xl opacity-40">{s.icon}</div>
+              <p className="text-white/70 text-xs uppercase tracking-widest mb-1">{s.label}</p>
+              <p className="text-white text-3xl font-black">{s.value}</p>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* Tabs */}
+      <div className="max-w-7xl mx-auto">
+        <div className="flex gap-2 mb-5">
+          {['recruiters', 'candidates'].map(tab => (
+            <button key={tab} onClick={() => setActiveTab(tab)}
+              className={`px-5 py-2 rounded-xl font-semibold text-sm capitalize transition-all ${
+                activeTab === tab ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-800/50 text-slate-400 hover:bg-slate-700/50'
+              }`}>{tab}</button>
+          ))}
+          <button onClick={fetchAll} className="ml-auto px-4 py-2 bg-slate-800/50 rounded-xl text-sm text-slate-400 hover:bg-slate-700/50 transition-all">↻ Refresh</button>
+        </div>
+
+        {activeTab === 'recruiters' && (
+          <div className="grid grid-cols-3 gap-5">
+            {/* Recruiter list */}
+            <div className="col-span-2 bg-slate-900/60 backdrop-blur-xl rounded-2xl border border-slate-700 overflow-hidden">
+              <div className="p-4 border-b border-slate-700 flex gap-3">
+                <input value={search} onChange={e => setSearch(e.target.value)}
+                  placeholder="Search recruiters by name, email, company..."
+                  className="flex-1 px-4 py-2 bg-slate-800/60 rounded-xl border border-slate-600 focus:border-indigo-500 focus:outline-none text-sm" />
+              </div>
+              {loading ? (
+                <div className="p-12 text-center"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-500 mx-auto" /></div>
+              ) : filtered.length === 0 ? (
+                <div className="p-12 text-center text-slate-500">
+                  <p className="text-4xl mb-3">👥</p>
+                  <p>No recruiters found. They appear here when they register as recruiter type.</p>
+                </div>
+              ) : (
+                <div className="divide-y divide-slate-700/50">
+                  {filtered.map(r => (
+                    <div key={r.id}
+                      onClick={() => setSelectedRecruiter(r)}
+                      className={`p-4 flex items-center gap-4 cursor-pointer hover:bg-slate-800/40 transition-all ${
+                        selectedRecruiter?.id === r.id ? 'bg-indigo-900/20 border-l-2 border-indigo-500' : ''
+                      }`}>
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-600 to-purple-600 flex items-center justify-center text-sm font-bold flex-shrink-0">
+                        {r.name?.[0]?.toUpperCase() || '?'}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-sm truncate">{r.name || 'Unnamed'}</p>
+                        <p className="text-xs text-slate-400 truncate">{r.email}</p>
+                        {r.company && <p className="text-xs text-slate-500 truncate">🏢 {r.company}</p>}
+                      </div>
+                      <div className="flex items-center gap-3 flex-shrink-0">
+                        <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+                          r.canViewCandidates ? 'bg-green-900/50 text-green-400 border border-green-700/40' : 'bg-red-900/50 text-red-400 border border-red-700/40'
+                        }`}>{r.canViewCandidates ? '● Active' : '● Revoked'}</span>
+                        <button
+                          onClick={e => { e.stopPropagation(); toggleAccess(r); }}
+                          disabled={saving === r.id}
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                            r.canViewCandidates
+                              ? 'bg-red-900/30 hover:bg-red-900/50 text-red-300 border border-red-700/30'
+                              : 'bg-green-900/30 hover:bg-green-900/50 text-green-300 border border-green-700/30'
+                          }`}>
+                          {saving === r.id ? '...' : r.canViewCandidates ? 'Revoke' : 'Grant'}
+                        </button>
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+
+            {/* Recruiter detail panel */}
+            <div className="bg-slate-900/60 backdrop-blur-xl rounded-2xl border border-slate-700 p-5">
+              {selectedRecruiter ? (
+                <>
+                  <div className="text-center mb-5">
+                    <div className="w-16 h-16 rounded-full bg-gradient-to-br from-indigo-600 to-purple-600 flex items-center justify-center text-2xl font-black mx-auto mb-3">
+                      {selectedRecruiter.name?.[0]?.toUpperCase() || '?'}
+                    </div>
+                    <h3 className="font-bold text-lg">{selectedRecruiter.name}</h3>
+                    <p className="text-slate-400 text-sm">{selectedRecruiter.email}</p>
+                    {selectedRecruiter.company && <p className="text-slate-500 text-xs mt-1">🏢 {selectedRecruiter.company}</p>}
+                  </div>
+                  <div className="space-y-3 mb-4">
+                    <div className={`p-3 rounded-xl border text-center ${
+                      selectedRecruiter.canViewCandidates ? 'bg-green-900/20 border-green-700/30' : 'bg-red-900/20 border-red-700/30'
+                    }`}>
+                      <p className={`font-bold text-sm ${selectedRecruiter.canViewCandidates ? 'text-green-400' : 'text-red-400'}`}>
+                        {selectedRecruiter.canViewCandidates ? '✅ Can view candidate profiles' : '🚫 Access revoked'}
+                      </p>
+                    </div>
+                    <div className="bg-slate-800/50 rounded-xl p-3 text-xs space-y-1">
+                      <div className="flex justify-between"><span className="text-slate-400">Registered</span><span>{new Date(selectedRecruiter.createdAt || Date.now()).toLocaleDateString()}</span></div>
+                      <div className="flex justify-between"><span className="text-slate-400">Plan</span><span className="capitalize">{selectedRecruiter.subscription?.plan || 'Free'}</span></div>
+                      {selectedRecruiter.accessUpdatedAt && <div className="flex justify-between"><span className="text-slate-400">Access changed</span><span>{new Date(selectedRecruiter.accessUpdatedAt).toLocaleDateString()}</span></div>}
+                    </div>
+                  </div>
+                  <textarea value={note} onChange={e => setNote(e.target.value)}
+                    placeholder="Optional: add a note about this access change..."
+                    rows={2} className="w-full px-3 py-2 bg-slate-800/60 rounded-xl border border-slate-600 focus:border-indigo-500 focus:outline-none text-xs resize-none mb-3" />
+                  <button onClick={() => toggleAccess(selectedRecruiter)} disabled={saving === selectedRecruiter.id}
+                    className={`w-full py-2.5 rounded-xl font-bold text-sm transition-all ${
+                      selectedRecruiter.canViewCandidates
+                        ? 'bg-red-600 hover:bg-red-500 text-white'
+                        : 'bg-green-600 hover:bg-green-500 text-white'
+                    }`}>
+                    {saving === selectedRecruiter.id ? 'Saving...' : selectedRecruiter.canViewCandidates ? '🚫 Revoke Access' : '✅ Grant Access'}
+                  </button>
+                </>
+              ) : (
+                <div className="h-full flex flex-col items-center justify-center text-center text-slate-500 py-12">
+                  <p className="text-4xl mb-3">👈</p>
+                  <p className="text-sm">Select a recruiter to manage their access</p>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
+        {activeTab === 'candidates' && (
+          <div className="bg-slate-900/60 backdrop-blur-xl rounded-2xl border border-slate-700 overflow-hidden">
+            <div className="p-4 border-b border-slate-700">
+              <h3 className="font-semibold">All Candidates — {candidates.length} total</h3>
+            </div>
+            {candidates.length === 0 ? (
+              <div className="p-12 text-center text-slate-500"><p className="text-4xl mb-3">🎯</p><p>No candidates registered yet</p></div>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-slate-700 text-slate-400 text-xs uppercase">
+                      {['Name', 'Position', 'Resume', 'Quiz', 'Interview', 'Video', 'Total', 'Status'].map(h => (
+                        <th key={h} className="text-left px-4 py-3 font-semibold">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody className="divide-y divide-slate-700/30">
+                    {candidates.map(c => (
+                      <tr key={c.id} className="hover:bg-slate-800/30 transition-all">
+                        <td className="px-4 py-3">
+                          <p className="font-semibold">{c.name}</p>
+                          <p className="text-xs text-slate-500">{c.email}</p>
+                        </td>
+                        <td className="px-4 py-3 text-slate-300 text-xs">{c.position}</td>
+                        {[c.resumeScore, c.quizScore, c.interviewScore, c.videoInterviewScore].map((s, i) => (
+                          <td key={i} className={`px-4 py-3 font-bold ${
+                            (s || 0) >= 75 ? 'text-green-400' : (s || 0) >= 55 ? 'text-yellow-400' : 'text-slate-500'
+                          }`}>{s || '—'}</td>
+                        ))}
+                        <td className={`px-4 py-3 font-black text-base ${
+                          (c.totalScore || 0) >= 75 ? 'text-green-400' : (c.totalScore || 0) >= 55 ? 'text-yellow-400' : 'text-red-400'
+                        }`}>{c.totalScore || '—'}</td>
+                        <td className="px-4 py-3">
+                          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${
+                            c.status === 'hired' ? 'bg-green-900/50 text-green-400' :
+                            c.status === 'shortlisted' ? 'bg-blue-900/50 text-blue-400' :
+                            c.status === 'rejected' ? 'bg-red-900/50 text-red-400' :
+                            'bg-slate-700 text-slate-300'
+                          }`}>{c.status || 'review'}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+        )}
+      </div>
     </div>
   );
 }

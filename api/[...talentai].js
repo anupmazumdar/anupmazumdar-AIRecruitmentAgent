@@ -283,7 +283,7 @@ async function callOpenRouter(prompt, systemPrompt = "") {
       model,
       messages,
       temperature: 0.7,
-      max_tokens: 2048
+      max_tokens: 8000
     })
   });
 
@@ -583,6 +583,74 @@ app.delete('/api/admin/questions/:id', authenticateToken, async (req, res) => {
   }
 });
 
+// ==================== SUPER-ADMIN RECRUITER MANAGEMENT ====================
+
+// GET all recruiters with their access status
+app.get('/api/superadmin/recruiters', authenticateToken, (req, res) => {
+  const recruiters = users
+    .filter(u => u.userType === 'recruiter')
+    .map(({ password: _, ...u }) => ({
+      ...u,
+      canViewCandidates: u.canViewCandidates !== false, // default true
+      candidatesViewed: candidates.filter(c => (u.viewedCandidates || []).includes(c.id)).length,
+      totalCandidatesInSystem: candidates.length
+    }));
+  res.json({ success: true, recruiters });
+});
+
+// GET super-admin platform stats
+app.get('/api/superadmin/stats', authenticateToken, (req, res) => {
+  const recruiterCount = users.filter(u => u.userType === 'recruiter').length;
+  const candidateCount = candidates.length;
+  const activeRecruiters = users.filter(u => u.userType === 'recruiter' && u.canViewCandidates !== false).length;
+  const avgScore = candidateCount > 0
+    ? Math.round(candidates.reduce((sum, c) => sum + (c.totalScore || 0), 0) / candidateCount)
+    : 0;
+  res.json({
+    success: true,
+    stats: { recruiterCount, activeRecruiters, candidateCount, avgScore }
+  });
+});
+
+// PUT toggle recruiter access
+app.put('/api/superadmin/recruiters/:id/access', authenticateToken, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const { canViewCandidates, accessNote } = req.body;
+    const user = users.find(u => u.id === id && u.userType === 'recruiter');
+    if (!user) return res.status(404).json({ error: 'Recruiter not found' });
+
+    user.canViewCandidates = Boolean(canViewCandidates);
+    user.accessNote = accessNote || '';
+    user.accessUpdatedAt = new Date().toISOString();
+    await saveUsers();
+
+    const { password: _, ...safe } = user;
+    res.json({ success: true, recruiter: safe });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update access' });
+  }
+});
+
+// PUT update recruiter details (name, company)
+app.put('/api/superadmin/recruiters/:id', authenticateToken, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const user = users.find(u => u.id === id && u.userType === 'recruiter');
+    if (!user) return res.status(404).json({ error: 'Recruiter not found' });
+
+    const { name, company } = req.body;
+    if (name) user.name = name;
+    if (company) user.company = company;
+    await saveUsers();
+
+    const { password: _, ...safe } = user;
+    res.json({ success: true, recruiter: safe });
+  } catch (error) {
+    res.status(500).json({ error: 'Failed to update recruiter' });
+  }
+});
+
 // Generate quiz questions
 app.post('/api/generate-quiz', async (req, res) => {
   try {
@@ -596,25 +664,25 @@ app.post('/api/generate-quiz', async (req, res) => {
       return res.json({ success: true, questions: shuffled, source: 'admin' });
     }
 
-    // 2. Try AI generation only if API key is available
-    const hasApiKey = process.env.GOOGLE_GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
+    // 2. Try AI generation — uses OpenRouter (or any configured key)
+    const hasApiKey = process.env.OPENROUTER_API_KEY || process.env.GOOGLE_GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
     if (hasApiKey) {
-      const prompt = `Generate ${numQuestions} technical multiple-choice questions for a ${position} position.
+      const prompt = `Generate exactly ${numQuestions} technical multiple-choice questions for a ${position} role.
+Cover a broad range of topics: fundamentals, algorithms, system design, best practices, tools, and scenario-based questions.
+Make every question distinct and practical.
 
-Return ONLY a valid JSON array with this exact structure:
-[
-  {
-    "question": "Question text here?",
-    "options": ["Option A", "Option B", "Option C", "Option D"],
-    "correctAnswer": 0
-  }
-]
-
-Make questions practical and position-specific.`;
-      const systemPrompt = "You are a technical interviewer. Return only valid JSON, no markdown, no explanations.";
+Return ONLY a valid JSON array (no markdown, no comments):
+[{
+  "question": "Question text?",
+  "options": ["A", "B", "C", "D"],
+  "correctAnswer": 0
+}]`;
+      const systemPrompt = `You are a senior technical interviewer generating a ${numQuestions}-question assessment. Return ONLY a valid JSON array, no markdown.`;
       try {
         const response = await callAI(prompt, systemPrompt);
-        const cleaned = response.replace(/```json|```/g, '').trim();
+        let cleaned = response.replace(/```json|```/g, '').trim();
+        const match = cleaned.match(/\[\s*\{.*\}\s*\]/s);
+        if (match) cleaned = match[0];
         const questions = JSON.parse(cleaned);
         return res.json({ success: true, questions, source: 'ai' });
       } catch (aiError) {
@@ -638,7 +706,7 @@ function getFallbackQuestions(position, count = 5) {
   const bank = {
 
     // ============================================================
-    // SOFTWARE ENGINEER
+    // SOFTWARE ENGINEER (30 questions)
     // ============================================================
     "Software Engineer": [
       { question: "What is the time complexity of binary search?", options: ["O(n)", "O(log n)", "O(n²)", "O(1)"], correctAnswer: 1 },
@@ -648,10 +716,33 @@ function getFallbackQuestions(position, count = 5) {
       { question: "What is the purpose of a hash table?", options: ["Sort elements quickly", "Store key-value pairs for O(1) average lookup", "Traverse trees", "Manage memory allocation"], correctAnswer: 1 },
       { question: "Which SOLID principle states a class should have only one reason to change?", options: ["Open/Closed", "Liskov Substitution", "Single Responsibility", "Interface Segregation"], correctAnswer: 2 },
       { question: "What is a deadlock in concurrent programming?", options: ["A slow network request", "A situation where two or more threads wait for each other indefinitely", "A memory overflow error", "A thread that runs without stopping"], correctAnswer: 1 },
+      { question: "What is the average-case time complexity of QuickSort?", options: ["O(n)", "O(n log n)", "O(n²)", "O(log n)"], correctAnswer: 1 },
+      { question: "What does DRY stand for in software development?", options: ["Don't Repeat Yourself", "Do Refactor Yearly", "Dynamic Runtime Yielding", "Data Retrieval Yield"], correctAnswer: 0 },
+      { question: "What is the difference between a process and a thread?", options: ["They are the same", "A process is an independent program execution; a thread is a unit of execution within a process", "Threads use more memory than processes", "Processes run only in user space"], correctAnswer: 1 },
+      { question: "What is memoization?", options: ["A way to write comments in code", "Caching results of expensive function calls to avoid redundant computation", "Storing data in a memo file", "A type of recursion"], correctAnswer: 1 },
+      { question: "Which design pattern ensures only one instance of a class exists?", options: ["Factory", "Observer", "Singleton", "Decorator"], correctAnswer: 2 },
+      { question: "What is a race condition?", options: ["A coding competition", "A bug that occurs when program behavior depends on the timing of uncontrollable events", "A performance benchmark", "A type of loop"], correctAnswer: 1 },
+      { question: "What does the CAP theorem state?", options: ["A distributed system can guarantee all of Consistency, Availability, and Partition tolerance simultaneously", "A distributed system can only guarantee two of: Consistency, Availability, Partition tolerance", "CAP is a security model", "CAP refers to CPU, API, and Persistence"], correctAnswer: 1 },
+      { question: "What is the purpose of an index in a database?", options: ["To encrypt data", "To speed up query lookups by creating a secondary data structure", "To backup the database", "To compress stored data"], correctAnswer: 1 },
+      { question: "What is polymorphism in OOP?", options: ["The ability to inherit from multiple classes", "The ability of different objects to respond to the same method call in different ways", "Hiding internal data of an object", "Creating objects from a class"], correctAnswer: 1 },
+      { question: "What is the difference between stack memory and heap memory?", options: ["No difference", "Stack is managed automatically for local variables; heap is for dynamically allocated memory", "Stack is larger than heap", "Heap is only for strings"], correctAnswer: 1 },
+      { question: "What is a microservice architecture?", options: ["A monolithic app split into UI layers", "An approach where an application is composed of small, independently deployable services", "A tiny server with limited RAM", "A single-file backend application"], correctAnswer: 1 },
+      { question: "Which sorting algorithm is most efficient for nearly sorted data?", options: ["QuickSort", "Merge Sort", "Insertion Sort", "Heap Sort"], correctAnswer: 2 },
+      { question: "What does ACID stand for in databases?", options: ["Atomicity, Consistency, Isolation, Durability", "Access, Control, Index, Data", "Asynchronous, Concurrent, Indexed, Durable", "Automatic, Consistent, Integrated, Direct"], correctAnswer: 0 },
+      { question: "What is a closure in programming?", options: ["A function that closes the application", "A function that retains access to its outer scope variables even after the outer function has returned", "A sealed class", "A private method"], correctAnswer: 1 },
+      { question: "What is the Observer design pattern used for?", options: ["Creating objects", "Notifying dependent objects when the state of a subject changes", "Sorting collections", "Encrypting messages"], correctAnswer: 1 },
+      { question: "What is tail recursion?", options: ["Recursion that never terminates", "A recursive call made as the final action of a function, enabling stack optimization", "Recursion with two base cases", "A loop converted to recursion"], correctAnswer: 1 },
+      { question: "What is Big O notation O(1) called?", options: ["Logarithmic time", "Linear time", "Constant time", "Quadratic time"], correctAnswer: 2 },
+      { question: "What is the purpose of a load balancer?", options: ["Store large amounts of data", "Distribute incoming network traffic across multiple servers", "Compress files", "Monitor application errors"], correctAnswer: 1 },
+      { question: "What is an abstract class?", options: ["A class with no methods", "A class that cannot be instantiated directly and is meant to be subclassed", "A class with only static methods", "A globally accessible class"], correctAnswer: 1 },
+      { question: "What does SQL JOIN do?", options: ["Deletes rows from multiple tables", "Combines rows from two or more tables based on a related column", "Creates a new table", "Backs up table data"], correctAnswer: 1 },
+      { question: "What is the difference between TCP and UDP?", options: ["TCP is faster; UDP is slower", "TCP provides reliable, ordered delivery; UDP is faster but connectionless with no delivery guarantee", "UDP uses encryption; TCP does not", "They are the same protocol"], correctAnswer: 1 },
+      { question: "What is lazy loading?", options: ["Loading all data at startup", "Deferring initialization of an object or resource until it's actually needed", "A slow internet connection pattern", "Loading images with low quality first"], correctAnswer: 1 },
+      { question: "What is the purpose of a Git branch?", options: ["To delete code safely", "To isolate development work without affecting other parts of the codebase", "To merge code automatically", "To back up the repository"], correctAnswer: 1 },
     ],
 
     // ============================================================
-    // DATA SCIENTIST
+    // DATA SCIENTIST (30 questions)
     // ============================================================
     "Data Scientist": [
       { question: "What is overfitting in machine learning?", options: ["Model performs well on train data but poorly on test data", "Model performs poorly on all data", "Model is too simple", "Model training takes too long"], correctAnswer: 0 },
@@ -661,10 +752,33 @@ function getFallbackQuestions(position, count = 5) {
       { question: "What is the bias-variance tradeoff?", options: ["Choosing between accuracy and speed", "Balancing underfitting (high bias) and overfitting (high variance)", "Splitting data into training and testing", "Normalizing features before training"], correctAnswer: 1 },
       { question: "What does a p-value less than 0.05 typically indicate?", options: ["The null hypothesis is true", "The result is statistically significant", "The model is overfitting", "The dataset is too small"], correctAnswer: 1 },
       { question: "Which technique is used to handle missing values?", options: ["Regularization", "Imputation", "Backpropagation", "Gradient descent"], correctAnswer: 1 },
+      { question: "What is cross-validation used for?", options: ["Validating login credentials", "Assessing how well a model generalizes to independent datasets", "Checking for SQL injection", "Splitting features from labels"], correctAnswer: 1 },
+      { question: "What is the purpose of the train-test split?", options: ["To increase dataset size", "To evaluate model performance on unseen data", "To normalize data", "To remove outliers"], correctAnswer: 1 },
+      { question: "Which distance metric is used in K-Nearest Neighbors by default?", options: ["Manhattan distance", "Euclidean distance", "Cosine similarity", "Hamming distance"], correctAnswer: 1 },
+      { question: "What does RMSE measure?", options: ["How many rows a model processes", "The square root of the average squared differences between predicted and actual values", "The model's training speed", "Classification accuracy"], correctAnswer: 1 },
+      { question: "What is feature engineering?", options: ["Building new ML frameworks", "Creating new input features from raw data to improve model performance", "Engineering faster GPUs", "Removing all features except one"], correctAnswer: 1 },
+      { question: "What is regularization in ML?", options: ["Making the data regular/uniform", "A technique to prevent overfitting by penalizing large model coefficients", "Normalizing outputs to 0–1 range", "A type of activation function"], correctAnswer: 1 },
+      { question: "What is the difference between L1 and L2 regularization?", options: ["L1 uses squares, L2 uses absolute values", "L1 (Lasso) uses absolute values and can zero out features; L2 (Ridge) uses squared values", "L1 is for regression; L2 is for classification", "No difference"], correctAnswer: 1 },
+      { question: "Which Python library is most commonly used for data manipulation?", options: ["NumPy", "Pandas", "Matplotlib", "Scikit-learn"], correctAnswer: 1 },
+      { question: "What is a confusion matrix?", options: ["A matrix showing model parameters", "A table showing true positives, false positives, true negatives, and false negatives", "A heatmap of correlations", "A grid of hyperparameters"], correctAnswer: 1 },
+      { question: "What is the ROC-AUC score?", options: ["A loss function value", "A metric measuring the ability of a classifier to distinguish between classes (higher = better)", "The model's training time", "A data normalization score"], correctAnswer: 1 },
+      { question: "What is k-means clustering?", options: ["A supervised classification algorithm", "An unsupervised algorithm that partitions data into k clusters based on similarity", "A regression technique", "A dimensionality reduction method"], correctAnswer: 1 },
+      { question: "What is the purpose of normalization/standardization in ML?", options: ["To remove missing values", "To scale features to a similar range so no single feature dominates", "To increase dataset size", "To remove duplicates"], correctAnswer: 1 },
+      { question: "What is a decision tree's main advantage?", options: ["It never overfits", "It is interpretable and easy to visualize", "It always outperforms neural networks", "It requires no data preprocessing"], correctAnswer: 1 },
+      { question: "What does NLP stand for?", options: ["Numeric Learning Protocol", "Natural Language Processing", "Neural Logic Programming", "Normalized Layered Prediction"], correctAnswer: 1 },
+      { question: "What is the 'elbow method' used for?", options: ["Choosing the regularization parameter", "Determining the optimal number of clusters in K-Means", "Selecting the learning rate", "Splitting training data"], correctAnswer: 1 },
+      { question: "What is the difference between bagging and boosting?", options: ["They are the same", "Bagging trains models in parallel on random subsets; boosting trains sequentially, focusing on errors", "Bagging is for classification; boosting is for regression", "Bagging requires more data than boosting"], correctAnswer: 1 },
+      { question: "What is a correlation coefficient's range?", options: ["0 to 1", "-1 to 1", "0 to infinity", "-infinity to infinity"], correctAnswer: 1 },
+      { question: "What is the purpose of a validation set?", options: ["To train the model", "To tune hyperparameters and prevent overfitting during model development", "To test final model performance", "To normalize features"], correctAnswer: 1 },
+      { question: "What does SQL GROUP BY do?", options: ["Sorts rows alphabetically", "Groups rows sharing a common value to apply aggregate functions", "Filters rows by condition", "Joins two tables"], correctAnswer: 1 },
+      { question: "What is one-hot encoding used for?", options: ["Encrypting categorical data", "Converting categorical variables into binary vectors for ML models", "Reducing dimensionality", "Normalizing numerical features"], correctAnswer: 1 },
+      { question: "What is gradient boosting?", options: ["A way to speed up gradient descent", "An ensemble technique that builds models sequentially, each one correcting the errors of the previous", "A neural network optimizer", "A data imputation method"], correctAnswer: 1 },
+      { question: "What is the main difference between supervised and unsupervised learning?", options: ["Supervised is faster", "Supervised uses labeled data; unsupervised finds patterns in unlabeled data", "Unsupervised always uses neural networks", "Supervised works only with images"], correctAnswer: 1 },
+      { question: "What is a hyperparameter?", options: ["A parameter learned automatically during training", "A configuration set before training that controls the learning process (e.g., learning rate)", "A high-value feature", "An output of the model"], correctAnswer: 1 },
     ],
 
     // ============================================================
-    // PRODUCT MANAGER
+    // PRODUCT MANAGER (30 questions)
     // ============================================================
     "Product Manager": [
       { question: "What does MVP stand for in product development?", options: ["Most Viable Product", "Minimum Viable Product", "Maximum Value Proposition", "Minimum Variable Process"], correctAnswer: 1 },
@@ -674,10 +788,33 @@ function getFallbackQuestions(position, count = 5) {
       { question: "What does OKR stand for?", options: ["Outcome Key Results", "Objectives and Key Results", "Operational Key Requirements", "Output Knowledge Repository"], correctAnswer: 1 },
       { question: "What is the main purpose of A/B testing in a product?", options: ["Fixing bugs faster", "Comparing two versions to see which performs better", "Scaling the database", "Onboarding new team members"], correctAnswer: 1 },
       { question: "Which agile ceremony is used to reflect on the team process?", options: ["Sprint Planning", "Daily Standup", "Retrospective", "Backlog Grooming"], correctAnswer: 2 },
+      { question: "What is a user story in agile?", options: ["A bug description", "A short description of a feature from the end-user's perspective", "A technical specification", "A marketing narrative"], correctAnswer: 1 },
+      { question: "What does DAU/MAU ratio measure?", options: ["Data acquisition usage", "The ratio of Daily Active Users to Monthly Active Users, indicating user stickiness", "Design and UI metrics", "Debug and maintenance utilization"], correctAnswer: 1 },
+      { question: "What is the Jobs-to-be-Done (JTBD) framework?", options: ["A HR hiring framework", "A framework focusing on what job a customer is trying to accomplish with a product", "A sprint planning methodology", "A feature estimation technique"], correctAnswer: 1 },
+      { question: "What is churn rate?", options: ["The speed of data processing", "The percentage of customers who stop using the product over a given period", "The rate of new features shipped", "The number of bugs created per sprint"], correctAnswer: 1 },
+      { question: "What is the difference between product vision and product strategy?", options: ["They are the same", "Vision is the long-term aspiration; strategy is the plan to achieve it", "Strategy is long-term; vision is short-term", "Vision is technical; strategy is about design"], correctAnswer: 1 },
+      { question: "What is the MoSCoW prioritization method?", options: ["A geographic prioritization of markets", "Categorizing requirements as Must have, Should have, Could have, Won't have", "A machine learning model selection framework", "A code review process"], correctAnswer: 1 },
+      { question: "What is product-market fit?", options: ["When the product's UI matches the market's color preferences", "When a product satisfies a strong market demand in a sustainable and scalable way", "When the dev team matches the sales team in size", "When marketing budgets are aligned to product costs"], correctAnswer: 1 },
+      { question: "What is a sprint in Scrum?", options: ["A fast-paced hackathon", "A fixed time period (usually 1-4 weeks) during which a specific set of work is completed", "A code deployment pipeline", "A performance review cycle"], correctAnswer: 1 },
+      { question: "What is a product backlog?", options: ["A list of old, unwanted features", "An ordered list of work items and requirements to be implemented in future sprints", "The list of deployed features", "A bug tracking system"], correctAnswer: 1 },
+      { question: "What is NPS (Net Promoter Score)?", options: ["Network Performance Score", "A customer loyalty metric based on how likely users are to recommend the product", "New Product Score for launch readiness", "Number of Product Subscribers"], correctAnswer: 1 },
+      { question: "What is the purpose of user interviews in product development?", options: ["To sell the product to users", "To gather qualitative insights about user needs, pain points, and behaviors", "To test the app for bugs", "To conduct performance reviews"], correctAnswer: 1 },
+      { question: "What does 'time to value' mean for a product?", options: ["The time it takes to build a feature", "How long it takes a user to experience the core value of a product after signing up", "The product's pricing timeline", "The time between product launches"], correctAnswer: 1 },
+      { question: "What is a go-to-market (GTM) strategy?", options: ["A map of physical store locations", "A plan describing how a product will reach its target customers and achieve competitive advantage", "A technical deployment guide", "A roadmap for going global"], correctAnswer: 1 },
+      { question: "What is customer segmentation?", options: ["Dividing the engineering team into squads", "Dividing customers into groups based on shared characteristics to tailor products and marketing", "A billing system feature", "A user authentication method"], correctAnswer: 1 },
+      { question: "What does the Kano model classify?", options: ["Software defects by severity", "Customer satisfaction vs. product features (Basic, Performance, Excitement needs)", "Employee performance levels", "Market segments by geography"], correctAnswer: 1 },
+      { question: "What is a hypothesis in product experimentation?", options: ["A proven product fact", "A testable statement predicting an outcome if a specific change is made", "A user complaint", "A design specification"], correctAnswer: 1 },
+      { question: "What is the difference between a feature and a benefit?", options: ["They are the same", "A feature is what a product does; a benefit is the value it provides to the user", "Benefits are technical, features are for marketing", "Features are for B2B, benefits for B2C"], correctAnswer: 1 },
+      { question: "What is a PRD (Product Requirements Document)?", options: ["A privacy policy", "A document describing the purpose, features, and behavior of a product to be built", "A post-release documentation guide", "A pricing requirements matrix"], correctAnswer: 1 },
+      { question: "What is the purpose of a product demo or prototype?", options: ["To finalize the product for launch", "To validate ideas, gather feedback, and align stakeholders before full development", "To train new engineers", "To document existing features"], correctAnswer: 1 },
+      { question: "What is the North Star Metric?", options: ["A geographic market focus", "A single metric that best captures the core value a product delivers to customers", "The company's annual revenue target", "A UI accessibility standard"], correctAnswer: 1 },
+      { question: "What is Definition of Done (DoD) in agile?", options: ["The acceptance criteria for a user story to be considered complete", "A list of done features in a release", "A team's workload capacity", "The end of a product lifecycle"], correctAnswer: 0 },
+      { question: "What does 'velocity' measure in Scrum?", options: ["The speed of the app", "The amount of work completed by a team in a sprint, used to forecast future delivery", "The server response time", "The release cycle frequency"], correctAnswer: 1 },
+      { question: "What is stakeholder management in product management?", options: ["Managing the product's technical stack", "The process of identifying, communicating with, and satisfying the needs of people who affect or are affected by the product", "Hiring and firing team members", "Managing cloud infrastructure costs"], correctAnswer: 1 },
     ],
 
     // ============================================================
-    // FRONTEND DEVELOPER
+    // FRONTEND DEVELOPER (30 questions)
     // ============================================================
     "Frontend Developer": [
       { question: "What does the CSS 'box model' consist of?", options: ["Content, padding, border, margin", "Width, height, font, color", "Flexbox, grid, float, position", "Header, body, footer, sidebar"], correctAnswer: 0 },
@@ -687,10 +824,33 @@ function getFallbackQuestions(position, count = 5) {
       { question: "Which CSS unit is relative to the root element's font size?", options: ["em", "px", "rem", "vh"], correctAnswer: 2 },
       { question: "What is the purpose of webpack?", options: ["A CSS framework", "A JavaScript testing framework", "A module bundler for web assets", "A package manager"], correctAnswer: 2 },
       { question: "What does 'semantic HTML' mean?", options: ["Using HTML that is SEO-optimized", "Using HTML elements that convey meaning about their content", "Minifying HTML for performance", "Using only HTML5 elements"], correctAnswer: 1 },
+      { question: "What is CSS Flexbox primarily used for?", options: ["3D transformations", "One-dimensional layout alignment of items in rows or columns", "Animating elements", "Defining font sizes"], correctAnswer: 1 },
+      { question: "What is the difference between == and === in JavaScript?", options: ["No difference", "== checks value only; === checks both value and type", "=== is only for strings", "== is stricter than ==="], correctAnswer: 1 },
+      { question: "What is event bubbling in the DOM?", options: ["Animations triggering on scroll", "An event propagating upward from the target element to ancestor elements", "A memory leak pattern", "CSS animation keyframes"], correctAnswer: 1 },
+      { question: "What is React's useEffect hook used for?", options: ["State management only", "Performing side effects like data fetching, subscriptions, and DOM manipulation", "Creating new components", "Styling elements"], correctAnswer: 1 },
+      { question: "What is the purpose of CSS Grid?", options: ["To create vector graphics", "Two-dimensional layout system for complex page structures", "To animate elements", "To define color schemes"], correctAnswer: 1 },
+      { question: "What is a Promise in JavaScript?", options: ["A guaranteed function return value", "An object representing the eventual completion or failure of an asynchronous operation", "A CSS transition", "A type of loop"], correctAnswer: 1 },
+      { question: "What does the 'z-index' CSS property control?", options: ["Element zoom level", "The stacking order of positioned elements", "Horizontal position", "Font weight"], correctAnswer: 1 },
+      { question: "What is lazy loading in web performance?", options: ["Loading everything at page start", "Deferring loading of non-critical resources until they are needed", "A slow network technique", "Loading images at full resolution"], correctAnswer: 1 },
+      { question: "What is the purpose of React's useState hook?", options: ["To fetch data", "To declare and manage reactive state in a functional component", "To apply CSS styles", "To create context"], correctAnswer: 1 },
+      { question: "What is CORS in the context of frontend development?", options: ["A CSS framework", "A browser security mechanism that restricts cross-origin HTTP requests", "A JavaScript library", "A caching policy"], correctAnswer: 1 },
+      { question: "What does 'responsive design' mean?", options: ["A design that responds to user clicks", "A design approach where layouts adapt to different screen sizes and devices", "A fast-loading website", "A design using animations"], correctAnswer: 1 },
+      { question: "What is TypeScript?", options: ["A new browser", "A typed superset of JavaScript that compiles to plain JavaScript", "A CSS preprocessor", "A testing library"], correctAnswer: 1 },
+      { question: "What is the purpose of localStorage in the browser?", options: ["To run server-side code", "To store key-value data persistently in the browser with no expiration", "To manage cookies", "To cache API responses automatically"], correctAnswer: 1 },
+      { question: "What is code splitting in React?", options: ["Dividing a team to write separate components", "Splitting bundle into smaller chunks loaded on demand to improve performance", "Writing CSS in separate files", "Using multiple React versions"], correctAnswer: 1 },
+      { question: "What is the difference between 'display: none' and 'visibility: hidden'?", options: ["No difference", "display:none removes the element from layout; visibility:hidden hides it but keeps its space", "visibility:hidden removes from DOM", "display:none keeps the space"], correctAnswer: 1 },
+      { question: "What is the role of package.json in a frontend project?", options: ["Stores user data", "Lists project dependencies, scripts, and metadata", "Defines CSS variables", "Configures the web server"], correctAnswer: 1 },
+      { question: "What is a React key prop used for?", options: ["Styling individual elements", "Helping React identify which items in a list have changed, are added, or removed", "Passing data between components", "Animating list items"], correctAnswer: 1 },
+      { question: "What is the purpose of media queries in CSS?", options: ["To embed media files", "To apply different styles based on device characteristics like screen width", "To query a database", "To load images conditionally"], correctAnswer: 1 },
+      { question: "What is the event loop in JavaScript?", options: ["A loop that handles user events only", "A mechanism that allows JavaScript to perform non-blocking operations by offloading tasks to the browser", "A loop that runs twice per second", "The main rendering loop"], correctAnswer: 1 },
+      { question: "What does the 'position: absolute' CSS property do?", options: ["Centers the element", "Positions the element relative to its nearest positioned ancestor", "Makes the element fixed to the viewport", "Removes it from the document"], correctAnswer: 1 },
+      { question: "What is the purpose of React Context?", options: ["To manage server state", "To share state across components without passing props manually at every level", "To create animations", "To handle routing"], correctAnswer: 1 },
+      { question: "What is a CSS pseudo-class?", options: ["A fake CSS class", "A keyword added to a selector that specifies a special state of the element (e.g., :hover, :focus)", "A class that inherits from another", "A dynamic class applied via JS"], correctAnswer: 1 },
+      { question: "What is tree shaking in JavaScript bundling?", options: ["Removing unused components from the React tree", "Eliminating dead/unused code from the final bundle to reduce size", "Reorganizing component hierarchy", "A CSS animation technique"], correctAnswer: 1 },
     ],
 
     // ============================================================
-    // BACKEND DEVELOPER
+    // BACKEND DEVELOPER (30 questions)
     // ============================================================
     "Backend Developer": [
       { question: "What is the difference between SQL and NoSQL databases?", options: ["SQL is slower, NoSQL is faster", "SQL uses structured tables; NoSQL uses flexible schemas like documents or key-value", "SQL is for frontend, NoSQL is for backend", "SQL is open source, NoSQL is proprietary"], correctAnswer: 1 },
@@ -700,23 +860,69 @@ function getFallbackQuestions(position, count = 5) {
       { question: "What is database indexing used for?", options: ["Encrypting data", "Speeding up data retrieval operations", "Backing up data", "Normalizing tables"], correctAnswer: 1 },
       { question: "Which HTTP status code indicates a resource was successfully created?", options: ["200", "204", "201", "301"], correctAnswer: 2 },
       { question: "What is the purpose of environment variables in a backend app?", options: ["Style the UI", "Store configuration and secrets outside source code", "Manage database schemas", "Speed up compilation"], correctAnswer: 1 },
+      { question: "What is database normalization?", options: ["Scaling the database horizontally", "Organizing data to reduce redundancy and improve data integrity", "Encrypting database fields", "Indexing all columns"], correctAnswer: 1 },
+      { question: "What is the difference between authentication and authorization?", options: ["They are the same", "Authentication verifies identity; authorization determines what a user is allowed to do", "Authorization happens before authentication", "Authentication is only for APIs"], correctAnswer: 1 },
+      { question: "What is an N+1 query problem in backend development?", options: ["Querying N tables instead of 1", "Loading a list of N items and then making N additional queries for each item's related data", "A SQL syntax error", "Using N indexes on one table"], correctAnswer: 1 },
+      { question: "What is rate limiting in an API?", options: ["Limiting the API's response size", "Restricting the number of requests a client can make in a given time period", "Limiting API to certain IP addresses only", "A caching strategy"], correctAnswer: 1 },
+      { question: "What is the purpose of bcrypt?", options: ["Encrypting network traffic", "Hashing passwords using a slow, salted algorithm to make brute-force attacks harder", "Compressing files", "Generating JWT tokens"], correctAnswer: 1 },
+      { question: "What is a database transaction?", options: ["A single SQL query", "A sequence of operations treated as a single unit that either all succeed or all fail", "A database backup process", "A type of stored procedure"], correctAnswer: 1 },
+      { question: "What is caching in backend systems?", options: ["Deleting old data", "Storing frequently accessed data in fast storage (e.g., Redis) to reduce database load", "Compressing API responses", "Logging all requests"], correctAnswer: 1 },
+      { question: "What does GraphQL differ from REST?", options: ["GraphQL is faster by default", "GraphQL lets clients request exactly the data they need in a single request", "GraphQL only works with MongoDB", "REST supports real-time data; GraphQL does not"], correctAnswer: 1 },
+      { question: "What is a foreign key in a relational database?", options: ["An encrypted primary key", "A field that creates a link between two tables by referencing the primary key of another table", "A key imported from another database", "An index on a non-primary column"], correctAnswer: 1 },
+      { question: "What is horizontal vs vertical scaling?", options: ["Horizontal = faster CPU; Vertical = more servers", "Horizontal = adding more servers; Vertical = adding more resources (CPU/RAM) to existing servers", "They are the same", "Horizontal is for databases only"], correctAnswer: 1 },
+      { question: "What is the purpose of a message queue (e.g., RabbitMQ, Kafka)?", options: ["To store relational data", "To decouple services by asynchronously passing messages between producers and consumers", "To cache API responses", "To route HTTP requests"], correctAnswer: 1 },
+      { question: "What HTTP status code means 'Unauthorized'?", options: ["403", "404", "401", "500"], correctAnswer: 2 },
+      { question: "What is a stored procedure in SQL?", options: ["A cached query result", "A precompiled set of SQL statements stored in the database that can be executed by name", "A backup procedure", "A database trigger"], correctAnswer: 1 },
+      { question: "What is connection pooling in databases?", options: ["Connecting to multiple databases simultaneously", "Maintaining a pool of reusable database connections to reduce connection overhead", "A backup strategy", "A database indexing technique"], correctAnswer: 1 },
+      { question: "What is an API gateway?", options: ["A physical server gateway", "A server that acts as an entry point for client requests, routing them to appropriate microservices", "A database proxy", "A caching layer"], correctAnswer: 1 },
+      { question: "What does the HTTP OPTIONS method do?", options: ["Updates a resource", "Retrieves the supported HTTP methods for a resource (used in CORS preflight)", "Deletes a resource", "Fetches a resource"], correctAnswer: 1 },
+      { question: "What is eventual consistency in distributed systems?", options: ["All nodes are always consistent", "Given enough time without updates, all nodes in a distributed system will converge to the same value", "A bug in distributed databases", "Consistency enforced by transactions"], correctAnswer: 1 },
+      { question: "What is a webhook?", options: ["A front-end hook in React", "An HTTP callback that sends real-time data to a URL when a specific event occurs", "A browser API", "A type of middleware"], correctAnswer: 1 },
+      { question: "What is the difference between PUT and PATCH in REST?", options: ["They are identical", "PUT replaces the entire resource; PATCH partially updates it", "PATCH replaces the full resource; PUT updates partially", "PUT is for files; PATCH is for JSON"], correctAnswer: 1 },
+      { question: "What is a reverse proxy?", options: ["A proxy that hides the client", "A server that forwards client requests to backend servers and returns the response, hiding backend details", "A DNS resolver", "A load balancer simulator"], correctAnswer: 1 },
+      { question: "What does OWASP Top 10 refer to?", options: ["The 10 most popular APIs", "A list of the 10 most critical web application security risks", "The top 10 database vendors", "A performance benchmark suite"], correctAnswer: 1 },
+      { question: "What is the purpose of SSL/TLS in backend services?", options: ["To compress data", "To encrypt data in transit between client and server to prevent eavesdropping", "To authenticate users", "To speed up database queries"], correctAnswer: 1 },
+      { question: "What is idempotency in APIs?", options: ["An API that only works once", "Property where making the same request multiple times produces the same result as making it once", "An API without authentication", "An always-erroring endpoint"], correctAnswer: 1 },
     ],
 
     // ============================================================
-    // FULL STACK DEVELOPER
+    // FULL STACK DEVELOPER (30 questions)
     // ============================================================
     "Full Stack Developer": [
       { question: "What is CORS and why is it important?", options: ["A database query language", "A browser security mechanism that controls cross-origin HTTP requests", "A CSS animation property", "A node package manager command"], correctAnswer: 1 },
       { question: "What is the difference between server-side rendering (SSR) and client-side rendering (CSR)?", options: ["SSR is faster to code; CSR is more secure", "SSR renders HTML on the server for each request; CSR renders in the browser using JavaScript", "SSR uses React; CSR uses Node.js", "SSR is only for mobile apps"], correctAnswer: 1 },
-      { question: "Which database type is best for storing hierarchical/tree-structured data?", options: ["Relational (SQL)", "Document (MongoDB)", "Column-family (Cassandra)", "All are equally suitable"], correctAnswer: 1 },
+      { question: "Which database type is best for storing flexible, document-like data?", options: ["Relational (SQL)", "Document (MongoDB)", "Column-family (Cassandra)", "All are equally suitable"], correctAnswer: 1 },
       { question: "What is a WebSocket used for?", options: ["Running server-side scripts", "Full-duplex real-time communication between client and server", "Serving static files", "Authentication"], correctAnswer: 1 },
       { question: "What tool is commonly used to containerize full-stack applications?", options: ["Webpack", "Docker", "Babel", "Nginx alone"], correctAnswer: 1 },
       { question: "What is the purpose of an ORM (Object-Relational Mapper)?", options: ["Style web components", "Map database tables to programming objects to simplify queries", "Bundle JavaScript modules", "Compress images"], correctAnswer: 1 },
       { question: "What does CI/CD stand for?", options: ["Code Integration / Code Deployment", "Continuous Integration / Continuous Delivery", "Customer Interface / Customer Data", "Cloud Infrastructure / Cloud Delivery"], correctAnswer: 1 },
+      { question: "What is the purpose of an .env file?", options: ["Store React component styles", "Store environment-specific configuration and secrets not committed to version control", "Configure webpack builds", "Define database schemas"], correctAnswer: 1 },
+      { question: "What is the difference between cookies and localStorage?", options: ["No difference", "Cookies can be sent to server automatically and have expiry; localStorage is client-only", "localStorage is more secure than cookies", "Cookies are only for authentication"], correctAnswer: 1 },
+      { question: "What is an API endpoint?", options: ["The last server in a chain", "A specific URL where an API is accessed, representing a resource or action", "The end of an API key", "A database connection string"], correctAnswer: 1 },
+      { question: "What is the purpose of Nginx in a full-stack deployment?", options: ["A JavaScript runtime", "A web server/reverse proxy that serves static files and routes requests to backend", "A database engine", "A JavaScript bundler"], correctAnswer: 1 },
+      { question: "What is JWT used for in full-stack apps?", options: ["Styling components", "Securely transmitting user identity information between client and server as a token", "Bundling assets", "Database queries"], correctAnswer: 1 },
+      { question: "What is React Router used for?", options: ["Routing API requests to backend", "Managing client-side navigation between pages in a React single-page app", "Routing data between components", "Managing Redux state"], correctAnswer: 1 },
+      { question: "What is state management in a full-stack context?", options: ["Managing server memory", "Tracking and updating application data (state) across components or the entire app", "Managing database state", "Load balancing requests"], correctAnswer: 1 },
+      { question: "What does npm stand for?", options: ["Node Package Module", "Node Package Manager", "Node Project Manager", "Node Public Module"], correctAnswer: 1 },
+      { question: "What is the purpose of a CDN (Content Delivery Network)?", options: ["To develop content faster", "To serve static assets from servers geographically closer to the user for faster load times", "To store user-uploaded content", "To generate dynamic server pages"], correctAnswer: 1 },
+      { question: "What is the Node.js event loop?", options: ["A loop that processes HTTP requests only", "A mechanism that allows Node.js to perform non-blocking I/O by offloading operations", "A real-time debugging tool", "A scheduler for cron jobs"], correctAnswer: 1 },
+      { question: "What is the difference between npm and yarn?", options: ["Yarn is for Python; npm is for JavaScript", "Both are JavaScript package managers; yarn is generally faster with better caching", "npm is deprecated", "Yarn cannot install devDependencies"], correctAnswer: 1 },
+      { question: "What is a 404 HTTP error?", options: ["Internal Server Error", "Resource Not Found — the requested URL doesn't exist on the server", "Gateway Timeout", "Unauthorized access"], correctAnswer: 1 },
+      { question: "What is Redis commonly used for?", options: ["Relational data storage", "In-memory caching, session storage, and pub/sub messaging", "File storage", "HTML rendering"], correctAnswer: 1 },
+      { question: "What is database seeding?", options: ["Backing up data", "Populating a database with initial/test data for development or testing", "Indexing database tables", "Creating database schemas"], correctAnswer: 1 },
+      { question: "What is the purpose of a .gitignore file?", options: ["To ignore git commands", "To specify files and directories that git should not track or commit", "To block collaborators", "To configure git settings"], correctAnswer: 1 },
+      { question: "What is HTTPS vs HTTP?", options: ["HTTPS is faster", "HTTPS uses SSL/TLS to encrypt communication between client and server; HTTP does not", "HTTP is more modern", "HTTPS is only for banking sites"], correctAnswer: 1 },
+      { question: "What is the purpose of Docker Compose?", options: ["To write Docker images", "To define and run multi-container Docker applications using a YAML configuration file", "To deploy to Kubernetes", "To monitor container performance"], correctAnswer: 1 },
+      { question: "What is a monorepo?", options: ["A single-page React app", "A single repository containing code for multiple projects or services", "A database with one table", "A server with one API endpoint"], correctAnswer: 1 },
+      { question: "What is the purpose of environment-specific builds (dev/staging/prod)?", options: ["To have different UI themes", "To use different configurations, API endpoints, and debug levels for each deployment environment", "To test on different browsers", "To run different JS versions"], correctAnswer: 1 },
+      { question: "What is GraphQL's key advantage over REST?", options: ["It's always faster", "Clients can request exactly the fields they need, reducing over-fetching and under-fetching", "It uses SQL syntax", "It doesn't need a server"], correctAnswer: 1 },
+      { question: "What is server-side validation vs client-side validation?", options: ["They are interchangeable and one is sufficient", "Both are needed: client-side for UX, server-side for security (never trust the client)", "Client-side is more secure", "Server-side is only for file uploads"], correctAnswer: 1 },
+      { question: "What is microservices architecture vs monolith?", options: ["Microservices are always better", "A monolith is one unified app; microservices split functionality into independent deployable services", "A monolith is a database pattern", "Microservices can only use REST"], correctAnswer: 1 },
+      { question: "What is the purpose of Postman in full-stack development?", options: ["To deploy apps", "To test and inspect API requests and responses during development", "To manage databases", "To build frontend UIs"], correctAnswer: 1 },
     ],
 
     // ============================================================
-    // DEVOPS ENGINEER
+    // DEVOPS ENGINEER (30 questions)
     // ============================================================
     "DevOps Engineer": [
       { question: "What is Infrastructure as Code (IaC)?", options: ["Writing backend code", "Managing infrastructure through configuration files instead of manual processes", "A cloud provider service", "A programming language for servers"], correctAnswer: 1 },
@@ -726,10 +932,33 @@ function getFallbackQuestions(position, count = 5) {
       { question: "Which tool is most commonly used for infrastructure provisioning on AWS?", options: ["Ansible", "Chef", "Terraform", "Puppet"], correctAnswer: 2 },
       { question: "What is a Docker image?", options: ["A screenshot of a running container", "A read-only template used to create containers", "A virtual machine", "A cloud storage bucket"], correctAnswer: 1 },
       { question: "What does SLA stand for in DevOps/SRE?", options: ["Server Latency Agreement", "Service Level Agreement", "Software Lifecycle Architecture", "Scalable Load Algorithm"], correctAnswer: 1 },
+      { question: "What is the purpose of a CI/CD pipeline?", options: ["To manually deploy code", "To automate building, testing, and deploying code changes continuously", "To monitor server health", "To provision databases"], correctAnswer: 1 },
+      { question: "What is a Kubernetes Pod?", options: ["A namespace in Kubernetes", "The smallest deployable unit in Kubernetes, containing one or more containers", "A load balancer", "A persistent volume"], correctAnswer: 1 },
+      { question: "What does 'canary deployment' mean?", options: ["Deploying to all users at once", "Gradually rolling out a new release to a small subset of users before full rollout", "Deploying only to test environments", "A deployment that monitors bird activity"], correctAnswer: 1 },
+      { question: "What is the purpose of Ansible in DevOps?", options: ["Container orchestration", "Agentless IT automation for configuration management and deployment", "Code version control", "Log aggregation"], correctAnswer: 1 },
+      { question: "What is a Dockerfile?", options: ["A log file for Docker", "A script with instructions to build a Docker image", "A Docker configuration dashboard", "A Docker networking file"], correctAnswer: 1 },
+      { question: "What is the difference between Docker and a virtual machine?", options: ["No difference", "Docker containers share the host OS kernel; VMs include a full guest OS, making containers lighter", "VMs are faster than Docker", "Docker requires more storage than VMs"], correctAnswer: 1 },
+      { question: "What is observability in DevOps?", options: ["Watching server rooms physically", "The ability to measure a system's internal state from its external outputs (logs, metrics, traces)", "A monitoring dashboard", "A security audit process"], correctAnswer: 1 },
+      { question: "What does SRE stand for?", options: ["Software Release Engineering", "Site Reliability Engineering", "Secure Runtime Environment", "System Resource Evaluation"], correctAnswer: 1 },
+      { question: "What is the purpose of Prometheus in DevOps?", options: ["Code deployment", "An open-source monitoring system for collecting and querying metrics", "Container registry", "Configuration management"], correctAnswer: 1 },
+      { question: "What is a Kubernetes namespace?", options: ["A DNS zone", "A mechanism to partition resources within a cluster for multiple teams/environments", "A Docker network", "A pod configuration file"], correctAnswer: 1 },
+      { question: "What is the 'shift-left' approach in DevOps?", options: ["Moving servers to the left rack", "Integrating testing and security earlier in the development lifecycle", "A deployment rollback strategy", "Left-to-right CI/CD pipeline design"], correctAnswer: 1 },
+      { question: "What is a rolling update in Kubernetes?", options: ["Replacing all pods simultaneously", "Incrementally updating pods with zero downtime by replacing them one at a time", "Reverting to a previous deployment", "Scaling down all pods"], correctAnswer: 1 },
+      { question: "What does GitOps mean?", options: ["Using git for code reviews only", "Using Git as the source of truth for infrastructure/application declarative configuration", "A Git branching strategy", "A CI tool built on Git"], correctAnswer: 1 },
+      { question: "What is the purpose of Grafana?", options: ["A CI/CD tool", "A visualization and analytics platform for monitoring metrics and logs", "A container registry", "A configuration management tool"], correctAnswer: 1 },
+      { question: "What is MTTR in DevOps?", options: ["Mean Throughput Transfer Rate", "Mean Time to Recovery — the average time to restore a system after a failure", "Maximum Time to Release", "Monthly Test and Review"], correctAnswer: 1 },
+      { question: "What is a Kubernetes Ingress?", options: ["A pod startup configuration", "An API object managing external HTTP/HTTPS access to services within a cluster", "A persistent storage claim", "A container health check"], correctAnswer: 1 },
+      { question: "What does 'immutable infrastructure' mean?", options: ["Infrastructure that never changes configuration", "Infrastructure that is replaced rather than updated — servers are never modified in place", "Infrastructure with no databases", "Read-only cloud storage"], correctAnswer: 1 },
+      { question: "What is the purpose of HashiCorp Vault?", options: ["Storing Docker images", "Securely storing and managing secrets, tokens, and sensitive configuration data", "Container orchestration", "Log management"], correctAnswer: 1 },
+      { question: "What is chaos engineering?", options: ["Writing bad code on purpose", "Intentionally introducing failures into systems to test resilience and identify weaknesses", "A DevOps anti-pattern", "Merging untested code to production"], correctAnswer: 1 },
+      { question: "What is a container registry?", options: ["A server inventory list", "A repository for storing, managing, and distributing Docker container images", "A Kubernetes namespace", "A CI/CD pipeline stage"], correctAnswer: 1 },
+      { question: "What does 'artifact' mean in a CI/CD pipeline?", options: ["An old piece of code", "A deployable build output (e.g., a compiled binary, Docker image, or zip file)", "A git commit message", "A monitoring alert"], correctAnswer: 1 },
+      { question: "What is the purpose of a health check in container deployments?", options: ["Checking team morale", "Verifying a container is running correctly so orchestrators can restart or reroute traffic if not", "A security vulnerability scan", "A performance load test"], correctAnswer: 1 },
+      { question: "What is ELK Stack used for?", options: ["Machine learning pipelines", "Elasticsearch, Logstash, Kibana — a suite for log collection, processing, and visualization", "Container orchestration", "CDN management"], correctAnswer: 1 },
     ],
 
     // ============================================================
-    // UI/UX DESIGNER
+    // UI/UX DESIGNER (30 questions)
     // ============================================================
     "UI/UX Designer": [
       { question: "What does 'affordance' mean in UX design?", options: ["The cost of a design project", "A property of an object that shows users how to use it", "The color palette of an app", "The number of screens in a prototype"], correctAnswer: 1 },
@@ -739,10 +968,33 @@ function getFallbackQuestions(position, count = 5) {
       { question: "What does WCAG stand for?", options: ["Web Content Accessibility Guidelines", "Web Color and Graphics standard", "Website Compliance and Governance", "Web Component Architecture Guide"], correctAnswer: 0 },
       { question: "What is a heuristic evaluation?", options: ["A user survey method", "An expert review of a UI against usability principles", "An A/B test on two designs", "A focus group session"], correctAnswer: 1 },
       { question: "What is the F-pattern in web reading?", options: ["Users read in the shape of the letter F, focusing on top and left content", "Users skip the first paragraph", "Users read from right to left", "Users only read bullet points"], correctAnswer: 0 },
+      { question: "What is Fitts's Law in UX?", options: ["Users prefer fewer options", "The time to reach a target depends on the distance and size of the target", "Colors affect user mood", "Users read left to right"], correctAnswer: 1 },
+      { question: "What is the difference between UI and UX?", options: ["They are the same", "UI is the visual design of the interface; UX is the overall experience of using the product", "UX is only about performance", "UI includes backend logic"], correctAnswer: 1 },
+      { question: "What is Hick's Law?", options: ["Larger buttons are always better", "The more choices a user has, the longer it takes to make a decision", "Users prefer dark mode", "Simplicity always wins over aesthetics"], correctAnswer: 1 },
+      { question: "What is a design system?", options: ["A CAD software for UI", "A collection of reusable components, guidelines, and standards for consistent product design", "A project management tool", "A color theory framework"], correctAnswer: 1 },
+      { question: "What is the purpose of usability testing?", options: ["To test server performance", "To observe real users interacting with a product to identify usability issues", "To check security vulnerabilities", "To compare two design versions"], correctAnswer: 1 },
+      { question: "What is visual hierarchy in design?", options: ["A chart of design team ranks", "The arrangement of elements to guide users' attention in order of importance", "A color ordering system", "A grid-based layout technique"], correctAnswer: 1 },
+      { question: "What is a prototype in UX design?", options: ["A fully coded product", "A simulation of a product used to test ideas and gather feedback before development", "A final design document", "A brand style guide"], correctAnswer: 1 },
+      { question: "What is the 'gestalt principle of proximity'?", options: ["Objects that look similar are perceived as related", "Objects placed near each other are perceived as a group", "Simple shapes are preferred by users", "Users notice differences before similarities"], correctAnswer: 1 },
+      { question: "What is cognitive load in UX?", options: ["Server processing load", "The mental effort required by a user to understand and use an interface", "The number of screens in an app", "CSS animation complexity"], correctAnswer: 1 },
+      { question: "What is the purpose of a style guide?", options: ["A user manual", "A document defining visual standards (colors, typography, spacing) for design consistency", "A backend API documentation", "A brand marketing plan"], correctAnswer: 1 },
+      { question: "What tool is Figma used for?", options: ["Backend API development", "Collaborative UI/UX design, prototyping, and design system management", "Database design", "Video editing"], correctAnswer: 1 },
+      { question: "What is card sorting in UX research?", options: ["Organizing business card contacts", "A technique where users group content into categories to inform information architecture", "A competitive analysis method", "A visual hierarchy exercise"], correctAnswer: 1 },
+      { question: "What is the 80/20 rule (Pareto Principle) in UX?", options: ["80% of users use 80% of features", "80% of user problems come from 20% of usability issues", "Spend 80% of time on visual design", "Target 80% of the market"], correctAnswer: 1 },
+      { question: "What is an information architecture (IA)?", options: ["The server infrastructure plan", "The structural design of shared information environments — how content is organized and navigated", "A sitemap for search engines", "A database schema design"], correctAnswer: 1 },
+      { question: "What is the purpose of a user journey map?", options: ["A physical map of user locations", "A visualization of the steps a user takes to achieve a goal, including emotions and pain points", "A user registration flow", "A navigation menu design"], correctAnswer: 1 },
+      { question: "What is 'progressive disclosure' in UI design?", options: ["Showing all features immediately", "Showing only necessary information initially and revealing complexity as needed", "Disclosing data to users", "A loading animation pattern"], correctAnswer: 1 },
+      { question: "What does 'mobile-first design' mean?", options: ["Designing only for mobile", "Designing for mobile screens first, then scaling up to larger screens", "Making a mobile app before the website", "Prioritizing App Store submission"], correctAnswer: 1 },
+      { question: "What is an eye-tracking study used for in UX?", options: ["Healthcare applications only", "Understanding where users look on a page to optimize layout and visual hierarchy", "Testing screen brightness", "Monitoring developer productivity"], correctAnswer: 1 },
+      { question: "What is the difference between serif and sans-serif fonts?", options: ["Serif are modern; sans-serif are classic", "Serif fonts have small decorative strokes (e.g., Times New Roman); sans-serif do not (e.g., Arial)", "Sans-serif is only for headings", "Serif fonts are always larger"], correctAnswer: 1 },
+      { question: "What is a 'call to action' (CTA) in UI design?", options: ["A phone support button", "A design element that prompts users to take a specific action (e.g., 'Sign Up', 'Buy Now')", "A tooltip that explains a feature", "A warning notification"], correctAnswer: 1 },
+      { question: "What is the purpose of white space (negative space) in design?", options: ["Wasted screen space", "Intentional empty space that improves readability, focus, and visual clarity", "A placeholder for future content", "A background color choice"], correctAnswer: 1 },
+      { question: "What is accessibility in the context of UX?", options: ["Speed of the app", "Designing products that can be used by people with disabilities (visual, motor, cognitive)", "A legal disclaimer requirement", "Backend API accessibility"], correctAnswer: 1 },
+      { question: "What is the purpose of a user flow diagram?", options: ["Tracking server requests", "Mapping the path a user takes through a product to complete a task", "Defining database relationships", "Planning sprint tasks"], correctAnswer: 1 },
     ],
 
     // ============================================================
-    // MACHINE LEARNING ENGINEER
+    // MACHINE LEARNING ENGINEER (30 questions)
     // ============================================================
     "Machine Learning Engineer": [
       { question: "What is gradient descent?", options: ["A data visualization technique", "An optimization algorithm that minimizes a loss function by iteratively updating parameters", "A regularization method", "A type of neural network layer"], correctAnswer: 1 },
@@ -752,10 +1004,33 @@ function getFallbackQuestions(position, count = 5) {
       { question: "What is the purpose of dropout in neural networks?", options: ["Reduce model size permanently", "Randomly deactivate neurons during training to prevent overfitting", "Speed up inference", "Improve data loading"], correctAnswer: 1 },
       { question: "Which framework is most commonly used for building deep learning models?", options: ["Scikit-learn", "NumPy", "PyTorch / TensorFlow", "Pandas"], correctAnswer: 2 },
       { question: "What is the vanishing gradient problem?", options: ["Gradients become too large, causing instability", "Gradients become very small, making deep network layers learn very slowly or not at all", "The model forgets training data", "Loss function returns NaN"], correctAnswer: 1 },
+      { question: "What is a convolutional neural network (CNN) primarily used for?", options: ["Natural language processing", "Image recognition and computer vision tasks", "Time series forecasting", "Reinforcement learning"], correctAnswer: 1 },
+      { question: "What is an LSTM (Long Short-Term Memory) network used for?", options: ["Image classification", "Sequence and time-series data, retaining long-term dependencies", "Object detection", "Data normalization"], correctAnswer: 1 },
+      { question: "What is the softmax function used for?", options: ["Regression output", "Converting a vector of raw scores into a probability distribution for multi-class classification", "Normalizing input features", "Applying dropout"], correctAnswer: 1 },
+      { question: "What is the difference between precision and recall?", options: ["They are the same", "Precision = correct positive predictions / all positive predictions; Recall = correct positive predictions / all actual positives", "Recall measures speed; Precision measures accuracy", "Precision is for regression; Recall is for classification"], correctAnswer: 1 },
+      { question: "What is MLOps?", options: ["A machine learning library", "The practice of applying DevOps principles to ML systems to streamline model development and deployment", "A type of optimization algorithm", "A model evaluation metric"], correctAnswer: 1 },
+      { question: "What is a generative adversarial network (GAN)?", options: ["A network that only generates data", "Two networks (generator and discriminator) competing to produce realistic synthetic data", "A classification model", "A reinforcement learning agent"], correctAnswer: 1 },
+      { question: "What is the purpose of the Adam optimizer?", options: ["Splitting data into batches", "An adaptive learning rate optimizer that combines momentum and RMSprop for faster convergence", "A regularization technique", "A loss function"], correctAnswer: 1 },
+      { question: "What is feature importance in ML models?", options: ["The size of the dataset", "A measure of how much each feature contributes to the model's predictions", "The training speed of each feature", "The number of unique values in a feature"], correctAnswer: 1 },
+      { question: "What is the purpose of a learning rate in neural networks?", options: ["The speed of the training hardware", "Controls how much the model parameters are updated in response to the estimated error each batch", "The number of training epochs", "The batch size for training"], correctAnswer: 1 },
+      { question: "What is embedding in the context of NLP?", options: ["Inserting code into HTML", "Representing words or entities as dense vectors in a continuous vector space", "A data compression technique", "A type of tokenization"], correctAnswer: 1 },
+      { question: "What is the purpose of a confusion matrix in ML?", options: ["To confuse the model intentionally", "A table showing correct and incorrect predictions broken down by class", "To visualize data distributions", "To tune hyperparameters"], correctAnswer: 1 },
+      { question: "What is Reinforcement Learning?", options: ["Supervised learning with extra steps", "A training paradigm where an agent learns by taking actions and receiving rewards or penalties", "A clustering technique", "A type of data augmentation"], correctAnswer: 1 },
+      { question: "What is the purpose of data augmentation in deep learning?", options: ["Cleaning the dataset", "Artificially increasing training data variety through transformations to improve model generalization", "Normalizing data", "Removing outliers"], correctAnswer: 1 },
+      { question: "What does 'epoch' mean in ML training?", options: ["A training batch", "One complete pass through the entire training dataset", "A model checkpoint", "A training speed metric"], correctAnswer: 1 },
+      { question: "What is the attention mechanism in transformers?", options: ["A marketing attention strategy", "A mechanism allowing models to focus on relevant parts of the input sequence dynamically", "A regularization technique", "A data preprocessing step"], correctAnswer: 1 },
+      { question: "What is the purpose of a validation loss curve?", options: ["To measure server performance", "To detect overfitting — if it rises while training loss falls, the model is overfitting", "To track feature importance", "To evaluate model fairness"], correctAnswer: 1 },
+      { question: "What is model quantization?", options: ["Counting model parameters", "Reducing model size by using lower-precision data types (e.g., float32 → int8) for faster inference", "Splitting a model into multiple parts", "A training speed optimization"], correctAnswer: 1 },
+      { question: "What is the purpose of SHAP values in ML?", options: ["Measuring model training speed", "Explaining individual predictions by measuring each feature's contribution using game theory", "A type of neural network activation", "A loss function variant"], correctAnswer: 1 },
+      { question: "What does 'model drift' mean in production ML?", options: ["The model moving to a new server", "Degradation of model performance over time due to changes in real-world data distribution", "A GPU memory error", "Overfitting on new data"], correctAnswer: 1 },
+      { question: "What is a transformer model?", options: ["A power electronics component", "A neural network architecture using self-attention mechanisms, foundational to modern LLMs like GPT", "A feature transformation pipeline", "A data normalization method"], correctAnswer: 1 },
+      { question: "What is the purpose of cross-entropy loss?", options: ["Measuring the distance between two embeddings", "A loss function for classification tasks measuring the difference between predicted and true probability distributions", "Computing gradient magnitudes", "Evaluating regression models"], correctAnswer: 1 },
+      { question: "What is the bias in a neural network neuron?", options: ["A prejudice in training data", "A learnable parameter added to the weighted sum, allowing the model to shift the activation function", "The model's error on training data", "A regularization term"], correctAnswer: 1 },
+      { question: "What is A/B testing used for in ML systems?", options: ["Comparing two models on separate user groups to determine which performs better in production", "Testing a model on two datasets", "Switching between two ML frameworks", "A type of cross-validation"], correctAnswer: 0 },
     ],
 
     // ============================================================
-    // ANDROID DEVELOPER
+    // ANDROID DEVELOPER (30 questions)
     // ============================================================
     "Android Developer": [
       { question: "What language is primarily used for modern Android development?", options: ["Java", "Swift", "Kotlin", "Dart"], correctAnswer: 2 },
@@ -765,10 +1040,33 @@ function getFallbackQuestions(position, count = 5) {
       { question: "What is the role of ViewModel in Android MVVM architecture?", options: ["Handle UI rendering", "Survive configuration changes and hold UI-related data", "Manage database operations only", "Send network requests"], correctAnswer: 1 },
       { question: "Which library is commonly used for dependency injection in Android?", options: ["Retrofit", "Room", "Hilt / Dagger", "Glide"], correctAnswer: 2 },
       { question: "What is the difference between Service and IntentService?", options: ["No difference", "Service runs on main thread; IntentService runs on a worker thread and stops when done", "IntentService is deprecated from API 1", "Service is only for background audio"], correctAnswer: 1 },
+      { question: "What is a Fragment in Android?", options: ["A broken Activity", "A reusable UI component that can be embedded in an Activity", "A background job", "A network request handler"], correctAnswer: 1 },
+      { question: "What is Room in Android Jetpack?", options: ["A UI layout container", "An abstraction layer over SQLite for local database persistence", "A background service manager", "A navigation library"], correctAnswer: 1 },
+      { question: "What is Retrofit used for in Android?", options: ["Loading images", "A type-safe HTTP client for Android for making API calls", "Dependency injection", "Local database operations"], correctAnswer: 1 },
+      { question: "What is the RecyclerView used for in Android?", options: ["Recycling memory", "Efficiently displaying large, scrollable lists of data", "Handling device orientation", "Playing audio files"], correctAnswer: 1 },
+      { question: "What is Coroutines in Kotlin used for in Android?", options: ["UI animations", "Writing asynchronous, non-blocking code in a sequential style", "Database queries", "Dependency injection"], correctAnswer: 1 },
+      { question: "What is the Android Activity lifecycle?", options: ["A coding style guide", "A sequence of states (Created, Started, Resumed, Paused, Stopped, Destroyed) an Activity goes through", "A version history of Android APIs", "A UI component state machine"], correctAnswer: 1 },
+      { question: "What is the purpose of SharedPreferences in Android?", options: ["To share data between apps", "To store small, key-value data persistently on the device", "To share images", "To manage user accounts"], correctAnswer: 1 },
+      { question: "What is WorkManager in Android Jetpack?", options: ["A project management tool", "A library for scheduling deferrable, guaranteed background work", "A UI threading manager", "An animation scheduler"], correctAnswer: 1 },
+      { question: "What is the difference between dp and sp in Android?", options: ["No difference", "dp is density-independent pixels for layouts; sp is scale-independent pixels for text (respects font size settings)", "dp is for images; sp is for spacing", "sp is larger than dp always"], correctAnswer: 1 },
+      { question: "What is the Navigation Component in Android?", options: ["A GPS library", "A Jetpack library for managing in-app navigation and back stack between fragments/activities", "A networking library", "A UI routing table"], correctAnswer: 1 },
+      { question: "What is LiveData in Android?", options: ["Real-time server data", "An observable data holder class that is lifecycle-aware and updates UI automatically", "A media streaming library", "A background thread handler"], correctAnswer: 1 },
+      { question: "What is the purpose of Gradle in Android development?", options: ["A code editor plugin", "A build automation tool managing dependencies, building, and packaging the Android app", "A version control system", "A UI debugging tool"], correctAnswer: 1 },
+      { question: "What is a BroadcastReceiver in Android?", options: ["A Bluetooth device", "A component that listens for system-wide or app-wide broadcast messages/events", "A network socket", "A push notification handler"], correctAnswer: 1 },
+      { question: "What is Glide used for in Android?", options: ["Dependency injection", "Efficient image loading, caching, and display in Android apps", "Database ORM", "Networking"], correctAnswer: 1 },
+      { question: "What is the purpose of ProGuard/R8 in Android?", options: ["Code formatting", "Shrinking, obfuscating, and optimizing the app's bytecode for release builds", "Decoding resources", "Running tests"], correctAnswer: 1 },
+      { question: "What is the difference between onCreate() and onStart() in an Activity?", options: ["No difference", "onCreate() is called once when Activity is first created; onStart() is called when it becomes visible", "onStart() initializes views; onCreate() handles data", "onCreate() is for fragments only"], correctAnswer: 1 },
+      { question: "What is an Intent in Android?", options: ["A user's goal", "An asynchronous message used to communicate between components (start activities, services, etc.)", "A network request", "A database query"], correctAnswer: 1 },
+      { question: "What is the purpose of ProGuard rules in Android?", options: ["To speed up compilation", "To configure which classes/methods should not be obfuscated or removed during minification", "To add new libraries", "To format code"], correctAnswer: 1 },
+      { question: "What is the difference between Activity and Fragment back stack?", options: ["They are the same", "Activity back stack is managed by the OS; Fragment back stack is managed within an Activity", "Fragments cannot use back stack", "Activity back stack holds fragments too"], correctAnswer: 1 },
+      { question: "What is Android's Data Binding library?", options: ["Connecting to databases", "Binding UI components in layouts to data sources declaratively, eliminating boilerplate code", "A network binding library", "Linking activities to services"], correctAnswer: 1 },
+      { question: "What APK stands for?", options: ["Android Programming Kit", "Android Package Kit — the file format for Android app distribution", "Application Process Key", "Automatic Protocol Key"], correctAnswer: 1 },
+      { question: "What is the purpose of onSaveInstanceState() in Android?", options: ["Saving the entire app state to a file", "Saving UI state data before an Activity is destroyed due to configuration changes", "Taking a screenshot of the current screen", "Persisting data to a database"], correctAnswer: 1 },
+      { question: "What is Jetpack DataStore used for?", options: ["Data binding", "A modern replacement for SharedPreferences using coroutines for storing key-value or typed objects", "Image caching", "Network caching"], correctAnswer: 1 },
     ],
 
     // ============================================================
-    // IOS DEVELOPER
+    // IOS DEVELOPER (30 questions)
     // ============================================================
     "iOS Developer": [
       { question: "What language is used for modern iOS development?", options: ["Objective-C", "Kotlin", "Flutter", "Swift"], correctAnswer: 3 },
@@ -778,10 +1076,33 @@ function getFallbackQuestions(position, count = 5) {
       { question: "What is Core Data used for in iOS?", options: ["Networking", "Local data persistence and object graph management", "Push notifications", "UI animations"], correctAnswer: 1 },
       { question: "What is the MVVM pattern?", options: ["Model-View-ViewModel: separates logic from UI using a ViewModel", "A design pattern for database schemas", "A network protocol", "A testing methodology"], correctAnswer: 0 },
       { question: "What does Xcode Instruments help with?", options: ["Writing Swift code", "Profiling and debugging performance, memory, and energy issues", "Submitting apps to the App Store", "Designing UI mockups"], correctAnswer: 1 },
+      { question: "What is UIKit?", options: ["A Swift testing library", "Apple's traditional framework for building iOS UIs programmatically or with Interface Builder", "A UI component library from Google", "A cross-platform development kit"], correctAnswer: 1 },
+      { question: "What is the difference between struct and class in Swift?", options: ["No difference", "Structs are value types (copied on assignment); classes are reference types (shared)", "Classes are faster than structs", "Structs support inheritance"], correctAnswer: 1 },
+      { question: "What is a closure in Swift?", options: ["A sealed class", "A self-contained block of functionality that can be passed around and used in your code", "A Swift module", "A memory management technique"], correctAnswer: 1 },
+      { question: "What is URLSession used for in iOS?", options: ["URL shortening", "Making HTTP network requests in iOS apps", "Managing URL routing", "Opening URLs in Safari"], correctAnswer: 1 },
+      { question: "What is the purpose of the Codable protocol in Swift?", options: ["Making classes copiable", "Encoding and decoding data to/from formats like JSON automatically", "A networking protocol", "A memory management protocol"], correctAnswer: 1 },
+      { question: "What is Combine in iOS development?", options: ["A UI layout tool", "Apple's reactive programming framework for handling asynchronous events and data streams", "A networking library replacement", "A Swift testing framework"], correctAnswer: 1 },
+      { question: "What is the purpose of optional in Swift?", options: ["A way to make variables optional in API params", "A type that can hold either a value or nil, preventing null pointer crashes", "A performance optimization", "A deprecated Objective-C type"], correctAnswer: 1 },
+      { question: "What is a Storyboard in iOS?", options: ["A user story document", "A visual representation of the app's UI flow and view controllers used in Interface Builder", "A project management file", "An Xcode plugin"], correctAnswer: 1 },
+      { question: "What is Grand Central Dispatch (GCD) used for in iOS?", options: ["Navigation dispatch", "Managing concurrent tasks and threading on Apple platforms", "Sending push notifications", "Handling device sensors"], correctAnswer: 1 },
+      { question: "What is the purpose of @State in SwiftUI?", options: ["Global app state", "A property wrapper that marks a value as state within a SwiftUI view, triggering re-renders on change", "A data model decorator", "A networking state manager"], correctAnswer: 1 },
+      { question: "What is TestFlight used for in iOS development?", options: ["Unit testing Swift code", "Distributing beta versions of iOS apps to testers before App Store release", "UI performance testing", "A Xcode testing plugin"], correctAnswer: 1 },
+      { question: "What is Keychain used for in iOS?", options: ["Managing API keys in code", "Securely storing sensitive data like passwords and tokens on the device", "Locking the iPhone screen", "A Core Data encryption layer"], correctAnswer: 1 },
+      { question: "What is the difference between push and pop in UINavigationController?", options: ["No difference", "Push adds a view controller to the stack; pop removes it to go back", "Pop adds; Push removes", "Push is for modals; pop is for sheets"], correctAnswer: 1 },
+      { question: "What is @ObservedObject in SwiftUI?", options: ["A struct property wrapper", "A property wrapper for referencing an external ObservableObject, re-rendering the view when it changes", "A Core Data binding", "A network observer"], correctAnswer: 1 },
+      { question: "What is Swift Package Manager (SPM)?", options: ["A physical package shipping tool", "Apple's built-in tool for adding and managing code dependencies in Swift projects", "A replacement for CocoaPods only", "A code formatting tool"], correctAnswer: 1 },
+      { question: "What is the purpose of UserDefaults in iOS?", options: ["Default app behaviors", "Storing small, simple user preferences and settings", "Managing user authentication", "Storing large data blobs"], correctAnswer: 1 },
+      { question: "What is the difference between synchronous and asynchronous tasks in iOS?", options: ["No difference", "Synchronous blocks the thread until done; asynchronous allows code to continue and handles completion later", "Asynchronous is always faster", "Synchronous is for UI; async is for background"], correctAnswer: 1 },
+      { question: "What is async/await in Swift?", options: ["A loop mechanism", "A modern concurrency syntax for writing asynchronous code in a readable, sequential style", "A data binding pattern", "A networking protocol"], correctAnswer: 1 },
+      { question: "What is App Store Connect used for?", options: ["Writing iOS apps", "Managing app submissions, TestFlight, metadata, analytics, and sales for the App Store", "Debugging Xcode apps", "Designing app icons"], correctAnswer: 1 },
+      { question: "What is a delegate pattern in iOS?", options: ["Delegating tasks to another team", "A design pattern where one object acts on behalf of another by conforming to a protocol", "A memory management pattern", "A data persistence technique"], correctAnswer: 1 },
+      { question: "What is the purpose of lazy var in Swift?", options: ["Variables that are declared but never used", "A property that is only initialized when first accessed, saving memory if it's not always needed", "A slow variable declaration", "A thread-safe property"], correctAnswer: 1 },
+      { question: "What is WKWebView used for in iOS?", options: ["Displaying AR content", "Embedding web content within an iOS app", "A WebSocket client", "Displaying PDF files only"], correctAnswer: 1 },
+      { question: "What is the purpose of APNS (Apple Push Notification Service)?", options: ["Apple's payment system", "Apple's infrastructure for delivering push notifications to iOS, macOS, and other Apple devices", "App performance monitoring", "App preview notifications"], correctAnswer: 1 },
     ],
 
     // ============================================================
-    // QA ENGINEER
+    // QA ENGINEER (30 questions)
     // ============================================================
     "QA Engineer": [
       { question: "What is the difference between black-box and white-box testing?", options: ["Black-box tests internal code; white-box tests the UI", "Black-box tests without knowledge of internals; white-box tests with full code knowledge", "No difference", "Black-box is automated; white-box is manual"], correctAnswer: 1 },
@@ -791,6 +1112,29 @@ function getFallbackQuestions(position, count = 5) {
       { question: "Which tool is commonly used for API testing?", options: ["Selenium", "Postman", "JUnit", "Jira"], correctAnswer: 1 },
       { question: "What is smoke testing?", options: ["Testing all edge cases", "A quick preliminary test to check basic functionality before deeper testing", "Performance testing under heavy load", "Testing in a staging environment only"], correctAnswer: 1 },
       { question: "What is a defect's 'severity' vs 'priority'?", options: ["They are the same concept", "Severity = impact on system functionality; Priority = urgency of fixing it", "Priority = impact; Severity = timeline", "Severity is set by developers; Priority by stakeholders"], correctAnswer: 1 },
+      { question: "What is exploratory testing?", options: ["Testing that follows a strict test plan", "Simultaneous learning, test design, and execution where the tester actively explores the application", "Automated browser testing", "Testing only new features"], correctAnswer: 1 },
+      { question: "What is a test suite?", options: ["A QA team office", "A collection of test cases grouped together for execution", "A testing environment setup", "A type of test report"], correctAnswer: 1 },
+      { question: "What is performance testing?", options: ["Testing if the app looks good", "Testing how a system behaves under load, including speed, scalability, and stability", "Testing only critical paths", "A code review process"], correctAnswer: 1 },
+      { question: "What is the difference between load testing and stress testing?", options: ["No difference", "Load testing checks behavior under expected load; stress testing pushes beyond capacity to find breaking points", "Stress testing is for UI; load testing for APIs", "Load testing is slower"], correctAnswer: 1 },
+      { question: "What is Selenium used for?", options: ["API testing", "Automating web browser interactions for functional UI testing", "Performance testing", "Mobile app testing"], correctAnswer: 1 },
+      { question: "What is a bug life cycle?", options: ["The lifespan of a software product", "The stages a defect goes through: New, Assigned, Open, Fixed, Verified, Closed", "A testing schedule", "A product release cycle"], correctAnswer: 1 },
+      { question: "What is boundary value analysis (BVA)?", options: ["Testing only the middle values of a range", "Testing at the boundaries of input ranges where bugs are most likely to occur", "A black-box testing technique for security", "Testing extreme user behaviors"], correctAnswer: 1 },
+      { question: "What is equivalence partitioning?", options: ["Splitting the testing team equally", "Dividing input into partitions where all values in a partition are expected to behave the same way", "A performance testing strategy", "A bug classification method"], correctAnswer: 1 },
+      { question: "What is a test plan?", options: ["A sprint backlog", "A document describing the scope, approach, resources, and schedule for testing activities", "A list of bugs to fix", "A deployment checklist"], correctAnswer: 1 },
+      { question: "What is the purpose of a test environment?", options: ["A physical QA workspace", "A configured system (hardware/software/network) representing production conditions for testing", "A mock database", "A developer's local machine only"], correctAnswer: 1 },
+      { question: "What is BDD (Behavior-Driven Development)?", options: ["A database development approach", "A testing approach where tests are written in plain language describing user behavior (Given-When-Then)", "A backend development methodology", "A branch management strategy"], correctAnswer: 1 },
+      { question: "What is the purpose of a test automation framework?", options: ["To replace manual testers entirely", "To provide structure and reusable tools for writing, executing, and managing automated tests", "To generate test data automatically", "To schedule deployments"], correctAnswer: 1 },
+      { question: "What is Appium used for?", options: ["Web UI testing", "Automating native, hybrid, and mobile web apps on iOS and Android", "Performance testing", "API contract testing"], correctAnswer: 1 },
+      { question: "What is end-to-end (E2E) testing?", options: ["Testing only the backend APIs", "Testing the entire application flow from the user's perspective, simulating real user scenarios", "Testing code units in isolation", "A security scanning process"], correctAnswer: 1 },
+      { question: "What is code coverage in testing?", options: ["How many lines of code have been written", "The percentage of source code executed during testing", "The number of test files relative to source files", "A metric for code quality reviews"], correctAnswer: 1 },
+      { question: "What is the difference between functional and non-functional testing?", options: ["No difference", "Functional tests verify what the system does; non-functional tests verify how well it does it (performance, security)", "Functional tests are automated; non-functional are manual", "Non-functional tests are for APIs only"], correctAnswer: 1 },
+      { question: "What is a mock in unit testing?", options: ["A fake user account", "A simulated version of a dependency (e.g., database or API) that controls test behavior", "A test data file", "A test double that records calls"], correctAnswer: 1 },
+      { question: "What is the purpose of CI in a QA workflow?", options: ["To deploy code manually", "To automatically run tests on every code commit, catching bugs early", "To manage test cases", "To perform security audits"], correctAnswer: 1 },
+      { question: "What is acceptance testing?", options: ["Testing performed by developers", "Testing that verifies the system meets business requirements and is accepted by the client/stakeholders", "Automated testing only", "A post-deployment monitoring process"], correctAnswer: 1 },
+      { question: "What is a flaky test?", options: ["A test written poorly", "A test that produces inconsistent results (passes and fails) without code changes", "A test that always fails", "A test with many assertions"], correctAnswer: 1 },
+      { question: "What is security testing?", options: ["Testing with a password", "Testing to identify vulnerabilities and ensure the system is protected from threats", "Running antivirus scans", "A performance testing variant"], correctAnswer: 1 },
+      { question: "What is test data management?", options: ["Managing the QA team's data", "The process of creating, maintaining, and controlling data used in testing to ensure accuracy and coverage", "A database backup process", "Generating random test users"], correctAnswer: 1 },
+      { question: "What does 'shift-right testing' mean?", options: ["Moving tests to the start of development", "Testing in production or near-production environments to catch real-world issues post-deployment", "Testing on the right side of the screen", "A test prioritization method"], correctAnswer: 1 },
     ],
   };
 
@@ -1465,19 +1809,11 @@ app.post('/api/interview/message', async (req, res) => {
 
     const systemPrompt = `You are Alex, a senior technical recruiter interviewing ${candidateName || 'a candidate'} for a ${position} position.
 Be professional, insightful, and evaluate answers for: technical depth, communication clarity, relevant experience, and problem-solving.
-Acknowledge what was good about their answer, then ${isLastQuestion ? 'wrap up the interview warmly' : 'ask the next question which should go deeper on a different aspect of the role'}.`;
+Acknowledge their previous answer naturally, and ask a relevant follow-up question or transition to evaluating a different technical/behavioral area appropriate for a ${position}. Interact independently and dynamically without following a rigid script.`;
 
     const historyText = (conversationHistory || []).slice(-6).map(m =>
       `${m.role === 'user' ? 'Candidate' : 'Interviewer'}: ${m.content}`
     ).join('\n');
-
-    const nextTopics = {
-      2: 'a specific technical challenge or project they are proud of',
-      3: 'how they handle conflict, pressure, or ambiguity at work',
-      4: 'their approach to learning new technologies or skills',
-      5: 'where they see themselves in 3 years and why this company'
-    };
-    const nextTopic = nextTopics[questionNumber + 1] || 'their strengths and areas of growth';
 
     const prompt = `Conversation so far:
 ${historyText}
@@ -1486,8 +1822,8 @@ Candidate just said: "${userMessage}"
 This was question ${questionNumber} of ${totalQuestions}.
 
 ${isLastQuestion
-  ? 'This is the final question. Evaluate their answer, thank them warmly, and tell them next steps.'
-  : `Acknowledge their answer specifically (mention something they said), score it mentally, then ask question ${questionNumber + 1} about: ${nextTopic}.`
+  ? 'This is the final question. Evaluate their answer, thank them warmly, wrap up the interview, and tell them next steps.'
+  : `Acknowledge their answer specifically (mention something they said), score it mentally, then independently ask the next question (${questionNumber + 1}) based on the natural flow of conversation for a ${position} interview.`
 }
 
 Return ONLY this JSON:
@@ -1501,7 +1837,9 @@ Return ONLY this JSON:
 
     try {
       const response = await callAI(prompt, systemPrompt);
-      const cleaned = response.replace(/```json|```/g, '').trim();
+      let cleaned = response.replace(/```json|```/g, '').trim();
+      const match = cleaned.match(/\{[\s\S]*\}/);
+      if (match) cleaned = match[0];
       const parsed = JSON.parse(cleaned);
       return res.json({ success: true, ...parsed });
     } catch {
