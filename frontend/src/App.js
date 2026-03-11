@@ -992,7 +992,7 @@ function ProfileStage({ candidateData, setCandidateData, setStage }) {
 }
 
 // ==================== BACKEND API URL ====================
-const API_URL = process.env.REACT_APP_API_URL || (process.env.NODE_ENV === 'production' ? '' : 'http://localhost:3001');
+const API_URL = process.env.NODE_ENV === 'production' ? '' : (process.env.REACT_APP_API_URL || 'http://localhost:3001');
 
 // ==================== RESUME UPLOAD STAGE ====================
 function ResumeUploadStage({ candidateData, setCandidateData, setStage }) {
@@ -1499,7 +1499,7 @@ function UploadVideoStage({ candidateData, setCandidateData, setStage }) {
 
 // ==================== TECHNICAL QUIZ STAGE ====================
 function TechnicalQuizStage({ candidateData, setCandidateData, setStage }) {
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
+  const API_URL = process.env.NODE_ENV === 'production' ? '' : (process.env.REACT_APP_API_URL || 'http://localhost:3001');
   const TOTAL_QUESTIONS = 30;
   const TIME_LIMIT = 30 * 60; // 30 minutes in seconds
 
@@ -1747,7 +1747,7 @@ function TechnicalQuizStage({ candidateData, setCandidateData, setStage }) {
 
 // ==================== TEXT INTERVIEW STAGE ====================
 function TextInterviewStage({ candidateData, setCandidateData, setStage, authState }) {
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
+  const API_URL = process.env.NODE_ENV === 'production' ? '' : (process.env.REACT_APP_API_URL || 'http://localhost:3001');
   const [messages, setMessages] = useState([]);
   const [currentInput, setCurrentInput] = useState('');
   const [loading, setLoading] = useState(false);
@@ -2446,7 +2446,7 @@ function ScoreCard({ title, score, icon: Icon }) {
 
 // ==================== SUPER-ADMIN DASHBOARD ====================
 function SuperAdminDashboard({ authState, logout }) {
-  const API_URL = process.env.REACT_APP_API_URL || 'http://localhost:3001';
+  const API_URL = process.env.NODE_ENV === 'production' ? '' : (process.env.REACT_APP_API_URL || 'http://localhost:3001');
   const [recruiters, setRecruiters] = useState([]);
   const [stats, setStats] = useState(null);
   const [candidates, setCandidates] = useState([]);
