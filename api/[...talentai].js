@@ -995,7 +995,8 @@ function getManagedUsers(userType) {
       candidatesViewed: user.userType === 'recruiter'
         ? candidates.filter(c => (user.viewedCandidates || []).includes(c.id)).length
         : undefined,
-      totalCandidatesInSystem: user.userType === 'recruiter' ? candidates.length : undefined
+      totalCandidatesInSystem: user.userType === 'recruiter' ? candidates.length : undefined,
+      allowedCandidateIds: user.userType === 'recruiter' ? (user.allowedCandidateIds ?? null) : undefined
     }));
 }
 
@@ -1057,6 +1058,84 @@ app.put('/api/superadmin/users/:id/access', authenticateToken, requireSuperAdmin
     return res.json({ success: true, user: sanitizeManagedUser(user) });
   } catch (error) {
     return res.status(500).json({ error: 'Failed to update user access' });
+  }
+});
+
+// DELETE remove any managed user (candidate or recruiter)
+app.delete('/api/superadmin/users/:id', authenticateToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const userIndex = users.findIndex(u => u.id === id && ['candidate', 'recruiter'].includes(u.userType));
+    if (userIndex === -1) {
+      return res.status(404).json({ error: 'Managed user not found' });
+    }
+
+    const [removedUser] = users.splice(userIndex, 1);
+    let removedCandidateRecords = 0;
+
+    if (removedUser.userType === 'candidate') {
+      const removedEmail = String(removedUser.email || '').toLowerCase();
+      const removedCandidateIds = candidates
+        .filter(c => String(c.email || '').toLowerCase() === removedEmail)
+        .map(c => c.id);
+
+      if (removedCandidateIds.length > 0) {
+        const removedIdSet = new Set(removedCandidateIds);
+        removedCandidateRecords = removedCandidateIds.length;
+
+        candidates = candidates.filter(c => !removedIdSet.has(c.id));
+
+        users.forEach((u) => {
+          if (u.userType === 'recruiter' && Array.isArray(u.viewedCandidates)) {
+            u.viewedCandidates = u.viewedCandidates.filter(candidateId => !removedIdSet.has(candidateId));
+          }
+        });
+      }
+    }
+
+    const previousSubscriptions = subscriptions.length;
+    subscriptions = subscriptions.filter(s => Number(s.userId) !== removedUser.id);
+
+    await saveUsers();
+    if (removedCandidateRecords > 0) {
+      await saveCandidates();
+    }
+    if (subscriptions.length !== previousSubscriptions) {
+      await saveSubscriptions();
+    }
+
+    return res.json({
+      success: true,
+      removed: {
+        id: removedUser.id,
+        userType: removedUser.userType,
+        email: removedUser.email,
+        candidateRecordsRemoved: removedCandidateRecords
+      }
+    });
+  } catch (error) {
+    return res.status(500).json({ error: 'Failed to remove user' });
+  }
+});
+
+// PUT set which candidates a recruiter can see (null = all, array = whitelist)
+app.put('/api/superadmin/recruiters/:id/candidate-access', authenticateToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const recruiter = users.find(u => u.id === id && u.userType === 'recruiter');
+    if (!recruiter) return res.status(404).json({ error: 'Recruiter not found' });
+
+    const { allowedCandidateIds } = req.body;
+    // null/undefined = no restriction; array = explicit whitelist
+    recruiter.allowedCandidateIds = Array.isArray(allowedCandidateIds)
+      ? allowedCandidateIds.map(Number).filter(n => Number.isFinite(n))
+      : null;
+    recruiter.candidateAccessUpdatedAt = new Date().toISOString();
+    await saveUsers();
+
+    return res.json({ success: true, recruiter: sanitizeManagedUser(recruiter) });
+  } catch (error) {
+    return res.status(500).json({ error: 'Failed to update candidate access' });
   }
 });
 
@@ -2509,8 +2588,17 @@ app.get('/api/recruiter/candidates', authenticateToken, async (req, res) => {
       return res.status(403).json({ error: 'Recruiter or superadmin access required' });
     }
 
-    // Serve only real candidates so admin/recruiter panels stay in sync.
-    const realCandidates = candidates.map(c => {
+    // Recruiter: only return candidates superadmin has allowed. If allowedCandidateIds is null/undefined → see all.
+    let sourceCandidates = candidates;
+    if (req.user.userType === 'recruiter') {
+      const recruiterUser = users.find(u => u.id === req.user.userId || u.email === req.user.email);
+      if (recruiterUser && Array.isArray(recruiterUser.allowedCandidateIds)) {
+        const allowed = new Set(recruiterUser.allowedCandidateIds);
+        sourceCandidates = candidates.filter(c => allowed.has(c.id));
+      }
+    }
+
+    const realCandidates = sourceCandidates.map(c => {
       const totalScore = Math.round(((c.resumeScore || 0) + (c.quizScore || 0) + (c.interviewScore || 0) + (c.videoInterviewScore || 0) + (c.uploadVideoScore || 0)) / 5);
       return {
         ...c,

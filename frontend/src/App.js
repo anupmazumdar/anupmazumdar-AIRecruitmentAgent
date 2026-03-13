@@ -2912,6 +2912,9 @@ function SuperAdminDashboard({ authState, logout }) {
   const [activeTab, setActiveTab] = useState('recruiters');
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(null);
+  const [showCandidateAccess, setShowCandidateAccess] = useState(false);
+  const [candidateAccessIds, setCandidateAccessIds] = useState(null);
+  const [savingAccess, setSavingAccess] = useState(false);
 
   const headers = useMemo(
     () => ({ 'Content-Type': 'application/json', 'Authorization': `Bearer ${authState?.token}` }),
@@ -2943,6 +2946,33 @@ function SuperAdminDashboard({ authState, logout }) {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
+  // Reset candidate-access panel whenever the selected recruiter changes
+  useEffect(() => {
+    if (selectedRecruiter) {
+      setCandidateAccessIds(selectedRecruiter.allowedCandidateIds ?? null);
+      setShowCandidateAccess(false);
+    }
+  }, [selectedRecruiter?.id]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const saveCandidateAccess = async () => {
+    if (!selectedRecruiter) return;
+    setSavingAccess(true);
+    try {
+      const res = await fetch(`${API_URL}/api/superadmin/recruiters/${selectedRecruiter.id}/candidate-access`, {
+        method: 'PUT',
+        headers,
+        body: JSON.stringify({ allowedCandidateIds: candidateAccessIds })
+      });
+      const data = await parseApiJson(res);
+      if (data.success) {
+        const updated = { allowedCandidateIds: data.recruiter.allowedCandidateIds };
+        setRecruiters(prev => prev.map(r => r.id === selectedRecruiter.id ? { ...r, ...updated } : r));
+        setSelectedRecruiter(prev => ({ ...prev, ...updated }));
+      }
+    } catch (e) { console.error(e); }
+    setSavingAccess(false);
+  };
+
   const toggleAccess = async (managedUser, userType) => {
     setSaving(managedUser.id);
     try {
@@ -2963,6 +2993,40 @@ function SuperAdminDashboard({ authState, logout }) {
         }
       }
     } catch (e) { console.error(e); }
+    setSaving(null);
+  };
+
+  const removeManagedUser = async (managedUser, userType) => {
+    const label = userType === 'recruiter' ? 'recruiter' : 'candidate';
+    if (!window.confirm(`Remove ${label} account ${managedUser.email || managedUser.name || managedUser.id}? This cannot be undone.`)) {
+      return;
+    }
+
+    setSaving(`delete-${managedUser.id}`);
+    try {
+      const res = await fetch(`${API_URL}/api/superadmin/users/${managedUser.id}`, {
+        method: 'DELETE',
+        headers
+      });
+      const data = await parseApiJson(res);
+      if (!res.ok || !data.success) {
+        throw new Error(data.error || 'Failed to remove user');
+      }
+
+      if (userType === 'recruiter') {
+        setRecruiters(prev => prev.filter(r => r.id !== managedUser.id));
+        if (selectedRecruiter?.id === managedUser.id) {
+          setSelectedRecruiter(null);
+        }
+      } else {
+        setCandidateAccounts(prev => prev.filter(c => c.id !== managedUser.id));
+      }
+
+      fetchAll();
+    } catch (e) {
+      console.error(e);
+      window.alert(e.message || 'Failed to remove user');
+    }
     setSaving(null);
   };
 
@@ -3013,7 +3077,7 @@ function SuperAdminDashboard({ authState, logout }) {
       {/* Tabs */}
       <div className="max-w-7xl mx-auto">
         <div className="mb-5 flex flex-wrap gap-2">
-          {['recruiters', 'candidates'].map(tab => (
+          {['recruiters', 'candidates', 'questions'].map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)}
               className={`min-h-[44px] px-5 py-2 rounded-xl font-semibold text-sm md:text-base capitalize transition-all ${
                 activeTab === tab ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-800/50 text-slate-400 hover:bg-slate-700/50'
@@ -3068,6 +3132,13 @@ function SuperAdminDashboard({ authState, logout }) {
                           }`}>
                           {saving === r.id ? '...' : r.canAccessPlatform ? 'Revoke' : 'Grant'}
                         </button>
+                        <button
+                          onClick={e => { e.stopPropagation(); removeManagedUser(r, 'recruiter'); }}
+                          disabled={saving === `delete-${r.id}`}
+                          className="min-h-[44px] px-3 py-1.5 rounded-lg text-xs md:text-sm font-semibold transition-all bg-rose-900/30 hover:bg-rose-900/50 text-rose-300 border border-rose-700/30 disabled:opacity-50"
+                        >
+                          {saving === `delete-${r.id}` ? 'Removing...' : 'Remove'}
+                        </button>
                       </div>
                     </div>
                   ))}
@@ -3112,6 +3183,75 @@ function SuperAdminDashboard({ authState, logout }) {
                     }`}>
                     {saving === selectedRecruiter.id ? 'Saving...' : selectedRecruiter.canAccessPlatform ? '🚫 Revoke Access' : '✅ Grant Access'}
                   </button>
+                  <button
+                    onClick={() => removeManagedUser(selectedRecruiter, 'recruiter')}
+                    disabled={saving === `delete-${selectedRecruiter.id}`}
+                    className="w-full mt-2 py-2.5 rounded-xl font-bold text-sm transition-all bg-rose-700 hover:bg-rose-600 text-white disabled:opacity-50"
+                  >
+                    {saving === `delete-${selectedRecruiter.id}` ? 'Removing...' : '🗑 Remove Recruiter'}
+                  </button>
+
+                  {/* Candidate Visibility */}
+                  <div className="mt-3 rounded-xl border border-slate-700 overflow-hidden">
+                    <button
+                      onClick={() => setShowCandidateAccess(v => !v)}
+                      className="w-full flex items-center justify-between px-4 py-3 bg-slate-800/50 hover:bg-slate-800 transition-all text-sm font-semibold"
+                    >
+                      <span>👁 Candidate Visibility</span>
+                      <span className="text-xs font-normal text-slate-400">
+                        {selectedRecruiter.allowedCandidateIds == null
+                          ? 'All candidates'
+                          : `${selectedRecruiter.allowedCandidateIds.length} allowed`}
+                      </span>
+                    </button>
+                    {showCandidateAccess && (
+                      <div className="p-3 space-y-3 border-t border-slate-700">
+                        <p className="text-xs text-slate-400">
+                          Choose which candidates this recruiter can view. Default is all candidates.
+                        </p>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => setCandidateAccessIds(null)}
+                            className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all border ${candidateAccessIds === null ? 'bg-green-600 text-white border-green-500' : 'bg-slate-800 text-slate-400 border-slate-600 hover:border-slate-500'}`}
+                          >All Candidates</button>
+                          <button
+                            onClick={() => setCandidateAccessIds(prev => Array.isArray(prev) ? prev : [])}
+                            className={`flex-1 py-2 rounded-lg text-xs font-bold transition-all border ${Array.isArray(candidateAccessIds) ? 'bg-indigo-600 text-white border-indigo-500' : 'bg-slate-800 text-slate-400 border-slate-600 hover:border-slate-500'}`}
+                          >Restrict Access</button>
+                        </div>
+                        {Array.isArray(candidateAccessIds) && (
+                          <div className="max-h-48 overflow-y-auto space-y-1 rounded-lg bg-slate-900/50 p-2">
+                            {candidates.length === 0 ? (
+                              <p className="text-xs text-slate-500 text-center py-4">No candidates in system</p>
+                            ) : candidates.map(c => {
+                              const checked = candidateAccessIds.includes(c.id);
+                              return (
+                                <label key={c.id} className="flex items-center gap-2 p-2 rounded-lg hover:bg-slate-800/50 cursor-pointer">
+                                  <input
+                                    type="checkbox"
+                                    checked={checked}
+                                    onChange={() => setCandidateAccessIds(prev =>
+                                      checked ? prev.filter(id => id !== c.id) : [...prev, c.id]
+                                    )}
+                                    className="accent-indigo-500"
+                                  />
+                                  <span className="text-xs flex-1 truncate">{c.name || c.email}</span>
+                                  {c.role && <span className="text-xs text-slate-500 flex-shrink-0 truncate max-w-[80px]">{c.role}</span>}
+                                </label>
+                              );
+                            })}
+                          </div>
+                        )}
+                        <button
+                          onClick={saveCandidateAccess}
+                          disabled={savingAccess}
+                          className="w-full py-2 rounded-xl font-bold text-sm bg-indigo-600 hover:bg-indigo-500 text-white transition-all disabled:opacity-50"
+                        >
+                          {savingAccess ? 'Saving...' : '💾 Save Visibility Settings'}
+                        </button>
+                      </div>
+                    )}
+                  </div>
                 </>
               ) : (
                 <div className="h-full flex flex-col items-center justify-center text-center text-slate-500 py-12">
@@ -3163,12 +3303,25 @@ function SuperAdminDashboard({ authState, logout }) {
                           }`}>
                           {saving === candidateUser.id ? '...' : candidateUser.canAccessPlatform ? 'Revoke' : 'Grant'}
                         </button>
+                        <button
+                          onClick={() => removeManagedUser(candidateUser, 'candidate')}
+                          disabled={saving === `delete-${candidateUser.id}`}
+                          className="min-h-[44px] px-3 py-1.5 rounded-lg text-xs md:text-sm font-semibold transition-all bg-rose-900/30 hover:bg-rose-900/50 text-rose-300 border border-rose-700/30 disabled:opacity-50"
+                        >
+                          {saving === `delete-${candidateUser.id}` ? 'Removing...' : 'Remove'}
+                        </button>
                       </div>
                     </div>
                   );
                 })}
               </div>
             )}
+          </div>
+        )}
+
+        {activeTab === 'questions' && (
+          <div className="bg-slate-900/60 backdrop-blur-xl rounded-2xl border border-slate-700 p-4 md:p-5">
+            <AdminQuestionPanel authState={authState} embedded={true} />
           </div>
         )}
       </div>
@@ -3410,7 +3563,7 @@ function RecruiterDashboard({ setUserType, subscription, setShowSubscriptionModa
 }
 
 // ==================== ADMIN QUESTION PANEL ====================
-function AdminQuestionPanel({ authState }) {
+function AdminQuestionPanel({ authState, embedded = false }) {
   const PRESET_POSITIONS = [
     'Software Engineer', 'Data Scientist', 'Product Manager',
     'UI/UX Designer', 'Frontend Developer', 'Backend Developer',
@@ -3597,10 +3750,10 @@ function AdminQuestionPanel({ authState }) {
         <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
             <h2 className="text-xl md:text-2xl font-bold flex items-center gap-2">
-              ⚙️ Admin Question Bank
+              ⚙️ {embedded ? 'Question Bank (Recruiter + Superadmin)' : 'Admin Question Bank'}
             </h2>
             <p className="text-slate-300 text-sm md:text-base mt-1">
-              Modify and refresh assessment questions per job position. Extra question creation/deletion is disabled.
+              Modify and refresh assessment questions per job position. Recruiters and superadmin can replace questions. Extra question creation/deletion is disabled.
             </p>
           </div>
           <button
@@ -3818,7 +3971,7 @@ function AdminQuestionPanel({ authState }) {
           <div className="text-center py-16 text-slate-500">
             <Sparkles size={48} className="mx-auto mb-4 opacity-30" />
             <p className="text-lg font-semibold mb-2">No questions yet</p>
-            <p className="text-sm">Click "+ Add Question" to create your first question.</p>
+            <p className="text-sm">Use AI Refresh to generate a fixed-size set for a position.</p>
           </div>
         ) : (
           <div className="space-y-4">
