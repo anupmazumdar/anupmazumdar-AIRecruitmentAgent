@@ -3090,6 +3090,213 @@ function ScoreCard({ title, score, icon: Icon }) {
   );
 }
 
+function BlockchainChatPanel({ authState, fixedPeerId = null, title, subtitle }) {
+  const [contacts, setContacts] = useState([]);
+  const [selectedPeerId, setSelectedPeerId] = useState(fixedPeerId);
+  const [messages, setMessages] = useState([]);
+  const [draft, setDraft] = useState('');
+  const [loadingContacts, setLoadingContacts] = useState(true);
+  const [loadingMessages, setLoadingMessages] = useState(false);
+  const [sending, setSending] = useState(false);
+  const [integrity, setIntegrity] = useState(null);
+  const [peer, setPeer] = useState(null);
+  const listRef = useRef(null);
+
+  const headers = useMemo(
+    () => ({ 'Content-Type': 'application/json', 'Authorization': `Bearer ${authState?.token}` }),
+    [authState?.token]
+  );
+
+  const fetchContacts = useCallback(async () => {
+    setLoadingContacts(true);
+    try {
+      const res = await fetch(`${API_URL}/api/chat/contacts`, { headers });
+      const data = await parseApiJson(res);
+      if (data.success) {
+        const nextContacts = data.contacts || [];
+        setContacts(nextContacts);
+        if (!fixedPeerId) {
+          setSelectedPeerId((prev) => prev || nextContacts[0]?.id || null);
+        } else {
+          setSelectedPeerId(fixedPeerId);
+        }
+      }
+    } catch (error) {
+      console.error('Failed to load chat contacts:', error);
+    } finally {
+      setLoadingContacts(false);
+    }
+  }, [fixedPeerId, headers]);
+
+  const fetchMessages = useCallback(async () => {
+    if (!selectedPeerId) return;
+    setLoadingMessages(true);
+    try {
+      const res = await fetch(`${API_URL}/api/chat/messages/${selectedPeerId}`, { headers });
+      const data = await parseApiJson(res);
+      if (data.success) {
+        setMessages(data.messages || []);
+        setIntegrity(data.integrity || null);
+        setPeer(data.peer || null);
+      }
+    } catch (error) {
+      console.error('Failed to load messages:', error);
+    } finally {
+      setLoadingMessages(false);
+    }
+  }, [headers, selectedPeerId]);
+
+  useEffect(() => {
+    fetchContacts();
+  }, [fetchContacts]);
+
+  useEffect(() => {
+    fetchMessages();
+    if (!selectedPeerId) return undefined;
+    const interval = setInterval(fetchMessages, 3000);
+    return () => clearInterval(interval);
+  }, [fetchMessages, selectedPeerId]);
+
+  useEffect(() => {
+    if (listRef.current) {
+      listRef.current.scrollTop = listRef.current.scrollHeight;
+    }
+  }, [messages]);
+
+  const handleSend = async () => {
+    const text = draft.trim();
+    if (!text || !selectedPeerId || sending) return;
+    setSending(true);
+    try {
+      const res = await fetch(`${API_URL}/api/chat/messages`, {
+        method: 'POST',
+        headers,
+        body: JSON.stringify({ peerId: selectedPeerId, text })
+      });
+      const data = await parseApiJson(res);
+      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to send message');
+      setDraft('');
+      setIntegrity(data.integrity || null);
+      setMessages((prev) => [...prev, data.message]);
+    } catch (error) {
+      window.alert(error.message || 'Failed to send message');
+    } finally {
+      setSending(false);
+    }
+  };
+
+  const selectedPeer = peer || contacts.find((item) => item.id === selectedPeerId) || null;
+  const hasMultipleContacts = !fixedPeerId && contacts.length > 1;
+
+  return (
+    <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
+      {hasMultipleContacts && (
+        <div className="bg-slate-900/60 backdrop-blur-xl rounded-2xl border border-slate-700 overflow-hidden xl:col-span-1">
+          <div className="p-4 border-b border-slate-700">
+            <h3 className="font-semibold text-white">Recruiter Conversations</h3>
+            <p className="text-xs text-slate-400 mt-1">Select a recruiter to start a secure chat.</p>
+          </div>
+          {loadingContacts ? (
+            <div className="p-8 text-center"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-500 mx-auto" /></div>
+          ) : (
+            <div className="divide-y divide-slate-700/40">
+              {contacts.map((contact) => (
+                <button
+                  key={contact.id}
+                  onClick={() => setSelectedPeerId(contact.id)}
+                  className={`w-full text-left px-4 py-3 transition-all ${selectedPeerId === contact.id ? 'bg-indigo-900/30 border-l-2 border-indigo-500' : 'hover:bg-slate-800/40'}`}
+                >
+                  <p className="font-semibold text-sm text-white">{contact.name || contact.email}</p>
+                  <p className="text-xs text-slate-400 truncate">{contact.email}</p>
+                  {contact.company && <p className="text-xs text-slate-500 truncate">🏢 {contact.company}</p>}
+                </button>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      <div className={`bg-slate-900/60 backdrop-blur-xl rounded-2xl border border-slate-700 overflow-hidden ${hasMultipleContacts ? 'xl:col-span-2' : 'xl:col-span-3'}`}>
+        <div className="p-4 border-b border-slate-700 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h3 className="font-semibold text-white">{title}</h3>
+            <p className="text-xs text-slate-400 mt-1">{subtitle}</p>
+          </div>
+          <div className={`px-3 py-1.5 rounded-full text-xs font-semibold border ${integrity?.valid ? 'bg-green-900/30 text-green-300 border-green-700/40' : 'bg-red-900/30 text-red-300 border-red-700/40'}`}>
+            {integrity?.valid ? `Blockchain verified · ${integrity.checkedBlocks || 0} blocks` : 'Integrity check failed'}
+          </div>
+        </div>
+
+        {!selectedPeerId ? (
+          <div className="p-12 text-center text-slate-500">
+            <p className="text-4xl mb-3">💬</p>
+            <p>Select a contact to open the secure chat.</p>
+          </div>
+        ) : (
+          <>
+            <div className="px-4 py-3 border-b border-slate-700 bg-slate-800/30">
+              <p className="font-semibold text-sm text-white">{selectedPeer?.name || selectedPeer?.email || 'Conversation'}</p>
+              <p className="text-xs text-slate-400">{selectedPeer?.email || 'Secure recruiter ↔ superadmin channel'}</p>
+            </div>
+
+            <div ref={listRef} className="h-[420px] overflow-y-auto px-4 py-4 space-y-3 bg-slate-950/20">
+              {loadingMessages ? (
+                <div className="text-center py-10"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-500 mx-auto" /></div>
+              ) : messages.length === 0 ? (
+                <div className="text-center py-12 text-slate-500">
+                  <p className="text-4xl mb-3">🔗</p>
+                  <p>No messages yet. Send the first blockchain-secured message.</p>
+                </div>
+              ) : (
+                messages.map((message) => {
+                  const isMine = message.senderId === authState?.user?.id;
+                  return (
+                    <div key={message.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
+                      <div className={`max-w-[85%] rounded-2xl px-4 py-3 border ${isMine ? 'bg-indigo-600/25 border-indigo-500/30' : 'bg-slate-800/70 border-slate-700'}`}>
+                        <p className="text-sm text-slate-100 whitespace-pre-wrap">{message.text}</p>
+                        <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
+                          <span>{new Date(message.createdAt).toLocaleString()}</span>
+                          <span>Block #{message.blockIndex}</span>
+                          <span className="truncate max-w-[180px]">Hash {String(message.hash).slice(0, 12)}...</span>
+                        </div>
+                      </div>
+                    </div>
+                  );
+                })
+              )}
+            </div>
+
+            <div className="p-4 border-t border-slate-700 bg-slate-900/80">
+              <div className="flex flex-col gap-3 sm:flex-row">
+                <textarea
+                  rows={2}
+                  value={draft}
+                  onChange={(e) => setDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === 'Enter' && !e.shiftKey) {
+                      e.preventDefault();
+                      handleSend();
+                    }
+                  }}
+                  className="flex-1 px-4 py-3 bg-slate-800/60 rounded-xl border border-slate-600 focus:border-indigo-500 focus:outline-none text-sm resize-none"
+                  placeholder="Type a secure message..."
+                />
+                <button
+                  onClick={handleSend}
+                  disabled={sending || !draft.trim()}
+                  className="min-h-[44px] px-5 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl font-semibold text-sm transition-all hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50"
+                >
+                  {sending ? 'Sending...' : 'Send'}
+                </button>
+              </div>
+            </div>
+          </>
+        )}
+      </div>
+    </div>
+  );
+}
+
 // ==================== SUPER-ADMIN DASHBOARD ====================
 function SuperAdminDashboard({ authState, logout }) {
   const [recruiters, setRecruiters] = useState([]);
@@ -3267,7 +3474,7 @@ function SuperAdminDashboard({ authState, logout }) {
       {/* Tabs */}
       <div className="max-w-7xl mx-auto">
         <div className="mb-5 flex flex-wrap gap-2">
-          {['recruiters', 'candidates', 'questions', 'resources'].map(tab => (
+          {['recruiters', 'candidates', 'questions', 'resources', 'chat'].map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)}
               className={`min-h-[44px] px-5 py-2 rounded-xl font-semibold text-sm md:text-base capitalize transition-all ${
                 activeTab === tab ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-800/50 text-slate-400 hover:bg-slate-700/50'
@@ -3519,6 +3726,14 @@ function SuperAdminDashboard({ authState, logout }) {
           <div className="bg-slate-900/60 backdrop-blur-xl rounded-2xl border border-slate-700 p-4 md:p-5">
             <SuperAdminResourcePanel authState={authState} />
           </div>
+        )}
+
+        {activeTab === 'chat' && (
+          <BlockchainChatPanel
+            authState={authState}
+            title="Recruiter ↔ Superadmin Chat"
+            subtitle="Near real-time secure messaging with tamper-evident blockchain-style message chaining."
+          />
         )}
       </div>
     </div>
@@ -3831,10 +4046,28 @@ function RecruiterDashboard({ setUserType, subscription, setShowSubscriptionModa
             <Sparkles size={16} />
             ⚙️ Admin Panel
           </button>
+          <button
+            id="tab-chat"
+            onClick={() => setActiveTab('chat')}
+            className={`min-h-[44px] px-5 py-2.5 rounded-lg font-semibold text-sm md:text-base transition-all flex items-center gap-2 ${
+              activeTab === 'chat'
+                ? 'bg-gradient-to-r from-cyan-600 to-blue-600 text-white shadow-lg'
+                : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
+            }`}
+          >
+            <MessageSquare size={16} />
+            Secure Chat
+          </button>
         </div>
 
         {activeTab === 'admin' ? (
           <AdminQuestionPanel authState={authState} />
+        ) : activeTab === 'chat' ? (
+          <BlockchainChatPanel
+            authState={authState}
+            title="Secure Chat With Superadmin"
+            subtitle="Share text messages with the superadmin. Each message is stored in a tamper-evident hash chain."
+          />
         ) : (
           <>
             {/* Stats */}

@@ -211,6 +211,7 @@ let candidates = [];
 let subscriptions = [];
 let questionBank = []; // Admin-managed questions
 let upgradeResources = []; // Superadmin-managed YouTube/video resources by role
+let chatMessages = []; // Recruiter <-> superadmin messages with hash chain integrity
 let quizSettings = {
   candidateDurationMinutes: 30,
   recruiterDurationMinutes: 30,
@@ -222,6 +223,7 @@ let candidateId = 1;
 let subscriptionId = 1;
 let questionId = 1;
 let upgradeResourceId = 1;
+let chatMessageId = 1;
 
 // Load data from cloud on startup
 async function initializeData() {
@@ -230,6 +232,7 @@ async function initializeData() {
   subscriptions = await loadDataFromCloud('subscriptions.json', []);
   questionBank = await loadDataFromCloud('questionBank.json', []);
   upgradeResources = await loadDataFromCloud('upgradeResources.json', []);
+  chatMessages = await loadDataFromCloud('chatMessages.json', []);
   quizSettings = await loadDataFromCloud('quizSettings.json', quizSettings);
 
   // Set IDs to max + 1
@@ -238,6 +241,7 @@ async function initializeData() {
   if (subscriptions.length > 0) subscriptionId = Math.max(...subscriptions.map(s => s.id)) + 1;
   if (questionBank.length > 0) questionId = Math.max(...questionBank.map(q => q.id)) + 1;
   if (upgradeResources.length > 0) upgradeResourceId = Math.max(...upgradeResources.map(r => r.id)) + 1;
+  if (chatMessages.length > 0) chatMessageId = Math.max(...chatMessages.map(m => m.id)) + 1;
 
   await ensureSuperAdminAccount();
 
@@ -309,6 +313,10 @@ async function saveQuestionBank() {
 
 async function saveUpgradeResources() {
   await saveDataToCloud('upgradeResources.json', upgradeResources);
+}
+
+async function saveChatMessages() {
+  await saveDataToCloud('chatMessages.json', chatMessages);
 }
 
 async function saveQuizSettings() {
@@ -698,6 +706,120 @@ function requireSuperAdmin(req, res, next) {
   next();
 }
 
+function getCurrentUserFromRequest(req) {
+  return users.find((user) => user.id === req.user?.userId || user.email === req.user?.email) || null;
+}
+
+function buildChatConversationId(userA, userB) {
+  return [Number(userA.id), Number(userB.id)].sort((a, b) => a - b).join(':');
+}
+
+function getConversationMessages(conversationId) {
+  return chatMessages
+    .filter((message) => message.conversationId === conversationId)
+    .sort((a, b) => Number(a.blockIndex) - Number(b.blockIndex) || Number(a.id) - Number(b.id));
+}
+
+function buildChatHashPayload(message) {
+  return JSON.stringify({
+    id: message.id,
+    conversationId: message.conversationId,
+    blockIndex: message.blockIndex,
+    previousHash: message.previousHash,
+    senderId: message.senderId,
+    senderType: message.senderType,
+    receiverId: message.receiverId,
+    receiverType: message.receiverType,
+    text: message.text,
+    createdAt: message.createdAt
+  });
+}
+
+function computeChatHash(message) {
+  return crypto.createHash('sha256').update(buildChatHashPayload(message)).digest('hex');
+}
+
+function verifyConversationIntegrity(messages = []) {
+  const ordered = [...messages].sort((a, b) => Number(a.blockIndex) - Number(b.blockIndex) || Number(a.id) - Number(b.id));
+  let previousHash = 'GENESIS';
+
+  for (let index = 0; index < ordered.length; index += 1) {
+    const message = ordered[index];
+    const expectedIndex = index + 1;
+    const expectedHash = computeChatHash(message);
+    if (Number(message.blockIndex) !== expectedIndex || message.previousHash !== previousHash || message.hash !== expectedHash) {
+      return {
+        valid: false,
+        checkedBlocks: ordered.length,
+        brokenAtId: message.id,
+        lastValidHash: previousHash
+      };
+    }
+    previousHash = message.hash;
+  }
+
+  return {
+    valid: true,
+    checkedBlocks: ordered.length,
+    brokenAtId: null,
+    lastValidHash: previousHash
+  };
+}
+
+function sanitizeChatMessage(message) {
+  return {
+    id: message.id,
+    conversationId: message.conversationId,
+    blockIndex: message.blockIndex,
+    previousHash: message.previousHash,
+    hash: message.hash,
+    senderId: message.senderId,
+    senderType: message.senderType,
+    receiverId: message.receiverId,
+    receiverType: message.receiverType,
+    text: message.text,
+    createdAt: message.createdAt
+  };
+}
+
+function validateChatParticipants(currentUser, peerUser) {
+  if (!currentUser || !peerUser) {
+    return { valid: false, error: 'Chat participant not found', status: 404 };
+  }
+
+  const allowedUserTypes = ['recruiter', 'superadmin'];
+  if (!allowedUserTypes.includes(currentUser.userType) || !allowedUserTypes.includes(peerUser.userType)) {
+    return { valid: false, error: 'Only recruiter and superadmin chat is supported', status: 403 };
+  }
+
+  const pair = [currentUser.userType, peerUser.userType].sort().join(':');
+  if (pair !== 'recruiter:superadmin') {
+    return { valid: false, error: 'Only recruiter and superadmin can chat with each other', status: 403 };
+  }
+
+  return { valid: true };
+}
+
+function createChatMessage(sender, receiver, text) {
+  const conversationId = buildChatConversationId(sender, receiver);
+  const existingMessages = getConversationMessages(conversationId);
+  const previousHash = existingMessages.length ? existingMessages[existingMessages.length - 1].hash : 'GENESIS';
+  const message = {
+    id: chatMessageId++,
+    conversationId,
+    blockIndex: existingMessages.length + 1,
+    previousHash,
+    senderId: sender.id,
+    senderType: sender.userType,
+    receiverId: receiver.id,
+    receiverType: receiver.userType,
+    text: String(text || '').trim(),
+    createdAt: new Date().toISOString()
+  };
+  message.hash = computeChatHash(message);
+  return message;
+}
+
 // ==================== AUTHENTICATION ROUTES ====================
 
 // Register
@@ -990,6 +1112,86 @@ app.put('/api/quiz/settings', authenticateToken, async (req, res) => {
     return res.json({ success: true, settings: quizSettings });
   } catch (error) {
     return res.status(500).json({ error: 'Failed to update quiz settings' });
+  }
+});
+
+// ==================== BLOCKCHAIN-SECURED CHAT ROUTES ====================
+
+app.get('/api/chat/contacts', authenticateToken, (req, res) => {
+  const currentUser = getCurrentUserFromRequest(req);
+  if (!currentUser) {
+    return res.status(404).json({ error: 'User not found' });
+  }
+
+  if (currentUser.userType === 'recruiter') {
+    const superadmins = users
+      .filter((user) => user.userType === 'superadmin')
+      .map((user) => sanitizeManagedUser(user));
+    return res.json({ success: true, contacts: superadmins });
+  }
+
+  if (currentUser.userType === 'superadmin') {
+    const recruiters = users
+      .filter((user) => user.userType === 'recruiter' && hasPlatformAccess(user))
+      .map((user) => sanitizeManagedUser(user));
+    return res.json({ success: true, contacts: recruiters });
+  }
+
+  return res.status(403).json({ error: 'Only recruiters and superadmins can use chat' });
+});
+
+app.get('/api/chat/messages/:peerId', authenticateToken, (req, res) => {
+  const currentUser = getCurrentUserFromRequest(req);
+  const peerId = parseInt(req.params.peerId);
+  const peerUser = users.find((user) => user.id === peerId);
+  const validation = validateChatParticipants(currentUser, peerUser);
+
+  if (!validation.valid) {
+    return res.status(validation.status).json({ error: validation.error });
+  }
+
+  const conversationId = buildChatConversationId(currentUser, peerUser);
+  const messages = getConversationMessages(conversationId).map(sanitizeChatMessage);
+  const integrity = verifyConversationIntegrity(messages);
+
+  return res.json({
+    success: true,
+    conversationId,
+    messages,
+    integrity,
+    peer: sanitizeManagedUser(peerUser)
+  });
+});
+
+app.post('/api/chat/messages', authenticateToken, async (req, res) => {
+  try {
+    const currentUser = getCurrentUserFromRequest(req);
+    const peerId = parseInt(req.body?.peerId);
+    const peerUser = users.find((user) => user.id === peerId);
+    const text = String(req.body?.text || '').trim();
+    const validation = validateChatParticipants(currentUser, peerUser);
+
+    if (!validation.valid) {
+      return res.status(validation.status).json({ error: validation.error });
+    }
+
+    if (!text) {
+      return res.status(400).json({ error: 'Message text is required' });
+    }
+
+    const message = createChatMessage(currentUser, peerUser, text);
+    chatMessages.push(message);
+    await saveChatMessages();
+
+    const integrity = verifyConversationIntegrity(getConversationMessages(message.conversationId));
+    return res.status(201).json({
+      success: true,
+      message: sanitizeChatMessage(message),
+      integrity
+    });
+  } catch (error) {
+    console.error('Chat send error:', error);
+    return res.status(500).json({ error: 'Failed to send message' });
   }
 });
 

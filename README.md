@@ -36,6 +36,7 @@ Sole Creator: Anup Mazumdar | MCA Student | UEM Jaipur (2025-2027)
 - Upgrade Skills Roadmap: Superadmin-curated YouTube videos plus AI-suggested websites, blogs, articles, and courses generated after results to help candidates upskill by role and gap area.
 - Recruiter Dashboard: Real-time analytics, candidate rankings, and pipeline management.
 - Per-Recruiter Candidate Visibility: Superadmin can restrict which candidates each recruiter can view.
+- Secure Recruiter Messaging: Recruiters and superadmin can exchange near real-time text messages with blockchain-style tamper-evident message integrity.
 - Superadmin Panel: Full platform control — manage recruiters, candidates, question bank, and access policies.
 - Question Bank Management: Admins and recruiters can update and refresh quiz questions; no arbitrary add/delete.
 - Enterprise Security: JWT authentication, bcrypt encryption, and GCP storage.
@@ -216,6 +217,7 @@ TalentAI has a three-tier access model: **Candidate → Recruiter → Superadmin
   - Restrict mode: superadmin picks a whitelist of specific candidates per recruiter via a candidate checklist in the dashboard.
 - **Question Bank Management** — Full access to update, replace, and refresh quiz questions for any domain via the embedded Question Panel.
 - **Resource Management (Upgrade Skills)** — Add, edit, or remove YouTube video links per job role for the Upgrade Skills section (Stage 9). Candidates see superadmin-curated videos for their applied role alongside AI-suggested resources.
+- **Secure Messaging** — Chat directly with recruiters in a blockchain-style tamper-evident text messaging channel. Each message is chained with SHA-256 hashes to detect modification.
 - **Configurable Quiz Durations** — Set time limits for each quiz independently.
 - **Platform Stats** — Real-time overview of recruiter count, active access, candidate totals, and average score.
 
@@ -383,6 +385,13 @@ Shortlist Threshold: 68+ weighted score
 ---
 
 ## Recent Updates
+
+### v2.2 — Blockchain-Secured Recruiter Messaging
+
+- Added recruiter ↔ superadmin secure text chat inside the website.
+- Messages update in near real time via periodic refresh.
+- Each message is stored in a blockchain-style SHA-256 hash chain with integrity verification.
+- Superadmin gets a dedicated chat tab; recruiters get a secure chat tab in their dashboard.
 
 ### v2.1 — Upgrade Skills Roadmap (Stage 9)
 
