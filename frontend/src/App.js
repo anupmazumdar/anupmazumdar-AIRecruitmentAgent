@@ -283,7 +283,7 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
     error: auth0Error,
     loginWithPopup,
     logout: auth0Logout,
-    getIdTokenClaims,
+    getAccessTokenSilently,
     user: auth0User
   } = useAuth0();
 
@@ -387,18 +387,16 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
         throw new Error('Company name is required for recruiter Auth0 sign in.');
       }
 
-      const claims = await getIdTokenClaims();
-      const rawIdToken = claims?.__raw;
-
-      if (!rawIdToken) {
-        throw new Error('Unable to read Auth0 ID token. Please login again.');
+      const accessToken = await getAccessTokenSilently();
+      if (!accessToken) {
+        throw new Error('Unable to get Auth0 access token. Please login again.');
       }
 
       const response = await fetch(`${API_URL}/api/auth/auth0/session`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          idToken: rawIdToken,
+          accessToken,
           userType: auth0RoleExplicitlySelected ? formData.userType : '',
           company: formData.userType === 'recruiter' ? formData.company : ''
         })

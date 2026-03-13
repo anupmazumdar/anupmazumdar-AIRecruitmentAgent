@@ -1183,15 +1183,15 @@ app.post('/api/auth/login', async (req, res) => {
 // Auth0 ID token exchange: validates Auth0 identity and issues existing TalentAI JWT tokens.
 app.post('/api/auth/auth0/session', async (req, res) => {
   try {
-    const idToken = String(req.body?.idToken || '').trim();
+    const accessToken = String(req.body?.accessToken || '').trim();
     const requestedUserType = String(req.body?.userType || '').trim().toLowerCase();
     const requestedCompany = String(req.body?.company || '').trim();
 
-    if (!idToken) {
+    if (!accessToken) {
       await writeAuthAuditLog('auth0_session_denied', req, {
-        reason: 'missing_id_token'
+        reason: 'missing_access_token'
       });
-      return res.status(400).json({ error: 'idToken is required' });
+      return res.status(400).json({ error: 'accessToken is required' });
     }
 
     if (requestedUserType && !['candidate', 'recruiter'].includes(requestedUserType)) {
@@ -1202,7 +1202,15 @@ app.post('/api/auth/auth0/session', async (req, res) => {
       return res.status(400).json({ error: 'Invalid userType' });
     }
 
-    const auth0Payload = await verifyAuth0IdToken(idToken);
+    // Verify the access token by calling Auth0's /userinfo endpoint (avoids JWKS network calls)
+    const userInfoRes = await fetch(`https://${AUTH0_DOMAIN}/userinfo`, {
+      headers: { Authorization: `Bearer ${accessToken}` }
+    });
+    if (!userInfoRes.ok) {
+      const errBody = await userInfoRes.text().catch(() => '');
+      throw new Error(`Auth0 userinfo rejected (${userInfoRes.status}): ${errBody.slice(0, 120)}`);
+    }
+    const auth0Payload = await userInfoRes.json();
     const email = String(auth0Payload?.email || '').trim().toLowerCase();
     const auth0Sub = String(auth0Payload?.sub || '').trim();
     const name = String(auth0Payload?.name || auth0Payload?.nickname || email.split('@')[0] || '').trim();
@@ -1353,10 +1361,12 @@ app.post('/api/auth/auth0/session', async (req, res) => {
     });
   } catch (error) {
     console.error('Auth0 session exchange error:', error.message);
-    await writeAuthAuditLog('auth0_session_denied', req, {
-      reason: 'invalid_auth0_token',
-      details: error.message
-    });
+    try {
+      await writeAuthAuditLog('auth0_session_denied', req, {
+        reason: 'invalid_auth0_token',
+        details: error.message
+      });
+    } catch (_) { /* audit log failure must not hide the original error */ }
     return res.status(401).json({ error: 'Invalid Auth0 token' });
   }
 });
