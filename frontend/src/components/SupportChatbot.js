@@ -1,6 +1,31 @@
 import React, { useMemo, useRef, useState, useEffect } from 'react';
 import { MessageCircle, X, Send, Bot, Loader2 } from 'lucide-react';
 
+const QUICK_ACTIONS = {
+  candidate: [
+    'How do I improve my resume score?',
+    'How is quiz scoring calculated?',
+    'What should I say in AI interview answers?',
+    'Why is my profile incomplete?',
+  ],
+  recruiter: [
+    'How do I shortlist top candidates quickly?',
+    'How do I compare stage-wise scores?',
+    'How can I use filters in dashboard?',
+    'What does each score component mean?',
+  ],
+  superadmin: [
+    'How do I manage recruiter access?',
+    'How can I review platform stats?',
+    'How do I maintain question bank quality?',
+  ],
+  guest: [
+    'How does TalentAI work end-to-end?',
+    'What is free for candidates?',
+    'Which plan is best for recruiters?',
+  ],
+};
+
 function SupportChatbot({ apiUrl, authState, userType }) {
   const [open, setOpen] = useState(false);
   const [input, setInput] = useState('');
@@ -16,15 +41,46 @@ function SupportChatbot({ apiUrl, authState, userType }) {
     return 'guest';
   }, [authState?.user?.userType, userType]);
 
+  const storageKey = useMemo(() => `talentai_chatbot_history_${role}`, [role]);
+
+  const greeting = useMemo(() => {
+    if (role === 'recruiter') {
+      return 'Hi! I can help you with candidate ranking, dashboard usage, filters, and hiring workflow questions.';
+    }
+    if (role === 'candidate') {
+      return 'Hi! I can guide you through resume upload, quiz, interviews, scores, and profile completion.';
+    }
+    if (role === 'superadmin') {
+      return 'Hi! I can help with recruiter access controls, admin dashboards, and question bank workflows.';
+    }
+    return 'Hi! I can help both candidates and recruiters navigate TalentAI quickly.';
+  }, [role]);
+
   useEffect(() => {
-    const greeting = role === 'recruiter'
-      ? 'Hi! I can help you with candidate ranking, dashboard usage, filters, and hiring workflow questions.'
-      : role === 'candidate'
-        ? 'Hi! I can guide you through resume upload, quiz, interviews, scores, and profile completion.'
-        : 'Hi! I can help both candidates and recruiters navigate TalentAI quickly.';
+    try {
+      const cached = localStorage.getItem(storageKey);
+      if (cached) {
+        const parsed = JSON.parse(cached);
+        if (Array.isArray(parsed) && parsed.length > 0) {
+          setMessages(parsed.slice(-30));
+          return;
+        }
+      }
+    } catch {
+      // If localStorage parsing fails, reset to greeting.
+    }
 
     setMessages([{ role: 'assistant', content: greeting }]);
-  }, [role]);
+  }, [greeting, storageKey]);
+
+  useEffect(() => {
+    if (!messages.length) return;
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(messages.slice(-30)));
+    } catch {
+      // Ignore storage write failures gracefully.
+    }
+  }, [messages, storageKey]);
 
   useEffect(() => {
     panelEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -58,11 +114,11 @@ function SupportChatbot({ apiUrl, authState, userType }) {
     });
   };
 
-  const sendMessage = async () => {
-    const query = input.trim();
+  const sendMessage = async (presetMessage) => {
+    const query = String(presetMessage || input).trim();
     if (!query || loading) return;
 
-    setInput('');
+    if (!presetMessage) setInput('');
     const nextMessages = [...messages, { role: 'user', content: query }];
     setMessages(nextMessages);
     setLoading(true);
@@ -95,6 +151,18 @@ function SupportChatbot({ apiUrl, authState, userType }) {
     }
   };
 
+  const resetConversation = () => {
+    const next = [{ role: 'assistant', content: greeting }];
+    setMessages(next);
+    try {
+      localStorage.setItem(storageKey, JSON.stringify(next));
+    } catch {
+      // Ignore reset persistence errors.
+    }
+  };
+
+  const quickActions = QUICK_ACTIONS[role] || QUICK_ACTIONS.guest;
+
   return (
     <div className="fixed bottom-4 right-4 z-[60] flex flex-col items-end gap-2">
       {open && (
@@ -118,7 +186,24 @@ function SupportChatbot({ apiUrl, authState, userType }) {
             </button>
           </div>
 
-          <div className="h-[calc(100%-8.4rem)] space-y-3 overflow-y-auto px-3 py-3 md:px-4">
+          {messages.length <= 3 && (
+            <div className="border-b border-white/10 px-3 py-2 md:px-4">
+              <div className="flex flex-wrap gap-2">
+                {quickActions.slice(0, 4).map((action) => (
+                  <button
+                    key={action}
+                    onClick={() => sendMessage(action)}
+                    disabled={loading}
+                    className="min-h-[36px] rounded-full border border-white/15 bg-white/5 px-3 py-1 text-xs text-slate-200 transition hover:bg-white/10 disabled:opacity-50"
+                  >
+                    {action}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
+
+          <div className="h-[calc(100%-11.2rem)] space-y-3 overflow-y-auto px-3 py-3 md:px-4">
             {messages.map((msg, idx) => (
               <div key={`${msg.role}-${idx}`} className={`flex ${msg.role === 'user' ? 'justify-end' : 'justify-start'}`}>
                 <div
@@ -160,7 +245,7 @@ function SupportChatbot({ apiUrl, authState, userType }) {
                 className="h-11 w-full rounded-lg border border-white/15 bg-[#0f1221] px-3 text-sm text-white placeholder:text-slate-500 focus:border-[#7c3aed] focus:outline-none"
               />
               <button
-                onClick={sendMessage}
+                onClick={() => sendMessage()}
                 disabled={loading || !input.trim()}
                 className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg bg-[#f97316] text-white transition hover:bg-orange-500 disabled:opacity-50"
                 aria-label="Send message"
@@ -168,6 +253,13 @@ function SupportChatbot({ apiUrl, authState, userType }) {
                 <Send size={16} />
               </button>
             </div>
+
+            <button
+              onClick={resetConversation}
+              className="mt-2 text-xs text-slate-400 transition hover:text-slate-200"
+            >
+              Reset chat
+            </button>
           </div>
         </div>
       )}
