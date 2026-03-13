@@ -770,6 +770,7 @@ function ProfileStage({ candidateData, setCandidateData, setStage }) {
 // ==================== AI CAREER GUIDANCE STAGE ====================
 function CareerGuidanceStage({ candidateData, setCandidateData, setStage }) {
   const [targetRole, setTargetRole] = useState(candidateData.position || '');
+  const [experienceLevel, setExperienceLevel] = useState(candidateData.careerGuidance?.experienceLevel || 'fresher');
   const [skillsInput, setSkillsInput] = useState('');
   const [chatMessage, setChatMessage] = useState('');
   const [analyzing, setAnalyzing] = useState(false);
@@ -797,7 +798,7 @@ function CareerGuidanceStage({ candidateData, setCandidateData, setStage }) {
     'QA Engineer': ['Manual Testing', 'Automation Testing', 'Selenium', 'API Testing', 'Test Strategy']
   };
 
-  const buildGuidance = (role, skills) => {
+  const buildGuidance = (role, skills, level) => {
     const normalizedSkills = skills
       .map((s) => s.trim())
       .filter(Boolean)
@@ -820,14 +821,22 @@ function CareerGuidanceStage({ candidateData, setCandidateData, setStage }) {
       ? missingSkills.map((skill) => `Improve ${skill} with hands-on practice and mini-projects.`)
       : ['Your skill profile is strong. Focus on interview storytelling and advanced projects.'];
 
+    const localResources = [
+      { title: `${role} learning roadmap`, url: 'https://roadmap.sh/', why: 'Use a structured role-based path for consistency.' },
+      { title: 'LinkedIn Learning Hub', url: 'https://www.linkedin.com/learning/', why: `Pick ${level}-appropriate guided courses.` },
+      { title: 'GitHub Explore', url: 'https://github.com/explore', why: 'Study and build real projects with best-practice examples.' }
+    ];
+
     return {
       role,
+      experienceLevel: level,
       skills,
       proficiency,
       matchingSkills,
       missingSkills,
       roadmap,
-      recommendations
+      recommendations,
+      resources: localResources
     };
   };
 
@@ -861,6 +870,7 @@ function CareerGuidanceStage({ candidateData, setCandidateData, setStage }) {
         body: JSON.stringify({
           mode: 'analyze',
           targetRole,
+          experienceLevel,
           skills
         })
       });
@@ -888,7 +898,7 @@ function CareerGuidanceStage({ candidateData, setCandidateData, setStage }) {
         careerGuidance: result
       });
     } catch (error) {
-      const fallbackResult = buildGuidance(targetRole, skills);
+      const fallbackResult = buildGuidance(targetRole, skills, experienceLevel);
       setGuidance(fallbackResult);
       setChatHistory((prev) => [
         ...prev,
@@ -928,6 +938,7 @@ function CareerGuidanceStage({ candidateData, setCandidateData, setStage }) {
           mode: 'chat',
           message,
           targetRole,
+          experienceLevel,
           skills,
           guidance
         })
@@ -981,6 +992,20 @@ function CareerGuidanceStage({ candidateData, setCandidateData, setStage }) {
             <option value="Android Developer">Android Developer</option>
             <option value="iOS Developer">iOS Developer</option>
             <option value="QA Engineer">QA Engineer</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-slate-300 mb-2">Experience Level</label>
+          <select
+            value={experienceLevel}
+            onChange={(e) => setExperienceLevel(e.target.value)}
+            className="w-full px-4 py-3 text-sm md:text-base bg-slate-800/50 rounded-lg border border-slate-600 focus:border-indigo-500 focus:outline-none"
+          >
+            <option value="fresher">Fresher</option>
+            <option value="junior">Junior (0-2 years)</option>
+            <option value="mid">Mid (2-5 years)</option>
+            <option value="senior">Senior (5+ years)</option>
           </select>
         </div>
 
@@ -1078,6 +1103,27 @@ function CareerGuidanceStage({ candidateData, setCandidateData, setStage }) {
               ))}
             </ul>
           </div>
+
+          {Array.isArray(guidance.resources) && guidance.resources.length > 0 && (
+            <div className="mt-4">
+              <p className="text-sm text-slate-300 mb-2">Role-specific resources for your level:</p>
+              <ul className="space-y-2 text-sm text-slate-200">
+                {guidance.resources.map((resource, idx) => (
+                  <li key={idx} className="rounded-lg border border-slate-700 bg-slate-900/40 p-3">
+                    <a
+                      href={resource.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="text-indigo-300 hover:text-indigo-200 underline"
+                    >
+                      {resource.title}
+                    </a>
+                    {resource.why && <p className="text-slate-400 mt-1">{resource.why}</p>}
+                  </li>
+                ))}
+              </ul>
+            </div>
+          )}
         </div>
       )}
 

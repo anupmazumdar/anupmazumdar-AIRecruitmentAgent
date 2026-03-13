@@ -2454,6 +2454,67 @@ const CAREER_COACH_ROLE_SKILLS = {
   'QA Engineer': ['Manual Testing', 'Automation Testing', 'Selenium', 'API Testing', 'Test Strategy']
 };
 
+const CAREER_COACH_EXPERIENCE_LEVELS = ['fresher', 'junior', 'mid', 'senior'];
+
+const CAREER_COACH_RESOURCES = {
+  'Software Engineer': {
+    fresher: [
+      { title: 'NeetCode Roadmap', url: 'https://neetcode.io/roadmap', why: 'Build interview-ready DSA fundamentals.' },
+      { title: 'Full Stack Open', url: 'https://fullstackopen.com/en/', why: 'Ship practical projects with modern web stack.' },
+      { title: 'System Design Primer', url: 'https://github.com/donnemartin/system-design-primer', why: 'Learn architecture basics early.' }
+    ],
+    junior: [
+      { title: 'Grokking System Design', url: 'https://www.educative.io/courses/grokking-the-system-design-interview', why: 'Strengthen design thinking for promotions.' },
+      { title: 'Clean Code Summary', url: 'https://github.com/ryanmcdermott/clean-code-javascript', why: 'Improve maintainability and readability.' },
+      { title: 'JavaScript Info', url: 'https://javascript.info/', why: 'Deepen language mastery for production work.' }
+    ],
+    mid: [
+      { title: 'Designing Data-Intensive Applications Notes', url: 'https://github.com/hemanth/reading-notes/blob/master/designing-data-intensive-applications.md', why: 'Level up distributed systems understanding.' },
+      { title: 'AWS Architecture Center', url: 'https://aws.amazon.com/architecture/', why: 'Adopt production-ready cloud patterns.' },
+      { title: 'Testing JavaScript', url: 'https://testingjavascript.com/', why: 'Raise quality with stronger testing strategy.' }
+    ],
+    senior: [
+      { title: 'Staff Engineer Path', url: 'https://staffeng.com/guides/staff-archetypes/', why: 'Grow leadership and technical strategy skills.' },
+      { title: 'Google SRE Book', url: 'https://sre.google/books/', why: 'Improve reliability and operational excellence.' },
+      { title: 'Architecture Katas', url: 'https://www.oreilly.com/library/view/fundamentals-of-software/9781098175498/', why: 'Practice architecture trade-off decisions.' }
+    ]
+  },
+  'Frontend Developer': {
+    fresher: [
+      { title: 'React Docs Learn', url: 'https://react.dev/learn', why: 'Build modern React fundamentals.' },
+      { title: 'Web.dev Learn CSS', url: 'https://web.dev/learn/css/', why: 'Master responsive UI and layout systems.' },
+      { title: 'Frontend Mentor', url: 'https://www.frontendmentor.io/', why: 'Create portfolio-ready UI projects.' }
+    ],
+    junior: [
+      { title: 'TypeScript Handbook', url: 'https://www.typescriptlang.org/docs/handbook/intro.html', why: 'Write safer production frontend code.' },
+      { title: 'Web.dev Performance', url: 'https://web.dev/explore/fast', why: 'Improve Core Web Vitals and UX.' },
+      { title: 'Testing Library Docs', url: 'https://testing-library.com/docs/react-testing-library/intro/', why: 'Increase confidence with component tests.' }
+    ],
+    mid: [
+      { title: 'Design Systems Handbook', url: 'https://www.designbetter.co/design-systems-handbook', why: 'Build scalable UI architecture.' },
+      { title: 'A11Y Project', url: 'https://www.a11yproject.com/', why: 'Advance accessibility and inclusive design.' },
+      { title: 'Kent C. Dodds Blog', url: 'https://kentcdodds.com/blog', why: 'Refine React architecture practices.' }
+    ],
+    senior: [
+      { title: 'Micro Frontends', url: 'https://micro-frontends.org/', why: 'Design frontend architecture at scale.' },
+      { title: 'Frontend Architecture for Design Systems', url: 'https://martinfowler.com/articles/design-system-architecture.html', why: 'Lead cross-team frontend consistency.' },
+      { title: 'Chrome Aurora', url: 'https://developer.chrome.com/blog/tags/aurora', why: 'Adopt high-performance framework patterns.' }
+    ]
+  }
+};
+
+function normalizeCareerCoachExperienceLevel(value) {
+  const level = String(value || '').trim().toLowerCase();
+  return CAREER_COACH_EXPERIENCE_LEVELS.includes(level) ? level : 'fresher';
+}
+
+function getCareerCoachResources(role = '', experienceLevel = 'fresher') {
+  const roleResources = CAREER_COACH_RESOURCES[role] || CAREER_COACH_RESOURCES['Software Engineer'];
+  const level = normalizeCareerCoachExperienceLevel(experienceLevel);
+  const selected = roleResources[level] || roleResources.fresher || [];
+  return selected.slice(0, 3);
+}
+
 function parseCareerCoachSkills(rawSkills) {
   if (Array.isArray(rawSkills)) {
     return rawSkills.map(s => String(s || '').trim()).filter(Boolean).slice(0, 30);
@@ -2466,9 +2527,10 @@ function parseCareerCoachSkills(rawSkills) {
     .slice(0, 30);
 }
 
-function buildCareerCoachFallback(role = '', skills = []) {
+function buildCareerCoachFallback(role = '', skills = [], experienceLevel = 'fresher') {
   const expectedSkills = CAREER_COACH_ROLE_SKILLS[role] || ['Communication', 'Problem Solving', 'Domain Knowledge'];
   const normalized = skills.map(s => s.toLowerCase());
+  const level = normalizeCareerCoachExperienceLevel(experienceLevel);
 
   const matchingSkills = expectedSkills.filter((expected) =>
     normalized.some((skill) => skill.includes(expected.toLowerCase()))
@@ -2487,14 +2549,18 @@ function buildCareerCoachFallback(role = '', skills = []) {
     ? missingSkills.map((skill) => `Improve ${skill} with hands-on mini projects and guided courses.`)
     : ['Strong baseline profile. Focus on advanced projects, interview storytelling, and consistency.'];
 
+  const resources = getCareerCoachResources(role, level);
+
   return {
     role,
+    experienceLevel: level,
     skills,
     proficiency: clampScore(proficiency, 0, 100, 0),
     matchingSkills,
     missingSkills,
     recommendations,
-    roadmap
+    roadmap,
+    resources
   };
 }
 
@@ -2521,20 +2587,35 @@ function normalizeCareerCoachGuidance(parsed = {}, fallback = {}) {
     ? guidance.roadmap.map(s => String(s || '').trim()).filter(Boolean).slice(0, 8)
     : (fallback.roadmap || []);
 
+  const resources = Array.isArray(guidance.resources)
+    ? guidance.resources
+      .filter(r => r && typeof r === 'object')
+      .map((r) => ({
+        title: String(r.title || '').trim(),
+        url: String(r.url || '').trim(),
+        why: String(r.why || '').trim()
+      }))
+      .filter((r) => r.title && r.url)
+      .slice(0, 5)
+    : (fallback.resources || []);
+
   return {
     role: safeRole,
+    experienceLevel: normalizeCareerCoachExperienceLevel(guidance.experienceLevel || fallback.experienceLevel),
     skills: safeSkills,
     proficiency: clampScore(guidance.proficiency, 0, 100, fallback.proficiency || 0),
     matchingSkills,
     missingSkills,
     recommendations,
-    roadmap
+    roadmap,
+    resources
   };
 }
 
-function careerCoachChatFallback(message = '', targetRole = '', skills = [], guidance = null) {
+function careerCoachChatFallback(message = '', targetRole = '', skills = [], guidance = null, experienceLevel = 'fresher') {
   const baseRole = targetRole || 'your selected role';
   const weakArea = guidance?.missingSkills?.[0] || 'core fundamentals';
+  const level = normalizeCareerCoachExperienceLevel(experienceLevel);
   const skillHint = skills.length ? `Based on your current skills (${skills.slice(0, 5).join(', ')}), ` : '';
 
   if (/resume|cv/i.test(message)) {
@@ -2544,7 +2625,8 @@ function careerCoachChatFallback(message = '', targetRole = '', skills = [], gui
     return `Start with ${weakArea}, build one project in 2 weeks, and practice interview explanations every day. Keep improving until your portfolio proves ${baseRole} readiness.`;
   }
   if (/course|learn|resource/i.test(message)) {
-    return `Prioritize practical learning for ${weakArea}. Pick one course, complete one mini project, and publish your learnings weekly to GitHub/LinkedIn.`;
+    const links = getCareerCoachResources(targetRole, level).map(r => r.url).join(' | ');
+    return `Prioritize practical learning for ${weakArea}. Recommended links: ${links}. Complete one mini project and publish your learnings weekly.`;
   }
 
   return `${skillHint}focus first on ${weakArea}, then build a role-focused project and document outcomes clearly. I can also help you break this into a weekly routine.`;
@@ -2554,6 +2636,7 @@ app.post('/api/career-coach', async (req, res) => {
   try {
     const mode = String(req.body?.mode || 'analyze').trim().toLowerCase();
     const targetRole = String(req.body?.targetRole || '').trim();
+    const experienceLevel = normalizeCareerCoachExperienceLevel(req.body?.experienceLevel);
     const skills = parseCareerCoachSkills(req.body?.skills);
     const message = String(req.body?.message || '').trim();
     const guidanceContext = req.body?.guidance;
@@ -2570,6 +2653,7 @@ Give concise, practical career guidance for candidates.
 Keep responses actionable and under 120 words.`;
 
         const prompt = `Candidate target role: ${targetRole || 'Not set'}
+      Candidate experience level: ${experienceLevel}
 Candidate skills: ${skills.join(', ') || 'Not provided'}
 Current guidance context: ${JSON.stringify(guidanceContext || {})}
 Candidate message: ${message}
@@ -2580,21 +2664,21 @@ Reply with direct next-step guidance.`;
           const reply = await callAI(prompt, systemPrompt, { task: 'career' });
           return res.json({
             success: true,
-            reply: String(reply || '').trim().slice(0, 1400) || careerCoachChatFallback(message, targetRole, skills, guidanceContext)
+            reply: String(reply || '').trim().slice(0, 1400) || careerCoachChatFallback(message, targetRole, skills, guidanceContext, experienceLevel)
           });
         } catch (aiError) {
           console.error('Career coach chat AI error:', aiError.message);
         }
       }
 
-      return res.json({ success: true, reply: careerCoachChatFallback(message, targetRole, skills, guidanceContext) });
+      return res.json({ success: true, reply: careerCoachChatFallback(message, targetRole, skills, guidanceContext, experienceLevel) });
     }
 
     if (!targetRole || skills.length === 0) {
       return res.status(400).json({ error: 'targetRole and skills are required for analysis' });
     }
 
-    const fallbackGuidance = buildCareerCoachFallback(targetRole, skills);
+    const fallbackGuidance = buildCareerCoachFallback(targetRole, skills, experienceLevel);
     const hasApiKey = process.env.OPENROUTER_API_KEY || process.env.GOOGLE_GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
 
     if (hasApiKey) {
@@ -2603,23 +2687,33 @@ Return only valid JSON with no markdown.`;
 
       const prompt = `Create personalized career guidance for a candidate.
 Target role: ${targetRole}
+Candidate experience level: ${experienceLevel}
 Candidate skills: ${skills.join(', ')}
 
 Return EXACT JSON:
 {
   "role": "${targetRole}",
+  "experienceLevel": "${experienceLevel}",
   "skills": ["skill"],
   "proficiency": 0,
   "matchingSkills": ["skill"],
   "missingSkills": ["skill"],
   "recommendations": ["string"],
-  "roadmap": ["string", "string", "string", "string"]
+  "roadmap": ["string", "string", "string", "string"],
+  "resources": [
+    {
+      "title": "resource title",
+      "url": "https://valid-link.example",
+      "why": "short reason"
+    }
+  ]
 }
 
 Rules:
 - proficiency is integer 0-100.
 - recommendations must focus on improving missing skills.
-- roadmap should be practical, progressive, and weekly-oriented.`;
+- roadmap should be practical, progressive, and weekly-oriented.
+- include exactly 3 role-specific resources matching the experience level.`;
 
       try {
         const response = await callAI(prompt, systemPrompt, { task: 'career' });
