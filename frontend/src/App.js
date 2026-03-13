@@ -679,7 +679,7 @@ function CandidatePortal({ setUserType, subscription, authState, logout }) {
         {stage === 'careerCoach' && <CareerGuidanceStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} />}
         {stage === 'resume' && <ResumeUploadStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} />}
         {stage === 'uploadVideo' && <UploadVideoStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} />}
-        {stage === 'quiz' && <TechnicalQuizStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} />}
+        {stage === 'quiz' && <TechnicalQuizStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} authState={authState} />}
         {stage === 'interview' && <TextInterviewStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} authState={authState} />}
         {stage === 'video' && <VideoInterviewStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} />}
         {stage === 'results' && <ResultsStage candidateData={candidateData} />}
@@ -1725,7 +1725,7 @@ function UploadVideoStage({ candidateData, setCandidateData, setStage }) {
 }
 
 // ==================== TECHNICAL QUIZ STAGE ====================
-function TechnicalQuizStage({ candidateData, setCandidateData, setStage }) {
+function TechnicalQuizStage({ candidateData, setCandidateData, setStage, authState }) {
   const TOTAL_QUESTIONS = 30;
   const [timeLimitMinutes, setTimeLimitMinutes] = useState(30);
   const TIME_LIMIT = timeLimitMinutes * 60;
