@@ -5,6 +5,7 @@
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { Upload, CheckCircle, XCircle, User, Briefcase, MessageSquare, Award, FileText, Users, TrendingUp, Crown, Zap, Sparkles, Check, X, Mail, Lock, Eye, EyeOff, LogOut, Video, VideoOff } from 'lucide-react';
 import Home from './pages/Home';
+import SupportChatbot from './components/SupportChatbot';
 
 // ==================== BACKEND API URL ====================
 const API_URL = process.env.NODE_ENV === 'production' ? '' : (process.env.REACT_APP_API_URL || 'http://localhost:3001');
@@ -203,6 +204,8 @@ export default function AIRecruitmentAgent() {
           selectedPlan={selectedPlan}
         />
       )}
+
+      <SupportChatbot apiUrl={API_URL} authState={authState} userType={userType} />
     </div>
   );
 }

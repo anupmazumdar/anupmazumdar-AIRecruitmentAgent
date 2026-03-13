@@ -2417,6 +2417,77 @@ app.post('/api/candidates/:id/interview-score', async (req, res) => {
   }
 });
 
+function chatbotFallbackReply(message = '', role = 'guest') {
+  const text = String(message || '').toLowerCase();
+
+  if (text.includes('resume')) {
+    return 'For resume success: upload PDF/DOCX/TXT, keep project outcomes measurable, and align keywords with your target role before re-analyzing.';
+  }
+  if (text.includes('quiz') || text.includes('assessment')) {
+    return 'The technical quiz uses weighted scoring. Focus on clarity and correctness first, then revisit flagged questions before submitting.';
+  }
+  if (text.includes('interview') || text.includes('video')) {
+    return 'For interview stages, keep answers concise using Situation → Action → Result, and maintain clear audio/video for stronger evaluation signals.';
+  }
+  if (role === 'recruiter') {
+    return 'As a recruiter, use dashboard filters for status and score bands, then open expanded candidate rows to compare stage-wise strengths quickly.';
+  }
+  if (role === 'candidate') {
+    return 'As a candidate, complete stages in order: profile, resume, video, quiz, interview, and results to maximize scoring accuracy.';
+  }
+
+  return 'I can help with profile setup, resume scoring, quizzes, interviews, pricing, and recruiter dashboard workflows. Tell me what you want to do next.';
+}
+
+app.post('/api/chatbot', async (req, res) => {
+  try {
+    const message = String(req.body?.message || '').trim();
+    const role = String(req.body?.role || 'guest').trim().toLowerCase();
+    const history = Array.isArray(req.body?.history) ? req.body.history.slice(-8) : [];
+
+    if (!message) {
+      return res.status(400).json({ error: 'Message is required' });
+    }
+
+    const formattedHistory = history
+      .filter(item => item && typeof item === 'object')
+      .map(item => `${item.role === 'user' ? 'User' : 'Assistant'}: ${String(item.content || '').slice(0, 400)}`)
+      .join('\n');
+
+    const systemPrompt = `You are TalentAI Support Bot.
+Audience: candidates, recruiters, and admins.
+Tone: professional, concise, and practical.
+Rules:
+- Provide actionable guidance specific to TalentAI workflows.
+- For account or server issues, suggest clear troubleshooting steps.
+- Never invent private data.
+- Keep responses within 4 short paragraphs or bullet-style text.`;
+
+    const prompt = `Role: ${role}
+Conversation history:
+${formattedHistory || 'No prior messages.'}
+
+Latest user question:
+${message}
+
+Respond with direct, helpful guidance for TalentAI website usage.`;
+
+    try {
+      const reply = await callAI(prompt, systemPrompt, { task: 'career' });
+      return res.json({
+        success: true,
+        reply: String(reply || '').trim().slice(0, 1400) || chatbotFallbackReply(message, role)
+      });
+    } catch (aiError) {
+      console.error('Chatbot AI error:', aiError.message);
+      return res.json({ success: true, reply: chatbotFallbackReply(message, role) });
+    }
+  } catch (error) {
+    console.error('Chatbot endpoint error:', error);
+    return res.status(500).json({ error: 'Failed to process chatbot request' });
+  }
+});
+
 // ==================== HEALTH CHECK ====================
 app.get('/api/health', (req, res) => {
   const aiProvider = process.env.OPENROUTER_API_KEY
