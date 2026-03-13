@@ -178,8 +178,6 @@ export default function AIRecruitmentAgent() {
   }, []);
 
   useEffect(() => {
-    document.body.classList.toggle('theme-light', theme === 'light');
-    document.body.classList.toggle('theme-dark', theme !== 'light');
     localStorage.setItem('talentai_theme', theme);
   }, [theme]);
 
