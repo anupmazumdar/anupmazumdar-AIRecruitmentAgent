@@ -1177,6 +1177,31 @@ app.post('/api/candidates', async (req, res) => {
   }
 });
 
+// Get all candidates (super admin / recruiter)
+app.get('/api/candidates', authenticateToken, async (req, res) => {
+  try {
+    res.json({ success: true, candidates });
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Update candidate status
+app.put('/api/candidates/:id/status', authenticateToken, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const { status } = req.body;
+    if (!status) return res.status(400).json({ error: 'status is required' });
+    const candidate = candidates.find(c => c.id === id);
+    if (!candidate) return res.status(404).json({ error: 'Candidate not found' });
+    candidate.status = status;
+    await saveCandidates();
+    res.json({ success: true, candidate });
+  } catch (error) {
+    res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
 // Resume analysis
 app.post('/api/candidates/:id/resume', upload.single('resume'), async (req, res) => {
   try {
@@ -1810,6 +1835,142 @@ app.get('/api/recruiter/candidates', authenticateToken, async (req, res) => {
 
 // ==================== AI-POWERED TEXT INTERVIEW ENGINE ====================
 
+const INTERVIEW_STOPWORDS = new Set([
+  'a', 'an', 'the', 'and', 'or', 'but', 'if', 'then', 'than', 'so', 'for', 'to', 'of', 'in', 'on', 'at', 'by', 'with',
+  'from', 'into', 'about', 'as', 'is', 'are', 'was', 'were', 'be', 'been', 'being', 'am', 'i', 'me', 'my', 'we', 'our',
+  'you', 'your', 'he', 'she', 'it', 'they', 'them', 'this', 'that', 'these', 'those', 'there', 'here', 'have', 'has', 'had',
+  'do', 'does', 'did', 'not', 'no', 'yes', 'ok', 'okay', 'hmm', 'um', 'uh', 'like', 'just', 'really', 'very', 'can', 'could',
+  'would', 'should', 'will', 'shall', 'also', 'too', 'only', 'more', 'most', 'some', 'any', 'all', 'each', 'other', 'such'
+]);
+
+function tokenizeInterviewText(text = '') {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter(Boolean);
+}
+
+function extractInterviewKeywords(text = '', limit = 12) {
+  const tokens = tokenizeInterviewText(text);
+  const counts = new Map();
+  for (const token of tokens) {
+    if (token.length < 3 || INTERVIEW_STOPWORDS.has(token)) continue;
+    counts.set(token, (counts.get(token) || 0) + 1);
+  }
+  return [...counts.entries()]
+    .sort((a, b) => b[1] - a[1])
+    .slice(0, limit)
+    .map(([token]) => token);
+}
+
+function getLastAssistantQuestion(conversationHistory = []) {
+  for (let i = conversationHistory.length - 1; i >= 0; i--) {
+    const msg = conversationHistory[i];
+    if (msg.role === 'assistant' && typeof msg.content === 'string' && msg.content.trim()) {
+      return msg.content;
+    }
+  }
+  return '';
+}
+
+function evaluateInterviewAnswerQuality({ userMessage = '', position = '', expectedQuestion = '' }) {
+  const message = (userMessage || '').trim();
+  const words = tokenizeInterviewText(message);
+  const wordCount = words.length;
+
+  const trivialPhrases = new Set([
+    'ok', 'okay', 'hmm', 'hm', 'yes', 'no', 'idk', 'i dont know', 'dont know', 'not sure', 'maybe'
+  ]);
+
+  const normalized = message.toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  const isGenericShortReply = trivialPhrases.has(normalized) || wordCount <= 3;
+
+  const questionKeywords = new Set(extractInterviewKeywords(expectedQuestion, 14));
+  const positionKeywords = new Set(extractInterviewKeywords(position, 6));
+  const answerKeywords = new Set(extractInterviewKeywords(message, 30));
+
+  const overlapWithQuestion = [...answerKeywords].filter(k => questionKeywords.has(k)).length;
+  const overlapWithPosition = [...answerKeywords].filter(k => positionKeywords.has(k)).length;
+
+  const relevanceSignal = Math.min(1, (overlapWithQuestion * 0.75 + overlapWithPosition * 0.5) / 4);
+  const depthSignal = Math.min(1, wordCount / 90);
+  const hasConcreteContext = /(for example|for instance|when i|i worked on|project|challenge|situation|result|impact|timeline|deadline|team)/i.test(message);
+  const structureSignal = hasConcreteContext ? 1 : (/(because|therefore|so that|first|then|finally)/i.test(message) ? 0.7 : 0.4);
+
+  let score = Math.round((relevanceSignal * 45) + (depthSignal * 30) + (structureSignal * 25));
+
+  if (isGenericShortReply) score = Math.min(score, 15);
+  if (wordCount < 8) score = Math.min(score, 35);
+  if (relevanceSignal < 0.2) score = Math.min(score, 30);
+
+  const isOffTopic = relevanceSignal < 0.2 && wordCount >= 4;
+  const needsCoaching = isGenericShortReply || wordCount < 10 || isOffTopic;
+
+  return {
+    score: Math.max(0, Math.min(100, score)),
+    wordCount,
+    relevanceSignal,
+    isOffTopic,
+    isGenericShortReply,
+    needsCoaching
+  };
+}
+
+function getConsecutiveWeakAnswerStreak(conversationHistory = [], position = '', currentUserMessage = '') {
+  const userEvaluations = [];
+
+  for (let i = 0; i < conversationHistory.length; i++) {
+    const msg = conversationHistory[i];
+    if (msg.role !== 'user' || !msg.content) continue;
+
+    let expectedQuestion = '';
+    for (let j = i - 1; j >= 0; j--) {
+      if (conversationHistory[j].role === 'assistant' && conversationHistory[j].content) {
+        expectedQuestion = conversationHistory[j].content;
+        break;
+      }
+    }
+
+    const evalResult = evaluateInterviewAnswerQuality({
+      userMessage: msg.content,
+      position,
+      expectedQuestion
+    });
+
+    userEvaluations.push(evalResult);
+  }
+
+  const lastHistoryMessage = conversationHistory.length > 0 ? conversationHistory[conversationHistory.length - 1] : null;
+  const currentAlreadyInHistory =
+    lastHistoryMessage &&
+    lastHistoryMessage.role === 'user' &&
+    String(lastHistoryMessage.content || '').trim() === String(currentUserMessage || '').trim();
+
+  if (!currentAlreadyInHistory) {
+    const currentExpectedQuestion = getLastAssistantQuestion(conversationHistory);
+    userEvaluations.push(evaluateInterviewAnswerQuality({
+      userMessage: currentUserMessage,
+      position,
+      expectedQuestion: currentExpectedQuestion
+    }));
+  }
+
+  let streak = 0;
+  for (let i = userEvaluations.length - 1; i >= 0; i--) {
+    const ev = userEvaluations[i];
+    const weak = ev.isGenericShortReply || ev.isOffTopic || ev.score < 35;
+    if (!weak) break;
+    streak += 1;
+  }
+
+  return streak;
+}
+
+function buildCoachingPrompt(position, expectedQuestion) {
+  return `Let's stay focused on the interview topic for the ${position} role. Please answer this specific question with a concrete example (Situation, Action, Result): ${expectedQuestion}`;
+}
+
 // Start a new interview session — generates questions tailored to the position
 app.post('/api/interview/start', async (req, res) => {
   try {
@@ -1862,10 +2023,51 @@ app.post('/api/interview/message', async (req, res) => {
     const { position, candidateName, questionNumber, totalQuestions, userMessage, conversationHistory } = req.body;
 
     const isLastQuestion = questionNumber >= totalQuestions;
+    const expectedQuestion = getLastAssistantQuestion(conversationHistory || []);
+    const quality = evaluateInterviewAnswerQuality({
+      userMessage,
+      position,
+      expectedQuestion
+    });
+    const weakAnswerStreak = getConsecutiveWeakAnswerStreak(conversationHistory || [], position, userMessage);
+
+    if (weakAnswerStreak >= 3) {
+      return res.json({
+        success: true,
+        message: `I am ending this assessment because multiple responses were too brief or off-topic for the ${position} interview. Your current interview score reflects the conversation quality so far.`,
+        answerScore: Math.min(quality.score, 20),
+        scoreFeedback: 'Assessment terminated after repeated off-topic or low-detail responses.',
+        isComplete: true,
+        questionNumber
+      });
+    }
+
+    if (!isLastQuestion && quality.needsCoaching) {
+      const coachingReason = quality.isGenericShortReply
+        ? 'Your answer is too short to evaluate fairly.'
+        : quality.isOffTopic
+          ? 'Your answer is not aligned with the current interview question.'
+          : 'Please add more role-relevant detail.';
+
+      return res.json({
+        success: true,
+        message: `${coachingReason} ${buildCoachingPrompt(position, expectedQuestion || 'Please answer the current interview question.')}`,
+        answerScore: Math.min(quality.score, 35),
+        scoreFeedback: 'Need more relevant and specific details before moving to the next question.',
+        isComplete: false,
+        questionNumber
+      });
+    }
 
     const systemPrompt = `You are Alex, a senior technical recruiter interviewing ${candidateName || 'a candidate'} for a ${position} position.
 Be professional, insightful, and evaluate answers for: technical depth, communication clarity, relevant experience, and problem-solving.
-Acknowledge their previous answer naturally, and ask a relevant follow-up question or transition to evaluating a different technical/behavioral area appropriate for a ${position}. Interact independently and dynamically without following a rigid script.`;
+Acknowledge their previous answer naturally, and ask a relevant follow-up question or transition to evaluating a different technical/behavioral area appropriate for a ${position}. Interact independently and dynamically without following a rigid script.
+Scoring rubric (strict):
+- 0-20: irrelevant or one-word response
+- 21-40: vague response with little role relevance
+- 41-60: partially relevant but limited depth
+- 61-80: relevant with clear examples and impact
+- 81-100: highly relevant, structured, and technically strong`;
 
     const historyText = (conversationHistory || []).slice(-6).map(m =>
       `${m.role === 'user' ? 'Candidate' : 'Interviewer'}: ${m.content}`
@@ -1897,10 +2099,25 @@ Return ONLY this JSON:
       const match = cleaned.match(/\{[\s\S]*\}/);
       if (match) cleaned = match[0];
       const parsed = JSON.parse(cleaned);
-      return res.json({ success: true, ...parsed });
+      const safeScore = Math.max(0, Math.min(100, Number(parsed.answerScore) || 0));
+      let adjustedScore = safeScore;
+
+      if (quality.isGenericShortReply) adjustedScore = Math.min(adjustedScore, 20);
+      if (quality.isOffTopic) adjustedScore = Math.min(adjustedScore, 30);
+      if (quality.wordCount < 8) adjustedScore = Math.min(adjustedScore, 35);
+      adjustedScore = Math.round((adjustedScore * 0.7) + (quality.score * 0.3));
+
+      return res.json({
+        success: true,
+        ...parsed,
+        answerScore: adjustedScore,
+        scoreFeedback: parsed.scoreFeedback || (adjustedScore >= 70
+          ? 'Relevant and fairly detailed response.'
+          : 'Response needs stronger relevance and specific examples.')
+      });
     } catch {
       // Smart fallback
-      const fallbackScore = userMessage.length > 150 ? 72 : userMessage.length > 80 ? 60 : 45;
+      const fallbackScore = quality.score;
       const fallbackMessages = [
         `Thank you for sharing that. It's great to see your ${position}-related experience. Now, tell me about a specific technical challenge you've overcome — what was the situation and how did you approach solving it?`,
         `Interesting perspective! Handling challenges well is key in this role. How do you typically manage stress or tight deadlines? Can you give me a real example?`,
@@ -1912,7 +2129,7 @@ Return ONLY this JSON:
         success: true,
         message: fallbackMessages[questionNumber - 1] || fallbackMessages[fallbackMessages.length - 1],
         answerScore: fallbackScore,
-        scoreFeedback: userMessage.length > 150 ? 'Detailed and well-structured answer.' : 'Answer could be more detailed with specific examples.',
+        scoreFeedback: fallbackScore >= 70 ? 'Relevant and fairly detailed response.' : 'Response needs stronger relevance and specific examples.',
         isComplete: isLastQuestion,
         questionNumber: isLastQuestion ? questionNumber : questionNumber + 1
       });
