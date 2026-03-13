@@ -233,65 +233,87 @@ After a candidate completes all 8 assessment stages, the **Career Coach** panel 
 
 ## Upgrade Skills & Learning Roadmap
 
-After viewing their results (Stage 8), candidates unlock a personalised **Upgrade Skills** roadmap (Stage 9). This is a separate, dedicated section — not embedded inside the results dashboard — that gives every candidate a clear path to improvement.
+After viewing their results (Stage 8), candidates unlock the **Upgrade Skills** section (Stage 9) — a dedicated page separate from the results dashboard. It combines two sources of learning content:
 
-### What the Roadmap Covers
+1. **Admin-Curated YouTube Videos** — Superadmin and recruiters can add YouTube video links per job role/domain from the admin panel. Candidates see these curated videos relevant to their applied role.
+2. **AI-Suggested Resources** — AI analyses the candidate's assessment scores and gap areas, then recommends tailored websites, blogs, articles, documentation, and courses per skill category and job role.
 
-The AI analyses the candidate's actual scores across all assessment stages and generates a targeted upskilling plan with direct resource links:
+### Admin: Adding YouTube Resource Links
+
+Superadmin and recruiters can manage video resources from the admin panel under the **Resources** tab:
+
+- Add a YouTube video link with a title, description, and target job role tag (e.g., Backend Engineer, Data Scientist, Full-Stack Developer).
+- Edit or remove existing links at any time.
+- Links are shown only to candidates who applied for the matching role.
+- No limit on the number of videos per role.
+
+### AI-Suggested Resources by Job Role
+
+The AI generates role-specific recommendations after analysing each candidate's weak areas:
+
+#### Backend / Full-Stack Engineer
+| Resource | Type |
+| --- | --- |
+| [roadmap.sh/backend](https://roadmap.sh/backend) | Developer roadmap |
+| [fullstackopen.com](https://fullstackopen.com) | Full-stack course (free) |
+| [System Design Primer](https://github.com/donnemartin/system-design-primer) | GitHub guide |
+| [ByteByteGo Blog](https://blog.bytebytego.com) | System design articles |
+| [MDN Web Docs](https://developer.mozilla.org) | Reference docs |
+
+#### Frontend Engineer
+| Resource | Type |
+| --- | --- |
+| [roadmap.sh/frontend](https://roadmap.sh/frontend) | Developer roadmap |
+| [javascript.info](https://javascript.info) | In-depth JS guide |
+| [The Odin Project](https://www.theodinproject.com) | Full curriculum (free) |
+| [web.dev](https://web.dev) | Google's web best practices |
+| [freeCodeCamp](https://www.freecodecamp.org) | Certifications |
 
 #### Data Structures & Algorithms
-| Resource | Type | Link |
-| --- | --- | --- |
-| LeetCode | Practice problems | https://leetcode.com |
-| NeetCode.io | Structured DSA roadmap + video solutions | https://neetcode.io |
-| GeeksforGeeks | Tutorials and interview prep | https://www.geeksforgeeks.org |
-| CS50 (Harvard) | Free foundational CS course | https://cs50.harvard.edu |
+| Resource | Type |
+| --- | --- |
+| [LeetCode](https://leetcode.com) | Practice problems |
+| [NeetCode.io](https://neetcode.io) | Structured DSA roadmap + videos |
+| [GeeksforGeeks](https://www.geeksforgeeks.org) | Tutorials and interview prep |
+| [CS50 (Harvard)](https://cs50.harvard.edu) | Free foundational CS course |
 
-#### Web Development
-| Resource | Type | Link |
-| --- | --- | --- |
-| The Odin Project | Full-stack curriculum (free) | https://www.theodinproject.com |
-| MDN Web Docs | Reference and guides | https://developer.mozilla.org |
-| freeCodeCamp | Hands-on web dev certifications | https://www.freecodecamp.org |
-| full stack open | Modern web dev with React & Node | https://fullstackopen.com |
+#### Data Scientist / ML Engineer
+| Resource | Type |
+| --- | --- |
+| [roadmap.sh/ai-data-scientist](https://roadmap.sh/ai-data-scientist) | Roadmap |
+| [fast.ai](https://www.fast.ai) | Practical deep learning (free) |
+| [Kaggle Learn](https://www.kaggle.com/learn) | Hands-on ML micro-courses |
+| [Hugging Face](https://huggingface.co/learn) | NLP and transformer models |
+| [Towards Data Science](https://towardsdatascience.com) | Blog and articles |
+| [Coursera — Andrew Ng ML](https://www.coursera.org/specializations/machine-learning-introduction) | Foundational ML course |
 
-#### System Design
-| Resource | Type | Link |
-| --- | --- | --- |
-| ByteByteGo | System design concepts and diagrams | https://bytebytego.com |
-| Grokking System Design | Interview-focused system design | https://www.designgurus.io |
-| System Design Primer | GitHub open-source guide | https://github.com/donnemartin/system-design-primer |
+#### Cloud / DevOps Engineer
+| Resource | Type |
+| --- | --- |
+| [roadmap.sh/devops](https://roadmap.sh/devops) | Roadmap |
+| [Google Cloud Skills Boost](https://cloudskillsboost.google) | GCP training and certifications |
+| [AWS Skill Builder](https://skillbuilder.aws) | AWS free training |
+| [Microsoft Learn](https://learn.microsoft.com) | Azure learning paths |
+| [KodeKloud](https://kodekloud.com) | DevOps and Kubernetes labs |
+| [The New Stack](https://thenewstack.io) | Cloud-native articles and blogs |
 
-#### Machine Learning & AI
-| Resource | Type | Link |
-| --- | --- | --- |
-| fast.ai | Practical deep learning (free) | https://www.fast.ai |
-| Coursera — Andrew Ng ML | Foundational ML course | https://www.coursera.org/specializations/machine-learning-introduction |
-| Kaggle Learn | Hands-on ML micro-courses | https://www.kaggle.com/learn |
-| Hugging Face | NLP and transformer models | https://huggingface.co/learn |
-
-#### Cloud & DevOps
-| Resource | Type | Link |
-| --- | --- | --- |
-| Google Cloud Skills Boost | GCP training and certifications | https://cloudskillsboost.google |
-| AWS Skill Builder | AWS free training | https://skillbuilder.aws |
-| Microsoft Learn | Azure learning paths | https://learn.microsoft.com |
-| KodeKloud | DevOps and Kubernetes labs | https://kodekloud.com |
-
-#### Core Computer Science
-| Resource | Type | Link |
-| --- | --- | --- |
-| MIT OpenCourseWare | University-level CS courses (free) | https://ocw.mit.edu |
-| Teach Yourself CS | Curated self-study curriculum | https://teachyourselfcs.com |
-| Roadmap.sh | Developer roadmaps by role | https://roadmap.sh |
+#### General / Core Computer Science
+| Resource | Type |
+| --- | --- |
+| [MIT OpenCourseWare](https://ocw.mit.edu) | University-level CS courses (free) |
+| [Teach Yourself CS](https://teachyourselfcs.com) | Curated self-study curriculum |
+| [CS50](https://cs50.harvard.edu) | Intro to CS (free, Harvard) |
+| [Dev.to](https://dev.to) | Developer blogs and community |
+| [Hashnode](https://hashnode.com) | Technical blogging platform |
 
 ### How It Works
 
-1. After Stage 8 (Results & Analytics), the candidate's gap areas are identified from their scores.
-2. The AI generates a prioritised skill list and maps each gap to relevant resources.
-3. The roadmap is presented as an interactive checklist — candidates can mark topics as in-progress or complete.
-4. Resources are filtered by the candidate's target role (e.g., backend engineer, data scientist, full-stack developer).
-
+1. After Stage 8, the candidate's gap areas are identified from their scores.
+2. The AI maps gaps to relevant resources per skill and job role.
+3. Admin-curated YouTube videos for the candidate's role are shown at the top.
+4. AI-suggested websites, blogs, articles, and courses are listed below, grouped by category.
+5. Candidates can bookmark resources and mark topics as complete.
+- **Resource Management (Upgrade Skills)** — Add, edit, or remove YouTube video links per job role for the Upgrade Skills section (Stage 9). Candidates see curated videos for their applied role alongside AI-suggested resources.
 ---
 
 ## Video AI Grading
@@ -356,11 +378,11 @@ Shortlist Threshold: 68+ weighted score
 ## Recent Updates
 
 ### v2.1 — Upgrade Skills Roadmap (Stage 9)
-- New final stage: personalised AI-generated learning roadmap unlocked after results.
-- Curated resources across DSA, web dev, system design, ML/AI, cloud, and core CS.
-- Roadmap is separate from the results dashboard — dedicated upskilling section.
-- Interactive checklist: candidates track progress per topic.
-- Resources filtered by candidate's target role and assessment gap areas.
+- New final stage: admin-curated YouTube videos + AI-suggested websites, blogs, articles, and courses.
+- Admins can add/edit/remove YouTube links per job role from the admin panel (Resources tab).
+- AI generates role-specific resource recommendations based on assessment gap areas.
+- Resources grouped by job role: Backend, Frontend, DSA, ML/AI, Cloud/DevOps, Core CS.
+- Dedicated section separate from the results dashboard.
 - Pipeline updated from 8-stage to 9-stage.
 
 ### v2.0 — Superadmin Access Control & Candidate Visibility
