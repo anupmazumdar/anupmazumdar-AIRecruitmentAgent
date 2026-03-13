@@ -1604,27 +1604,6 @@ function TechnicalQuizStage({ candidateData, setCandidateData, setStage }) {
     return String(question?.correctAnswer ?? '');
   };
 
-  const scoreQuestion = (question, selectedAnswer) => {
-    const { weight } = inferDifficulty(question);
-    const correctAnswer = question?.correctAnswer;
-
-    if (typeof correctAnswer === 'number' && typeof selectedAnswer === 'number') {
-      return { earned: selectedAnswer === correctAnswer ? weight : 0, weight, isExact: selectedAnswer === correctAnswer };
-    }
-
-    const selectedText = typeof selectedAnswer === 'number'
-      ? String(question?.options?.[selectedAnswer] || '')
-      : String(selectedAnswer || '');
-    const correctText = resolveCorrectAnswerText(question);
-
-    const exact = normalizeText(selectedText) === normalizeText(correctText);
-    if (exact) return { earned: weight, weight, isExact: true };
-
-    const similarity = cosineTokenSimilarity(selectedText, correctText);
-    const semanticCredit = similarity >= 0.92 ? 0.9 : similarity >= 0.84 ? 0.75 : similarity >= 0.75 ? 0.55 : 0;
-    return { earned: Number((weight * semanticCredit).toFixed(4)), weight, isExact: false };
-  };
-
   const formatTime = (secs) => {
     const m = Math.floor(secs / 60).toString().padStart(2, '0');
     const s = (secs % 60).toString().padStart(2, '0');
@@ -1668,6 +1647,27 @@ function TechnicalQuizStage({ candidateData, setCandidateData, setStage }) {
     let weightedEarned = 0;
     let weightedTotal = 0;
 
+    const scoreQuestion = (question, selectedAnswer) => {
+      const { weight } = inferDifficulty(question);
+      const correctAnswer = question?.correctAnswer;
+
+      if (typeof correctAnswer === 'number' && typeof selectedAnswer === 'number') {
+        return { earned: selectedAnswer === correctAnswer ? weight : 0, weight, isExact: selectedAnswer === correctAnswer };
+      }
+
+      const selectedText = typeof selectedAnswer === 'number'
+        ? String(question?.options?.[selectedAnswer] || '')
+        : String(selectedAnswer || '');
+      const correctText = resolveCorrectAnswerText(question);
+
+      const exact = normalizeText(selectedText) === normalizeText(correctText);
+      if (exact) return { earned: weight, weight, isExact: true };
+
+      const similarity = cosineTokenSimilarity(selectedText, correctText);
+      const semanticCredit = similarity >= 0.92 ? 0.9 : similarity >= 0.84 ? 0.75 : similarity >= 0.75 ? 0.55 : 0;
+      return { earned: Number((weight * semanticCredit).toFixed(4)), weight, isExact: false };
+    };
+
     questions.forEach((q, idx) => {
       const result = scoreQuestion(q, ans[idx]);
       weightedEarned += result.earned;
@@ -1679,7 +1679,7 @@ function TechnicalQuizStage({ candidateData, setCandidateData, setStage }) {
     setGradingMeta({ weightedCorrect: weightedEarned, totalWeight: weightedTotal });
     setCandidateData(prev => ({ ...prev, quizScore: finalScore }));
     setQuizComplete(true);
-  }, [answers, questions, setCandidateData]);
+  }, [answers, questions, setCandidateData, inferDifficulty, resolveCorrectAnswerText, normalizeText, cosineTokenSimilarity]);
 
   useEffect(() => { generateQuestions(); }, [generateQuestions]);
 
