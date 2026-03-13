@@ -1521,11 +1521,88 @@ function TechnicalQuizStage({ candidateData, setCandidateData, setStage }) {
   const [answers, setAnswers] = useState({});
   const [quizComplete, setQuizComplete] = useState(false);
   const [score, setScore] = useState(0);
+  const [gradingMeta, setGradingMeta] = useState({ weightedCorrect: 0, totalWeight: 0 });
   const [timeLeft, setTimeLeft] = useState(TIME_LIMIT);
   const [source, setSource] = useState('');
   const [reviewPage, setReviewPage] = useState(0);
   const timerRef = useRef(null);
   const REVIEW_PER_PAGE = 10;
+
+  const normalizeText = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+
+  const tokenizeText = (value) => normalizeText(value).split(' ').filter(Boolean);
+
+  const cosineTokenSimilarity = (a, b) => {
+    const tokensA = tokenizeText(a);
+    const tokensB = tokenizeText(b);
+    if (!tokensA.length || !tokensB.length) return 0;
+
+    const freqA = new Map();
+    const freqB = new Map();
+    tokensA.forEach(t => freqA.set(t, (freqA.get(t) || 0) + 1));
+    tokensB.forEach(t => freqB.set(t, (freqB.get(t) || 0) + 1));
+
+    const vocab = new Set([...freqA.keys(), ...freqB.keys()]);
+    let dot = 0;
+    let normA = 0;
+    let normB = 0;
+
+    vocab.forEach(term => {
+      const va = freqA.get(term) || 0;
+      const vb = freqB.get(term) || 0;
+      dot += va * vb;
+      normA += va * va;
+      normB += vb * vb;
+    });
+
+    if (!normA || !normB) return 0;
+    return dot / (Math.sqrt(normA) * Math.sqrt(normB));
+  };
+
+  const inferDifficulty = (question) => {
+    const explicit = normalizeText(question?.difficulty || '');
+    if (explicit === 'hard') return { label: 'hard', weight: 1.5 };
+    if (explicit === 'easy') return { label: 'easy', weight: 1.0 };
+    if (explicit === 'medium') return { label: 'medium', weight: 1.25 };
+
+    const text = normalizeText(question?.question || '');
+    const hardSignals = ['optimize', 'distributed', 'complexity', 'architecture', 'concurrency', 'tradeoff', 'scalability', 'latency'];
+    const easySignals = ['what is', 'define', 'stands for', 'which of the following'];
+    const hardHits = hardSignals.filter(s => text.includes(s)).length;
+    const easyHits = easySignals.filter(s => text.includes(s)).length;
+
+    if (hardHits >= 2 || text.length > 180) return { label: 'hard', weight: 1.5 };
+    if (easyHits >= 2 && text.length < 110) return { label: 'easy', weight: 1.0 };
+    return { label: 'medium', weight: 1.25 };
+  };
+
+  const resolveCorrectAnswerText = (question) => {
+    if (typeof question?.correctAnswer === 'number') {
+      return question?.options?.[question.correctAnswer] ?? '';
+    }
+    return String(question?.correctAnswer ?? '');
+  };
+
+  const scoreQuestion = (question, selectedAnswer) => {
+    const { weight } = inferDifficulty(question);
+    const correctAnswer = question?.correctAnswer;
+
+    if (typeof correctAnswer === 'number' && typeof selectedAnswer === 'number') {
+      return { earned: selectedAnswer === correctAnswer ? weight : 0, weight, isExact: selectedAnswer === correctAnswer };
+    }
+
+    const selectedText = typeof selectedAnswer === 'number'
+      ? String(question?.options?.[selectedAnswer] || '')
+      : String(selectedAnswer || '');
+    const correctText = resolveCorrectAnswerText(question);
+
+    const exact = normalizeText(selectedText) === normalizeText(correctText);
+    if (exact) return { earned: weight, weight, isExact: true };
+
+    const similarity = cosineTokenSimilarity(selectedText, correctText);
+    const semanticCredit = similarity >= 0.92 ? 0.9 : similarity >= 0.84 ? 0.75 : similarity >= 0.75 ? 0.55 : 0;
+    return { earned: Number((weight * semanticCredit).toFixed(4)), weight, isExact: false };
+  };
 
   const formatTime = (secs) => {
     const m = Math.floor(secs / 60).toString().padStart(2, '0');
@@ -1567,10 +1644,18 @@ function TechnicalQuizStage({ candidateData, setCandidateData, setStage }) {
   const calculateScore = useCallback((answersOverride) => {
     clearInterval(timerRef.current);
     const ans = answersOverride || answers;
-    let correct = 0;
-    questions.forEach((q, idx) => { if (ans[idx] === q.correctAnswer) correct++; });
-    const finalScore = Math.round((correct / questions.length) * 100);
+    let weightedEarned = 0;
+    let weightedTotal = 0;
+
+    questions.forEach((q, idx) => {
+      const result = scoreQuestion(q, ans[idx]);
+      weightedEarned += result.earned;
+      weightedTotal += result.weight;
+    });
+
+    const finalScore = weightedTotal > 0 ? Math.round((weightedEarned / weightedTotal) * 100) : 0;
     setScore(finalScore);
+    setGradingMeta({ weightedCorrect: weightedEarned, totalWeight: weightedTotal });
     setCandidateData(prev => ({ ...prev, quizScore: finalScore }));
     setQuizComplete(true);
   }, [answers, questions, setCandidateData]);
@@ -1632,6 +1717,7 @@ function TechnicalQuizStage({ candidateData, setCandidateData, setStage }) {
           <div className="flex justify-center gap-4 text-sm text-slate-400">
             <span>✅ {correct} correct</span>
             <span>❌ {questions.length - correct} wrong</span>
+            <span>⚖️ weighted: {gradingMeta.weightedCorrect.toFixed(1)}/{gradingMeta.totalWeight.toFixed(1)}</span>
             <span>⏱ 30 min quiz</span>
           </div>
         </div>
@@ -1766,6 +1852,7 @@ function TextInterviewStage({ candidateData, setCandidateData, setStage, authSta
   const [questionNumber, setQuestionNumber] = useState(1);
   const totalQuestions = 5;
   const [answerScores, setAnswerScores] = useState([]);
+  const [criteriaBreakdowns, setCriteriaBreakdowns] = useState([]);
   const [finalScore, setFinalScore] = useState(null);
   const messagesEndRef = useRef(null);
 
@@ -1828,11 +1915,14 @@ function TextInterviewStage({ candidateData, setCandidateData, setStage, authSta
       if (data.success) {
         const newScores = [...answerScores, data.answerScore];
         setAnswerScores(newScores);
+        setCriteriaBreakdowns(prev => [...prev, data.criteriaScores || null]);
         setMessages(prev => [...prev, {
           role: 'assistant',
           content: data.message,
           answerScore: data.answerScore,
-          scoreFeedback: data.scoreFeedback
+          scoreFeedback: data.scoreFeedback,
+          criteriaScores: data.criteriaScores,
+          reasoningSummary: data.reasoningSummary
         }]);
         if (data.isComplete) {
           const computed = Math.round(newScores.reduce((a, b) => a + b, 0) / newScores.length);
@@ -1881,6 +1971,11 @@ function TextInterviewStage({ candidateData, setCandidateData, setStage, authSta
               <div key={i} className="bg-slate-800/60 rounded-xl p-3 text-center border border-slate-700">
                 <p className="text-xs text-slate-500 mb-1">Q{i + 1}</p>
                 <p className={`text-xl font-bold ${s >= 75 ? 'text-green-400' : s >= 55 ? 'text-yellow-400' : 'text-red-400'}`}>{s}</p>
+                {criteriaBreakdowns[i] && (
+                  <p className="text-[10px] text-slate-400 mt-1">
+                    C {criteriaBreakdowns[i].clarity} • D {criteriaBreakdowns[i].depth} • R {criteriaBreakdowns[i].relevance}
+                  </p>
+                )}
               </div>
             ))}
           </div>
@@ -1951,6 +2046,34 @@ function TextInterviewStage({ candidateData, setCandidateData, setStage, authSta
               }`}>
                 ✦ Score: {msg.answerScore}/100 &mdash; {msg.scoreFeedback}
               </div>
+            )}
+            {msg.criteriaScores && (
+              <div className="mt-1 flex flex-wrap gap-1 text-[10px]">
+                <span className={`px-2 py-0.5 rounded-full border ${
+                  msg.criteriaScores.clarity >= 75
+                    ? 'bg-green-900/40 border-green-700/40 text-green-300'
+                    : msg.criteriaScores.clarity >= 55
+                      ? 'bg-yellow-900/40 border-yellow-700/40 text-yellow-300'
+                      : 'bg-red-900/40 border-red-700/40 text-red-300'
+                }`}>Clarity {msg.criteriaScores.clarity}</span>
+                <span className={`px-2 py-0.5 rounded-full border ${
+                  msg.criteriaScores.depth >= 75
+                    ? 'bg-green-900/40 border-green-700/40 text-green-300'
+                    : msg.criteriaScores.depth >= 55
+                      ? 'bg-yellow-900/40 border-yellow-700/40 text-yellow-300'
+                      : 'bg-red-900/40 border-red-700/40 text-red-300'
+                }`}>Depth {msg.criteriaScores.depth}</span>
+                <span className={`px-2 py-0.5 rounded-full border ${
+                  msg.criteriaScores.relevance >= 75
+                    ? 'bg-green-900/40 border-green-700/40 text-green-300'
+                    : msg.criteriaScores.relevance >= 55
+                      ? 'bg-yellow-900/40 border-yellow-700/40 text-yellow-300'
+                      : 'bg-red-900/40 border-red-700/40 text-red-300'
+                }`}>Relevance {msg.criteriaScores.relevance}</span>
+              </div>
+            )}
+            {msg.reasoningSummary && (
+              <p className="mt-1 text-[11px] text-slate-400 max-w-[85%]">Why this score: {msg.reasoningSummary}</p>
             )}
           </div>
         ))}
@@ -2289,14 +2412,19 @@ function ResultsStage({ candidateData, authState }) {
   const [advice, setAdvice] = useState(null);
   const [loadingAdvice, setLoadingAdvice] = useState(false);
 
-  const scores = [
-    candidateData.resumeScore,
-    candidateData.uploadVideoScore,
-    candidateData.quizScore,
-    candidateData.interviewScore,
-    candidateData.videoInterviewScore
-  ];
-  const totalScore = Math.round(scores.reduce((a, b) => a + b, 0) / 5);
+  const scoreRubric = {
+    resumeScore: 0.25,
+    quizScore: 0.30,
+    interviewScore: 0.30,
+    videoInterviewScore: 0.10,
+    uploadVideoScore: 0.05
+  };
+
+  const weightedTotal = Object.entries(scoreRubric).reduce((sum, [key, weight]) => {
+    return sum + (Number(candidateData[key]) || 0) * weight;
+  }, 0);
+
+  const totalScore = Math.round(weightedTotal);
 
   const fetchAdvice = useCallback(async () => {
     setLoadingAdvice(true);

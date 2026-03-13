@@ -402,6 +402,113 @@ async function callClaude(prompt, systemPrompt = "") {
   return data.content.find(item => item.type === 'text')?.text || '';
 }
 
+function clampScore(value, min = 0, max = 100, fallback = 0) {
+  const n = Number(value);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.max(min, Math.min(max, Math.round(n)));
+}
+
+function extractJsonPayload(raw = '', expect = 'object') {
+  const text = String(raw || '').replace(/```json|```/gi, '').trim();
+  if (!text) return '';
+
+  const pattern = expect === 'array' ? /\[[\s\S]*\]/ : /\{[\s\S]*\}/;
+  const match = text.match(pattern);
+  return (match ? match[0] : text).trim();
+}
+
+function parseJsonFromAI(raw = '', expect = 'object') {
+  const payload = extractJsonPayload(raw, expect);
+  const parsed = JSON.parse(payload);
+
+  if (expect === 'array' && !Array.isArray(parsed)) {
+    throw new Error('AI output is not a JSON array');
+  }
+  if (expect === 'object' && (Array.isArray(parsed) || typeof parsed !== 'object' || parsed === null)) {
+    throw new Error('AI output is not a JSON object');
+  }
+
+  return parsed;
+}
+
+const RESUME_TECH_KEYWORDS = [
+  'javascript', 'typescript', 'node', 'react', 'angular', 'vue', 'python', 'java', 'spring', 'django',
+  'flask', 'go', 'rust', 'c++', 'c#', 'aws', 'gcp', 'azure', 'docker', 'kubernetes', 'sql', 'mongodb',
+  'redis', 'tensorflow', 'pytorch', 'machine learning', 'data analysis'
+];
+
+function extractResumeSignals(resumeText = '') {
+  const text = String(resumeText || '');
+  const lower = text.toLowerCase();
+
+  const emailMatches = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g) || [];
+  const phoneMatches = text.match(/(?:\+?\d{1,3}[\s-]?)?(?:\(?\d{3}\)?[\s-]?)?\d{3}[\s-]?\d{4}/g) || [];
+  const projectMentions = (lower.match(/\b(project|built|developed|implemented|designed|shipped)\b/g) || []).length;
+
+  const detectedTech = RESUME_TECH_KEYWORDS.filter(keyword => lower.includes(keyword));
+
+  return {
+    emails: [...new Set(emailMatches)].slice(0, 3),
+    phones: [...new Set(phoneMatches)].slice(0, 3),
+    projectMentions,
+    technologies: detectedTech.slice(0, 8)
+  };
+}
+
+function normalizeResumeAnalysis(parsed = {}, resumeText = '') {
+  const signals = extractResumeSignals(resumeText);
+  const data = (parsed && typeof parsed === 'object' && !Array.isArray(parsed)) ? parsed : {};
+
+  const toStringArray = (value, fallback = []) => {
+    if (!Array.isArray(value)) return fallback;
+    return value
+      .map(v => String(v || '').trim())
+      .filter(Boolean);
+  };
+
+  const projects = Array.isArray(data.projects)
+    ? data.projects
+      .filter(p => p && typeof p === 'object')
+      .map((project, idx) => ({
+        name: String(project.name || `Project ${idx + 1}`).trim(),
+        description: String(project.description || 'Project details were partially extracted from resume.').trim(),
+        technologies: toStringArray(project.technologies, signals.technologies.slice(0, 4)),
+        impact: String(project.impact || 'Impact details not clearly specified.').trim()
+      }))
+    : [];
+
+  const atsScore = clampScore(data.atsScore, 0, 100, 75);
+  const projectScoreFallback = signals.projectMentions > 0 ? 78 : 60;
+  const projectScore = clampScore(data.projectScore, 0, 100, projectScoreFallback);
+
+  const strengths = toStringArray(data.strengths, [
+    'Resume follows a generally professional structure',
+    'Relevant skills are present for the target role'
+  ]).slice(0, 6);
+
+  const improvements = toStringArray(data.improvements, [
+    'Add measurable outcomes for projects and work experience',
+    'Improve ATS keyword alignment with the job description',
+    'Use cleaner section headings and consistent formatting'
+  ]).slice(0, 6);
+
+  const projectAnalysis = String(data.projectAnalysis || (
+    projects.length > 0
+      ? 'Projects were detected and normalized through validation checks.'
+      : 'Limited project evidence found. Add concrete hands-on projects with impact metrics.'
+  )).trim();
+
+  return {
+    atsScore,
+    projectScore,
+    projects,
+    strengths,
+    improvements,
+    projectAnalysis,
+    extractedSignals: signals
+  };
+}
+
 // ==================== AUTHENTICATION MIDDLEWARE ====================
 function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
@@ -1271,7 +1378,7 @@ app.post('/api/candidates/:id/resume', upload.single('resume'), async (req, res)
     }
 
     // AI analysis with focus on projects
-    const prompt = `Analyze this resume for a ${candidate.position} position. 
+    const prompt = `Analyze this resume for a ${candidate.position} position.
 
 **SPECIAL FOCUS: ATS Friendliness & Real-Life Projects**
 Evaluate if the resume is ATS-friendly. If it's not (e.g., poor formatting, lack of keywords), provide specific suggestions on how to improve it.
@@ -1280,7 +1387,14 @@ Pay special attention to identifying and evaluating practical projects, real-wor
 Resume Text:
 ${resumeText}
 
-Provide analysis in this EXACT JSON format:
+STRICT SCHEMA REQUIREMENTS:
+- Return a single valid JSON object only.
+- No markdown, no code fences, no trailing commentary.
+- Required keys: atsScore, projectScore, projects, strengths, improvements, projectAnalysis.
+- atsScore and projectScore must be integers from 0 to 100.
+- projects must be an array of objects with name, description, technologies (array), impact.
+
+Provide analysis in this EXACT JSON schema shape:
 {
   "atsScore": 85,
   "projectScore": 90,
@@ -1313,14 +1427,14 @@ Focus on:
 5. Impact and outcomes of project work.
 6. Hands-on technical skills vs theoretical knowledge.`;
 
-    const systemPrompt = "You are TalentAI, an expert ATS system that specializes in evaluating ATS formatting and practical project experience. Return only valid JSON.";
+  const systemPrompt = "You are TalentAI, an expert ATS and resume evaluator. Follow schema strictly and return only valid JSON object output.";
 
     try {
       const analysis = await callAI(prompt, systemPrompt);
-      const cleaned = analysis.replace(/```json|```/g, '').trim();
-      const parsed = JSON.parse(cleaned);
+      const parsed = parseJsonFromAI(analysis, 'object');
+      const validated = normalizeResumeAnalysis(parsed, resumeText);
 
-      candidate.resumeScore = parsed.atsScore || 75;
+      candidate.resumeScore = validated.atsScore;
       candidate.resumeUrl = resumeUrl; // Save GCS URL
       candidate.resumeAnalyzedAt = new Date().toISOString();
       await saveCandidates(); // Persist to cloud
@@ -1334,7 +1448,7 @@ Focus on:
 
       res.json({
         success: true,
-        analysis: parsed
+        analysis: validated
       });
     } catch (aiError) {
       console.error('AI analysis error:', aiError);
@@ -2095,14 +2209,24 @@ app.post('/api/interview/message', async (req, res) => {
     }
 
     const systemPrompt = `You are Alex, a senior technical recruiter interviewing ${candidateName || 'a candidate'} for a ${position} position.
-Be professional, insightful, and evaluate answers for: technical depth, communication clarity, relevant experience, and problem-solving.
-Acknowledge their previous answer naturally, and ask a relevant follow-up question or transition to evaluating a different technical/behavioral area appropriate for a ${position}. Interact independently and dynamically without following a rigid script.
-Scoring rubric (strict):
-- 0-20: irrelevant or one-word response
-- 21-40: vague response with little role relevance
-- 41-60: partially relevant but limited depth
-- 61-80: relevant with clear examples and impact
-- 81-100: highly relevant, structured, and technically strong`;
+  Use this structured scoring rubric consistently:
+  - Clarity (0-100): structure, coherence, communication quality.
+  - Depth (0-100): technical detail, specificity, evidence.
+  - Relevance (0-100): alignment to the asked question and ${position} role.
+  Final answerScore must be the rounded average of clarity, depth, relevance.
+
+  Few-shot calibration examples:
+  GOOD_CANDIDATE_EXAMPLE:
+  Question: "Tell me about a production incident you handled."
+  Answer: "In Q4 we saw API latency spike to 2.3s p95 after deploy. I rolled back, added query index, and introduced Redis caching. p95 dropped to 320ms and error rate fell 18%."
+  Expected scores: clarity=88, depth=92, relevance=95, answerScore=92.
+
+  BAD_CANDIDATE_EXAMPLE:
+  Question: "How do you optimize backend performance?"
+  Answer: "I am good at backend and use best practices."
+  Expected scores: clarity=35, depth=18, relevance=28, answerScore=27.
+
+  Always acknowledge the candidate naturally and ask the next relevant question when interview is not complete.`;
 
     const historyText = (conversationHistory || []).slice(-6).map(m =>
       `${m.role === 'user' ? 'Candidate' : 'Interviewer'}: ${m.content}`
@@ -2119,22 +2243,33 @@ ${isLastQuestion
   : `Acknowledge their answer specifically (mention something they said), score it mentally, then independently ask the next question (${questionNumber + 1}) based on the natural flow of conversation for a ${position} interview.`
 }
 
-Return ONLY this JSON:
+Return ONLY this strict JSON object:
 {
   "message": "Your response as Alex the interviewer",
+  "reasoningSummary": "One concise sentence describing why the score was assigned",
+  "criteriaScores": {
+    "clarity": <0-100 integer>,
+    "depth": <0-100 integer>,
+    "relevance": <0-100 integer>
+  },
   "answerScore": <number 0-100 rating how well they answered this specific question>,
   "scoreFeedback": "<one sentence explaining the score>",
   "isComplete": ${isLastQuestion},
   "questionNumber": ${isLastQuestion ? questionNumber : questionNumber + 1}
 }`;
+Rules:
+- answerScore must equal rounded average of criteriaScores.clarity, criteriaScores.depth, criteriaScores.relevance.
+- Output must be valid JSON only, no markdown.`;
 
     try {
       const response = await callAI(prompt, systemPrompt);
-      let cleaned = response.replace(/```json|```/g, '').trim();
-      const match = cleaned.match(/\{[\s\S]*\}/);
-      if (match) cleaned = match[0];
-      const parsed = JSON.parse(cleaned);
-      const safeScore = Math.max(0, Math.min(100, Number(parsed.answerScore) || 0));
+      const parsed = parseJsonFromAI(response, 'object');
+      const criteria = parsed.criteriaScores || {};
+      const clarity = clampScore(criteria.clarity, 0, 100, 0);
+      const depth = clampScore(criteria.depth, 0, 100, 0);
+      const relevance = clampScore(criteria.relevance, 0, 100, 0);
+      const averagedScore = Math.round((clarity + depth + relevance) / 3);
+      const safeScore = clampScore(parsed.answerScore, 0, 100, averagedScore);
       let adjustedScore = safeScore;
 
       if (quality.isGenericShortReply) adjustedScore = Math.min(adjustedScore, 20);
@@ -2145,6 +2280,8 @@ Return ONLY this JSON:
       return res.json({
         success: true,
         ...parsed,
+        criteriaScores: { clarity, depth, relevance },
+        reasoningSummary: String(parsed.reasoningSummary || '').trim().slice(0, 280),
         answerScore: adjustedScore,
         scoreFeedback: parsed.scoreFeedback || (adjustedScore >= 70
           ? 'Relevant and fairly detailed response.'
