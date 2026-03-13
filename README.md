@@ -1,326 +1,259 @@
 # TalentAI - AI-Powered Recruitment Platform
 
-Complete recruitment platform with resume analysis, technical quizzes, AI interviews, and video assessments. Now with **Google Cloud Storage** integration for persistent data storage!
+![TalentAI Banner](https://img.shields.io/badge/TalentAI-AI%20Recruitment%20Platform-7c3aed?style=for-the-badge&logo=robot&logoColor=white)
 
-## ✨ Features
+[![Live Demo](https://img.shields.io/badge/Live%20Demo-Vercel-black?style=for-the-badge&logo=vercel)](https://anupmazumdar-ai-recruitment-agent.vercel.app)
+[![React](https://img.shields.io/badge/React-18-61DAFB?style=for-the-badge&logo=react)](https://reactjs.org)
+[![Node.js](https://img.shields.io/badge/Node.js-Express-339933?style=for-the-badge&logo=node.js)](https://nodejs.org)
+[![Tailwind CSS](https://img.shields.io/badge/Tailwind-CSS-06B6D4?style=for-the-badge&logo=tailwindcss)](https://tailwindcss.com)
+[![GCP](https://img.shields.io/badge/Google-Cloud-4285F4?style=for-the-badge&logo=googlecloud)](https://cloud.google.com)
+[![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 
-- 🔐 **User Authentication** - Separate portals for candidates and recruiters
-- 📄 **Smart Resume Analysis** - ATS scoring with project-focused AI analysis
-- 🎥 **Video Interview Upload** - Upload pre-recorded video introductions
-- 📝 **Technical Assessments** - AI-generated position-specific quizzes
-- 💬 **AI Interviews** - Natural conversation with AI interviewer
-- 🎬 **Live Video Recording** - Record answers to interview questions
-- 📊 **Comprehensive Scoring** - Multi-dimensional candidate evaluation
-- ☁️ **Cloud Storage** - Google Cloud Storage for file and data persistence
-- 💳 **Subscription Plans** - Basic, Premium, and Pro tiers
+An intelligent end-to-end recruitment platform powered by OpenRouter multi-model AI.
+100% free for candidates. Built solo by Anup Mazumdar.
 
-## 🚀 Quick Start
+[Live Demo](https://anupmazumdar-ai-recruitment-agent.vercel.app) · [LinkedIn](https://www.linkedin.com/in/anup-mazumdar-1033b5321/) · [GitHub](https://github.com/anupmazumdar)
+
+---
+
+## Overview
+
+TalentAI is a full-stack AI-powered recruitment platform that automates the hiring pipeline from resume screening to AI interviews and final candidate scoring.
+It is built as an MCA academic project at the University of Engineering & Management, Jaipur.
+
+Sole Creator: Anup Mazumdar | MCA Student | UEM Jaipur (2025-2027)
+
+---
+
+## Key Features
+
+- AI Resume Parsing: Multi-model AI extracts and scores skills, experience, and education automatically.
+- AI Interview Engine: Natural language AI interviews with real-time response evaluation.
+- Technical Quiz: Auto-graded quizzes with semantic similarity scoring.
+- Candidate Scoring: Weighted multi-criteria scoring with detailed insights.
+- Video Assessment: Live video recording and introduction upload.
+- Recruiter Dashboard: Real-time analytics, candidate rankings, and pipeline management.
+- Enterprise Security: JWT authentication, bcrypt encryption, and GCP storage.
+- 100% Free for Candidates: No cost, no barrier for job seekers.
+
+---
+
+## 7-Stage Assessment Pipeline
+
+```text
+Stage 1          Stage 2          Stage 3          Stage 4
+┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────┐
+│ Profile │────▶│ Resume  │────▶│  Video  │────▶│Technical│
+│ Creation│     │ Upload  │     │  Intro  │     │  Quiz   │
+└─────────┘     └─────────┘     └─────────┘     └─────────┘
+                                                      │
+                                                      ▼
+Stage 7          Stage 6          Stage 5
+┌─────────┐     ┌─────────┐     ┌─────────┐
+│ Results │◀────│  Live   │◀────│   AI    │
+│Analytics│     │  Video  │     │Interview│
+└─────────┘     └─────────┘     └─────────┘
+```
+
+| Stage | Description | AI Model |
+| --- | --- | --- |
+| 1. Profile Creation | Candidate registers and fills profile | - |
+| 2. Resume Upload | AI parses and scores resume | Gemini Pro / Llama fallback |
+| 3. Video Introduction | Candidate records intro video | GCP Storage |
+| 4. Technical Quiz | Domain-specific auto-graded quiz | GPT-4o Mini |
+| 5. AI Interview | AI conducts structured interview | Claude Sonnet / GPT-4o fallback |
+| 6. Live Video Recording | Final video assessment | GCP Storage |
+| 7. Results & Analytics | Scores, rankings, feedback | Multi-model |
+
+---
+
+## Tech Stack
+
+### Frontend
+
+| Technology | Purpose |
+| --- | --- |
+| React.js 18 | UI framework |
+| Tailwind CSS | Styling |
+| React Router | Navigation |
+| Fetch API | API calls |
+
+### Backend
+
+| Technology | Purpose |
+| --- | --- |
+| Node.js + Express | REST API server |
+| JWT + bcrypt | Authentication and security |
+| OpenRouter API | Multi-model AI routing |
+| Google Gemini Pro | Resume parsing support |
+| GCP Cloud Storage | Video and file storage |
+
+### Infrastructure
+
+| Technology | Purpose |
+| --- | --- |
+| Vercel | Frontend deployment |
+| Google Cloud Platform | File storage |
+| OpenRouter | AI model gateway |
+
+---
+
+## Getting Started
 
 ### Prerequisites
 
-- Node.js (v16 or higher)
-- npm or yarn
-- Google Cloud account (optional, for cloud storage)
+- Node.js v18+
+- npm v9+
+- OpenRouter API key
+- Google Gemini API key (optional fallback)
+- GCP service account (for storage)
 
 ### Installation
 
-1. **Clone or download the project**
+```bash
+# Clone the repository
+git clone https://github.com/anupmazumdar/anupmazumdar-AIRecruitmentAgent.git
+cd anupmazumdar-AIRecruitmentAgent
 
-2. **Install backend dependencies:**
-   ```bash
-   cd backend
-   npm install
-   ```
+# Install frontend dependencies
+cd frontend
+npm install
 
-3. **Set up environment variables:**
-   ```bash
-   cp .env.example .env
-   ```
-
-4. **Edit `.env` file** with your API keys:
-   ```env
-   # Required: Google Gemini API Key
-   GOOGLE_GEMINI_API_KEY=your_gemini_api_key
-   
-   # Optional: Google Cloud Storage (see GOOGLE_CLOUD_SETUP.md)
-   GOOGLE_CLOUD_PROJECT_ID=your-project-id
-   GOOGLE_CLOUD_BUCKET_NAME=your-bucket-name
-   GOOGLE_APPLICATION_CREDENTIALS=./gcs-service-account-key.json
-   ```
-
-5. **Get your Google Gemini API key:**
-   - Go to https://makersuite.google.com/app/apikey
-   - Create a new API key
-   - Paste it in your `.env` file
-
-6. **Start the backend server:**
-   ```bash
-   npm start
-   ```
-   
-   You should see:
-   ```
-   ✅ Google Cloud Storage initialized (or ⚠️ Using local storage)
-   TalentAI Backend Server Running on Port 3001
-   ```
-
-7. **Install frontend dependencies:**
-   ```bash
-   cd ../frontend
-   npm install
-   ```
-
-8. **Start the frontend:**
-   ```bash
-   npm start
-   ```
-
-9. **Open your browser to** http://localhost:3000
-
-🎉 **You're ready to go!**
-
----
-
-## ☁️ Setting Up Google Cloud Storage (Optional but Recommended)
-
-Without Google Cloud Storage, your data will be stored in memory and lost when the server restarts. To enable persistent cloud storage:
-
-👉 **See [GOOGLE_CLOUD_SETUP.md](GOOGLE_CLOUD_SETUP.md) for complete setup instructions**
-
-Quick steps:
-1. Create Google Cloud project
-2. Enable Cloud Storage API
-3. Create a storage bucket
-4. Create service account with Storage Admin role
-5. Download JSON key file
-6. Add credentials to `.env`
-
-**Benefits:**
-- ✅ Data persists across server restarts
-- ✅ Files backed up in the cloud
-- ✅ Scalable to multiple servers
-- ✅ Free tier: 5GB storage + generous operations quota
-
----
-
-## 📁 Project Structure
-
+# Install backend dependencies
+cd ../api
+npm install
 ```
-TalentAI/
-├── backend/
-│   ├── server.js              # Express server with GCS integration
-│   ├── package.json
-│   ├── .env.example           # Environment variables template
-│   └── gcs-service-account-key.json  # GCS credentials (not in Git)
-├── frontend/
+
+### Environment Setup
+
+Create `.env` in the `frontend` directory:
+
+```env
+# Optional for frontend-only experimentation
+REACT_APP_OPENROUTER_API_KEY=your_openrouter_key
+REACT_APP_API_URL=http://localhost:5000
+```
+
+Create `.env` in the `api` directory:
+
+```env
+JWT_SECRET=your_jwt_secret
+GOOGLE_GEMINI_API_KEY=your_gemini_key
+OPENROUTER_API_KEY=your_openrouter_key
+GOOGLE_CLOUD_PROJECT_ID=your_gcp_project_id
+GOOGLE_CLOUD_BUCKET_NAME=your_bucket_name
+# Optional for local key file auth only (not needed on Vercel)
+GOOGLE_APPLICATION_CREDENTIALS=path_to_service_account.json
+PORT=5000
+```
+
+### Running Locally
+
+```bash
+# Start backend (from /api)
+npm start
+
+# Start frontend (from /frontend)
+npm start
+```
+
+Open [http://localhost:3000](http://localhost:3000) in your browser.
+
+---
+
+## Project Structure
+
+```text
+anupmazumdar-AIRecruitmentAgent/
+├── api/
+│   ├── [...talentai].js       # Main Express API (serverless-compatible)
+│   └── uploads/
+├── frontend/                  # React.js frontend
 │   ├── src/
-│   │   ├── App.js             # Main React app (UPDATED)
-│   │   ├── index.js
-│   │   └── index.css
+│   │   ├── components/        # Reusable UI components
+│   │   ├── pages/             # Route pages
+│   │   └── lib/
+│   ├── public/
 │   └── package.json
-├── GOOGLE_CLOUD_SETUP.md      # Cloud storage setup guide
-├── CHANGES.md                 # Changelog
-└── README.md                  # This file
+├── talentai.js                # Smart model router engine
+├── modelStats.js              # Model performance tracker
+├── abTest.js                  # A/B testing engine
+├── costTracker.js             # Cost tracking and reporting
+├── package.json
+├── .gitignore
+└── README.md
 ```
 
 ---
 
-## 🔑 Environment Variables
+## AI Evaluation Engine
 
-Required:
-- `GOOGLE_GEMINI_API_KEY` - For AI features
+TalentAI uses a smart multi-model routing system via OpenRouter:
 
-Optional (for cloud storage):
-- `GOOGLE_CLOUD_PROJECT_ID` - Your GCP project ID
-- `GOOGLE_CLOUD_BUCKET_NAME` - Your storage bucket name
-- `GOOGLE_APPLICATION_CREDENTIALS` - Path to service account key
+```text
+RESUME_PARSING      → google/gemini-pro                 (fast extraction)
+CANDIDATE_SCORING   → openai/gpt-4o                     (best reasoning)
+INTERVIEW_EVAL      → anthropic/claude-3-sonnet         (language understanding)
+QUIZ_GRADING        → openai/gpt-4o-mini                (cost efficient)
+FEEDBACK_GENERATION → mistralai/mixtral-8x7b-instruct   (detailed output)
+BIAS_DETECTION      → anthropic/claude-3-sonnet         (ethical reasoning)
+JD_MATCHING         → meta-llama/llama-3-70b-instruct   (bulk ranking)
+```
 
-Optional (alternative AI providers):
-- `OPENAI_API_KEY` - For OpenAI GPT models
-- `ANTHROPIC_API_KEY` - For Claude models
-- `AI_PROVIDER` - Choose: `gemini` (default), `openai`, or `claude`
+Accuracy features:
 
----
-
-## 🎯 User Guide
-
-### For Candidates (FREE)
-
-1. **Sign up** as a candidate
-2. **Complete profile** (name, email, position)
-3. **Upload resume** - Get instant ATS analysis
-4. **Upload video** (optional) - Record 1-3 min introduction
-5. **Take technical quiz** - Position-specific questions
-6. **AI interview** - Chat with AI interviewer
-7. **Video recording** (optional) - Record answers to questions
-8. **View results** - See comprehensive score breakdown
-
-### For Recruiters (Paid Plans)
-
-1. **Choose a plan** (Basic $29/mo, Premium $79/mo, Pro $199/mo)
-2. **Sign up** as recruiter
-3. **View dashboard** - See all candidate applications
-4. **Review scores** - Resume, Quiz, Interview, Video
-5. **Download reports** - Export candidate data
-6. **Manage subscriptions** - Upgrade/downgrade anytime
+- temperature `0.1` for consistent, deterministic outputs on analytical tasks.
+- Automatic fallback to secondary model on failure.
+- Up to 3 retry attempts across primary and fallback models.
+- JSON schema validation on every response.
+- Cost-aware routing for bulk operations and optional cheap mode.
 
 ---
 
-## 📊 What Gets Stored in Cloud?
+## Security
 
-### Data Files (in `data/` folder):
-- **users.json** - All registered users (hashed passwords)
-- **candidates.json** - Candidate records with scores and analysis
-- **subscriptions.json** - Active subscription data
-
-### Uploaded Files:
-- **resumes/** - Resume PDFs, DOCs organized by candidate
-- **videos/** - Video interviews organized by candidate
-
-All files are automatically:
-- ✅ Backed up to Google Cloud Storage
-- ✅ Loaded on server start
-- ✅ Saved after each operation
-- ✅ Accessible via signed URLs (secure, time-limited)
+- JWT authentication with secure token handling.
+- bcrypt password hashing (salt rounds: 12).
+- Environment variables for all secrets (never hardcoded).
+- CORS protection on all API routes.
+- Input validation and sanitization middleware.
+- Rate limiting on authentication endpoints.
 
 ---
 
-## 🐛 Bug Fixes in This Version
+## Scoring System
 
-### Fixed: "Candidate not found" Error
-**Problem:** Resume upload failed with error.
+| Component | Weight | Model |
+| --- | --- | --- |
+| Skills Match | 40% | Gemini Pro |
+| Experience | 25% | GPT-4o |
+| Education | 15% | GPT-4o |
+| Cultural Fit | 20% | Claude Sonnet |
 
-**Solution:** ProfileStage now creates candidate record in backend before resume upload. All API calls use real candidate IDs.
-
-### Added: Video Upload Stage
-**New Feature:** Upload pre-recorded video interviews after resume, with AI analysis and scoring.
-
-See [CHANGES.md](CHANGES.md) for detailed changelog.
-
----
-
-## 🔒 Security Notes
-
-1. **Never commit** `.env` or `*-service-account-key.json` files
-2. **Passwords** are hashed with bcrypt (10 rounds)
-3. **JWT tokens** expire after 7 days
-4. **File uploads** validated by type and size
-5. **Google Cloud** signed URLs expire after 7 days
+Grading Scale: A (85+) · B (70-84) · C (55-69) · D (40-54) · F (<40)
+Shortlist Threshold: 68+ weighted score
 
 ---
 
-## 💰 Pricing
+## About the Creator
 
-### For Candidates: FREE
-- Unlimited applications
-- Full assessment suite
-- All features included
+Anup Mazumdar
+MCA Student - University of Engineering & Management, Jaipur (2025-2027)
+Google Cybersecurity Certified | Full-Stack Developer | ML Engineer
 
-### For Recruiters:
-- **Basic** - $29/mo: 10 candidates, ATS analysis, basic quiz
-- **Premium** - $79/mo: 50 candidates, AI features, video analysis
-- **Pro** - $199/mo: Unlimited candidates, all features, API access
+[![GitHub](https://img.shields.io/badge/GitHub-anupmazumdar-181717?style=flat&logo=github)](https://github.com/anupmazumdar)
+[![LinkedIn](https://img.shields.io/badge/LinkedIn-anup--mazumdar-0A66C2?style=flat&logo=linkedin)](https://www.linkedin.com/in/anup-mazumdar-1033b5321/)
 
----
-
-## 🛠️ Tech Stack
-
-**Frontend:**
-- React
-- Tailwind CSS
-- Lucide React icons
-
-**Backend:**
-- Node.js + Express
-- JWT authentication
-- Multer file uploads
-- Google Cloud Storage
-
-**AI/ML:**
-- Google Gemini (default)
-- OpenAI GPT (optional)
-- Anthropic Claude (optional)
-
-**Cloud:**
-- Google Cloud Storage (files + data)
-- Works without cloud (local storage fallback)
+This project was built entirely solo as an MCA academic project.
+No collaborators. All code, design, and architecture by Anup Mazumdar.
 
 ---
 
-## 📝 API Endpoints
+## License
 
-### Authentication
-- `POST /api/auth/register` - Create account
-- `POST /api/auth/login` - Login
-
-### Candidates
-- `POST /api/candidates` - Create candidate profile
-- `POST /api/candidates/:id/resume` - Upload & analyze resume
-- `POST /api/candidates/:id/video-interview` - Upload video
-- `POST /api/generate-quiz` - Generate technical quiz
-
-### Subscriptions
-- `POST /api/subscriptions` - Create subscription
-
-### Health
-- `GET /api/health` - Server health check
+This project is licensed under the MIT License. See the [LICENSE](LICENSE) file for details.
 
 ---
 
-## 🚨 Troubleshooting
-
-### Backend won't start
-- Check `.env` has `GOOGLE_GEMINI_API_KEY`
-- Ensure port 3001 is not in use
-- Run `npm install` in backend folder
-
-### Frontend won't start
-- Ensure backend is running on port 3001
-- Run `npm install` in frontend folder
-- Check for port 3000 conflicts
-
-### "Candidate not found" error
-- This should be fixed in the latest version
-- Ensure you're using the updated `App.js`
-
-### Google Cloud Storage not working
-- See [GOOGLE_CLOUD_SETUP.md](GOOGLE_CLOUD_SETUP.md)
-- Check service account has "Storage Admin" role
-- Verify bucket name and project ID in `.env`
-
-### Data lost on restart
-- If not using GCS, data is stored in memory
-- Set up Google Cloud Storage for persistence
-- Or use a database (MongoDB, PostgreSQL)
-
----
-
-## 🔮 Future Enhancements
-
-- [ ] PostgreSQL/MongoDB integration
-- [ ] Email notifications
-- [ ] Calendar integration for interviews
-- [ ] Advanced analytics dashboard
-- [ ] Mobile app
-- [ ] Integration with ATS systems
-- [ ] Candidate ranking algorithms
-- [ ] Team collaboration features
-
----
-
-## 📄 License
-
-MIT License - Feel free to use for personal or commercial projects
-
----
-
-## 🤝 Support
-
-For issues or questions:
-1. Check [GOOGLE_CLOUD_SETUP.md](GOOGLE_CLOUD_SETUP.md) for cloud storage help
-2. Review [CHANGES.md](CHANGES.md) for recent updates
-3. Check the troubleshooting section above
-
----
-
-**Built with ❤️ using AI-powered technologies**
+If you found this useful, give it a star.
+Built with care ❤️ by [Anup Mazumdar](https://github.com/anupmazumdar).
