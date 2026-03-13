@@ -19,6 +19,24 @@ const {
   getABTestResults: getTalentRouterABTestResults
 } = require('../talentai');
 
+// ==================== SECURITY & MIDDLEWARE MODULES ====================
+const {
+  helmetMiddleware,
+  corsMiddleware,
+  globalRateLimiter,
+  authRateLimiter,
+  adminRateLimiter,
+  sanitizeMiddleware,
+} = require('./middleware/security');
+const { morganMiddleware } = require('./middleware/logger');
+const { globalErrorHandler, notFoundHandler } = require('./middleware/errorHandler');
+const {
+  handleRefreshToken,
+  handleLogout,
+  issueRefreshToken,
+} = require('./middleware/auth');
+const v1AiRouter = require('./routes/v1/ai');
+
 // Lazy loaders - prevents crashes on Vercel serverless startup
 function getPdf() { return require('pdf-parse'); }
 function getMammoth() { return require('mammoth'); }
@@ -159,10 +177,27 @@ async function extractTextFromDocument(filePathOrBuffer, mimeType) {
   }
 }
 
-// Middleware
-app.use(cors());
+// ==================== MIDDLEWARE STACK (ordered for security) ====================
+// 1. Helmet — HTTP security headers
+app.use(helmetMiddleware);
+// 2. CORS — hardened, allowlist-based
+app.use(corsMiddleware);
+// 3. API version header
+app.use((req, res, next) => { res.setHeader('X-API-Version', '1.0'); next(); });
+// 4. Morgan HTTP logger
+app.use(morganMiddleware);
+// 5. Body parsers
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+// 6. Input sanitization (NoSQL injection, XSS, HPP)
+sanitizeMiddleware.forEach((m) => app.use(m));
+// 7. Global rate limiter (100 / 15 min)
+app.use(globalRateLimiter);
+// 8. Route-specific rate limiters
+app.use('/api/auth', authRateLimiter);
+app.use('/api/v1/auth', authRateLimiter);
+app.use('/api/superadmin', adminRateLimiter);
+app.use('/api/admin', adminRateLimiter);
 
 const DEFAULT_SUPERADMIN = {
   name: process.env.SUPERADMIN_NAME || 'TalentAI Admin',
@@ -685,12 +720,14 @@ app.post('/api/auth/register', async (req, res) => {
       { expiresIn: '7d' }
     );
 
+    const refreshToken = issueRefreshToken({ userId: user.id, email: user.email, userType: user.userType });
     const { password: _, ...userWithoutPassword } = user;
 
     res.status(201).json({
       success: true,
       user: userWithoutPassword,
-      token
+      token,
+      refreshToken
     });
   } catch (error) {
     console.error('Registration error:', error);
@@ -719,12 +756,14 @@ app.post('/api/auth/login', async (req, res) => {
       { expiresIn: '7d' }
     );
 
+    const refreshToken = issueRefreshToken({ userId: user.id, email: user.email, userType: user.userType });
     const { password: _, ...userWithoutPassword } = user;
 
     res.json({
       success: true,
       user: userWithoutPassword,
-      token
+      token,
+      refreshToken
     });
   } catch (error) {
     console.error('Login error:', error);
@@ -3032,6 +3071,20 @@ app.get('/api/ai-router/stats', (req, res) => {
     res.status(500).json({ error: 'Failed to fetch AI router stats' });
   }
 });
+
+// ==================== API v1 ROUTES ====================
+// Versioned routes: /api/v1/ai/*
+app.use('/api/v1/ai', v1AiRouter);
+
+// ==================== AUTH v2 (refresh tokens) ====================
+// POST /api/auth/refresh — issue new access token from refresh token
+app.post('/api/auth/refresh', handleRefreshToken);
+// POST /api/auth/logout  — blacklist access token + revoke refresh token
+app.post('/api/auth/logout', handleLogout);
+
+// ==================== 404 & GLOBAL ERROR HANDLER ====================
+app.use(notFoundHandler);
+app.use(globalErrorHandler);
 
 
 // ==================== START SERVER ====================
