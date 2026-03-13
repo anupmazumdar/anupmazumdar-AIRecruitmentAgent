@@ -2305,7 +2305,7 @@ Return ONLY this strict JSON object:
   "scoreFeedback": "<one sentence explaining the score>",
   "isComplete": ${isLastQuestion},
   "questionNumber": ${isLastQuestion ? questionNumber : questionNumber + 1}
-}`;
+}
 Rules:
 - answerScore must equal rounded average of criteriaScores.clarity, criteriaScores.depth, criteriaScores.relevance.
 - Output must be valid JSON only, no markdown.`;
