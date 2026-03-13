@@ -31,6 +31,7 @@ function SupportChatbot({ apiUrl, authState, userType }) {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const [messages, setMessages] = useState([]);
+  const [unreadCount, setUnreadCount] = useState(0);
   const panelEndRef = useRef(null);
 
   const role = useMemo(() => {
@@ -70,7 +71,7 @@ function SupportChatbot({ apiUrl, authState, userType }) {
       // If localStorage parsing fails, reset to greeting.
     }
 
-    setMessages([{ role: 'assistant', content: greeting }]);
+    setMessages([{ role: 'assistant', content: greeting, timestamp: new Date().toISOString() }]);
   }, [greeting, storageKey]);
 
   useEffect(() => {
@@ -86,12 +87,29 @@ function SupportChatbot({ apiUrl, authState, userType }) {
     panelEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, open]);
 
+  useEffect(() => {
+    const onKeyDown = (event) => {
+      if (event.key === 'Escape') {
+        setOpen(false);
+      }
+    };
+
+    window.addEventListener('keydown', onKeyDown);
+    return () => window.removeEventListener('keydown', onKeyDown);
+  }, []);
+
+  useEffect(() => {
+    if (open) {
+      setUnreadCount(0);
+    }
+  }, [open]);
+
   const streamAssistantMessage = async (text) => {
     const finalText = String(text || '').trim() || 'I am here to help. Could you rephrase your question?';
     let index = 0;
     const chunkSize = 4;
 
-    setMessages((prev) => [...prev, { role: 'assistant', content: '' }]);
+    setMessages((prev) => [...prev, { role: 'assistant', content: '', timestamp: new Date().toISOString() }]);
 
     await new Promise((resolve) => {
       const timer = setInterval(() => {
@@ -119,7 +137,7 @@ function SupportChatbot({ apiUrl, authState, userType }) {
     if (!query || loading) return;
 
     if (!presetMessage) setInput('');
-    const nextMessages = [...messages, { role: 'user', content: query }];
+    const nextMessages = [...messages, { role: 'user', content: query, timestamp: new Date().toISOString() }];
     setMessages(nextMessages);
     setLoading(true);
 
@@ -148,12 +166,16 @@ function SupportChatbot({ apiUrl, authState, userType }) {
       await streamAssistantMessage('I am having trouble connecting right now. Please try again in a few seconds.');
     } finally {
       setLoading(false);
+      if (!open) {
+        setUnreadCount((prev) => prev + 1);
+      }
     }
   };
 
   const resetConversation = () => {
-    const next = [{ role: 'assistant', content: greeting }];
+    const next = [{ role: 'assistant', content: greeting, timestamp: new Date().toISOString() }];
     setMessages(next);
+    setUnreadCount(0);
     try {
       localStorage.setItem(storageKey, JSON.stringify(next));
     } catch {
@@ -213,7 +235,10 @@ function SupportChatbot({ apiUrl, authState, userType }) {
                       : 'bg-[#1a1f3c] text-slate-100 border border-white/10'
                   }`}
                 >
-                  {msg.content}
+                  <p>{msg.content}</p>
+                  <p className={`mt-1 text-[10px] ${msg.role === 'user' ? 'text-purple-200' : 'text-slate-500'}`}>
+                    {msg.timestamp ? new Date(msg.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' }) : ''}
+                  </p>
                 </div>
               </div>
             ))}
@@ -266,10 +291,15 @@ function SupportChatbot({ apiUrl, authState, userType }) {
 
       <button
         onClick={() => setOpen((prev) => !prev)}
-        className="inline-flex min-h-[52px] min-w-[52px] items-center justify-center rounded-full bg-gradient-to-br from-[#7c3aed] to-[#f97316] text-white shadow-xl transition hover:scale-105"
+        className="relative inline-flex min-h-[52px] min-w-[52px] items-center justify-center rounded-full bg-gradient-to-br from-[#7c3aed] to-[#f97316] text-white shadow-xl transition hover:scale-105"
         aria-label="Open support chatbot"
       >
         <MessageCircle size={20} />
+        {!open && unreadCount > 0 && (
+          <span className="absolute -top-1 -right-1 inline-flex h-5 min-w-[20px] items-center justify-center rounded-full bg-red-500 px-1 text-[10px] font-bold text-white">
+            {unreadCount > 9 ? '9+' : unreadCount}
+          </span>
+        )}
       </button>
     </div>
   );
