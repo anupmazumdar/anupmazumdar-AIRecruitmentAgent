@@ -7,6 +7,7 @@ const cors = require('cors');
 const multer = require('multer');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs').promises;
 const os = require('os');
@@ -226,7 +227,16 @@ async function saveQuestionBank() {
   await saveDataToCloud('questionBank.json', questionBank);
 }
 
-const JWT_SECRET = process.env.JWT_SECRET || 'your_secret_key_change_in_production';
+function resolveJwtSecret() {
+  const configured = String(process.env.JWT_SECRET || '').trim();
+  if (configured && configured !== 'your_secret_key_change_in_production') return configured;
+
+  // Keep the server running with a process-local fallback secret while signaling misconfiguration.
+  console.warn('⚠️ JWT_SECRET is missing or using a weak default. Using an ephemeral secret for this process.');
+  return crypto.randomBytes(48).toString('hex');
+}
+
+const JWT_SECRET = resolveJwtSecret();
 
 // File upload configuration
 // On Vercel: use memory storage (no disk write access and no persistent filesystem)
@@ -256,6 +266,25 @@ const upload = multer({
 });
 
 // ==================== AI SERVICE ====================
+const AI_REQUEST_TIMEOUT_MS = Math.max(3000, Number(process.env.AI_REQUEST_TIMEOUT_MS || 25000));
+
+function sanitizeModelName(value, fallback) {
+  const candidate = String(value || '').trim();
+  if (!candidate) return fallback;
+  // Restrict model identifiers to provider-safe characters.
+  return /^[a-zA-Z0-9._:/-]+$/.test(candidate) ? candidate : fallback;
+}
+
+async function fetchWithTimeout(url, options = {}, timeoutMs = AI_REQUEST_TIMEOUT_MS) {
+  const controller = new AbortController();
+  const timer = setTimeout(() => controller.abort(), timeoutMs);
+  try {
+    return await fetch(url, { ...options, signal: controller.signal });
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
 function getModelOverridesByTask(task = 'general') {
   const taskKey = String(task || 'general').toLowerCase();
   const keySuffix = taskKey.toUpperCase();
@@ -309,13 +338,13 @@ async function callOpenRouter(prompt, systemPrompt = "", options = {}) {
 
   // Default to a free/cheap model — override via OPENROUTER_MODEL env var
   // Free models: mistralai/mistral-7b-instruct, google/gemma-3-27b-it:free, meta-llama/llama-3.1-8b-instruct:free
-  const model = String(options.model || process.env.OPENROUTER_MODEL || 'mistralai/mistral-7b-instruct:free').trim();
+  const model = sanitizeModelName(options.model || process.env.OPENROUTER_MODEL, 'mistralai/mistral-7b-instruct:free');
 
   const messages = [];
   if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
   messages.push({ role: 'user', content: prompt });
 
-  const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+  const response = await fetchWithTimeout('https://openrouter.ai/api/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -340,12 +369,12 @@ async function callOpenRouter(prompt, systemPrompt = "", options = {}) {
 async function callGemini(prompt, systemPrompt = "", options = {}) {
   const apiKey = process.env.GOOGLE_GEMINI_API_KEY;
   if (!apiKey) throw new Error('Google Gemini API key not configured');
-  const model = String(options.model || process.env.GOOGLE_GEMINI_MODEL || 'gemini-pro').trim();
+  const model = sanitizeModelName(options.model || process.env.GOOGLE_GEMINI_MODEL, 'gemini-pro');
 
   const fullPrompt = systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt;
 
-  const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
+  const response = await fetchWithTimeout(
+    `https://generativelanguage.googleapis.com/v1beta/models/${encodeURIComponent(model)}:generateContent?key=${apiKey}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -370,13 +399,13 @@ async function callGemini(prompt, systemPrompt = "", options = {}) {
 async function callOpenAI(prompt, systemPrompt = "", options = {}) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error('OpenAI API key not configured');
-  const model = String(options.model || process.env.OPENAI_MODEL || 'gpt-3.5-turbo').trim();
+  const model = sanitizeModelName(options.model || process.env.OPENAI_MODEL, 'gpt-3.5-turbo');
 
   const messages = [];
   if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
   messages.push({ role: 'user', content: prompt });
 
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
+  const response = await fetchWithTimeout('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
@@ -399,9 +428,9 @@ async function callOpenAI(prompt, systemPrompt = "", options = {}) {
 async function callClaude(prompt, systemPrompt = "", options = {}) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('Anthropic API key not configured');
-  const model = String(options.model || process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514').trim();
+  const model = sanitizeModelName(options.model || process.env.ANTHROPIC_MODEL, 'claude-sonnet-4-20250514');
 
-  const response = await fetch('https://api.anthropic.com/v1/messages', {
+  const response = await fetchWithTimeout('https://api.anthropic.com/v1/messages', {
     method: 'POST',
     headers: {
       'Content-Type': 'application/json',
