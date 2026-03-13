@@ -8,6 +8,27 @@ import { Upload, CheckCircle, XCircle, User, Briefcase, MessageSquare, Award, Fi
 // ==================== BACKEND API URL ====================
 const API_URL = process.env.NODE_ENV === 'production' ? '' : (process.env.REACT_APP_API_URL || 'http://localhost:3001');
 
+async function parseApiJson(response) {
+  const raw = await response.text();
+
+  let data;
+  try {
+    data = raw ? JSON.parse(raw) : {};
+  } catch {
+    data = {
+      success: false,
+      error: raw?.slice(0, 240) || 'Server returned non-JSON response'
+    };
+  }
+
+  if (!response.ok) {
+    if (data.success === undefined) data.success = false;
+    if (!data.error) data.error = `Request failed (${response.status})`;
+  }
+
+  return data;
+}
+
 // ==================== SUBSCRIPTION PLANS ====================
 const SUBSCRIPTION_PLANS = {
   basic: {
@@ -228,7 +249,7 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
         })
       });
 
-      const data = await response.json();
+      const data = await parseApiJson(response);
       if (!response.ok) throw new Error(data.error || 'Authentication failed');
 
       login({
@@ -917,7 +938,7 @@ function ProfileStage({ candidateData, setCandidateData, setStage }) {
         })
       });
 
-      const data = await response.json();
+      const data = await parseApiJson(response);
 
       if (!response.ok) {
         throw new Error(data.error || 'Failed to create profile');
@@ -1057,7 +1078,7 @@ function ResumeUploadStage({ candidateData, setCandidateData, setStage }) {
         body: formData
       });
 
-      const data = await response.json();
+      const data = await parseApiJson(response);
 
       if (!response.ok) {
         throw new Error(data.error || 'Failed to analyze resume');
@@ -1303,7 +1324,7 @@ function UploadVideoStage({ candidateData, setCandidateData, setStage }) {
         body: formData
       });
 
-      const data = await response.json();
+      const data = await parseApiJson(response);
 
       if (!response.ok) {
         throw new Error(data.error || 'Failed to analyze video');
@@ -1618,7 +1639,7 @@ function TechnicalQuizStage({ candidateData, setCandidateData, setStage }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ position: candidateData.position, numQuestions: TOTAL_QUESTIONS })
       });
-      const data = await res.json();
+      const data = await parseApiJson(res);
       if (data.success && data.questions?.length > 0) {
         setQuestions(data.questions);
         setSource(data.source || 'ai');
@@ -1633,7 +1654,7 @@ function TechnicalQuizStage({ candidateData, setCandidateData, setStage }) {
           headers: { 'Content-Type': 'application/json' },
           body: JSON.stringify({ position: candidateData.position, numQuestions: TOTAL_QUESTIONS })
         });
-        const data = await res.json();
+        const data = await parseApiJson(res);
         if (data.success) { setQuestions(data.questions); setSource('fallback'); }
       } catch { setQuestions([]); }
     } finally {
@@ -1872,7 +1893,7 @@ function TextInterviewStage({ candidateData, setCandidateData, setStage, authSta
           candidateName: candidateData.name
         })
       });
-      const data = await res.json();
+      const data = await parseApiJson(res);
       if (data.success) {
         setMessages([{ role: 'assistant', content: data.message, questionNumber: 1 }]);
         setQuestionNumber(1);
@@ -1911,7 +1932,7 @@ function TextInterviewStage({ candidateData, setCandidateData, setStage, authSta
           conversationHistory: updatedMessages.slice(-8)
         })
       });
-      const data = await res.json();
+      const data = await parseApiJson(res);
       if (data.success) {
         const newScores = [...answerScores, data.answerScore];
         setAnswerScores(newScores);
@@ -2254,7 +2275,7 @@ function VideoInterviewStage({ candidateData, setCandidateData, setStage }) {
         body: formData
       });
 
-      const data = await response.json();
+      const data = await parseApiJson(response);
 
       const score = data.score || data.videoAnalysis?.analysis?.totalScore || Math.floor(Math.random() * 10) + 85;
 
@@ -2434,7 +2455,7 @@ function ResultsStage({ candidateData, authState }) {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authState?.token}` },
         body: JSON.stringify({ candidateData, position: candidateData.position })
       });
-      const data = await res.json();
+      const data = await parseApiJson(res);
       if (data.success) setAdvice(data.advice);
     } catch (e) {
       console.error('Career advice fetch failed:', e);
@@ -2608,7 +2629,11 @@ function SuperAdminDashboard({ authState, logout }) {
         fetch(`${API_URL}/api/superadmin/stats`, { headers }),
         fetch(`${API_URL}/api/candidates`, { headers })
       ]);
-      const [rData, sData, cData] = await Promise.all([rRes.json(), sRes.json(), cRes.json()]);
+      const [rData, sData, cData] = await Promise.all([
+        parseApiJson(rRes),
+        parseApiJson(sRes),
+        parseApiJson(cRes)
+      ]);
       if (rData.success) setRecruiters(rData.recruiters);
       if (sData.success) setStats(sData.stats);
       if (cData.success) setCandidates(cData.candidates || []);
@@ -2625,7 +2650,7 @@ function SuperAdminDashboard({ authState, logout }) {
         method: 'PUT', headers,
         body: JSON.stringify({ canViewCandidates: !recruiter.canViewCandidates, accessNote: note })
       });
-      const data = await res.json();
+      const data = await parseApiJson(res);
       if (data.success) {
         setRecruiters(prev => prev.map(r => r.id === recruiter.id ? { ...r, canViewCandidates: data.recruiter.canViewCandidates } : r));
       }
@@ -2853,7 +2878,7 @@ function RecruiterDashboard({ setUserType, subscription, setShowSubscriptionModa
       const res = await fetch(`${API_URL}/api/recruiter/candidates`, {
         headers: { 'Authorization': `Bearer ${authState?.token}` }
       });
-      const data = await res.json();
+      const data = await parseApiJson(res);
       if (data.success) setCandidates(data.candidates);
     } catch (e) {
       console.error('Failed to load candidates:', e);
@@ -3110,7 +3135,7 @@ function AdminQuestionPanel({ authState }) {
       const res = await fetch(`${API_URL}/api/admin/questions`, {
         headers: { 'Authorization': `Bearer ${authState?.token}` }
       });
-      const data = await res.json();
+      const data = await parseApiJson(res);
       if (data.success) setQuestions(data.questions);
     } catch (e) { console.error(e); }
   }, [authState?.token]);
@@ -3135,7 +3160,7 @@ function AdminQuestionPanel({ authState }) {
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authState?.token}` },
         body: JSON.stringify(payload)
       });
-      const data = await res.json();
+      const data = await parseApiJson(res);
       if (!res.ok) throw new Error(data.error);
       showNotif(editingQuestion ? 'Question updated!' : 'Question added!');
       setForm(emptyForm);
