@@ -7,7 +7,6 @@ const cors = require('cors');
 const multer = require('multer');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
-const jwksClient = require('jwks-rsa');
 const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs').promises;
@@ -402,61 +401,6 @@ const AUTH0_ALLOWED_RECRUITER_DOMAINS = String(process.env.AUTH0_ALLOWED_RECRUIT
   .split(',')
   .map((item) => item.trim().toLowerCase())
   .filter(Boolean);
-const auth0Issuer = AUTH0_DOMAIN ? `https://${AUTH0_DOMAIN}/` : '';
-const auth0JwksClient = AUTH0_DOMAIN
-  ? jwksClient({
-      jwksUri: `${auth0Issuer}.well-known/jwks.json`,
-      cache: true,
-      cacheMaxEntries: 10,
-      cacheMaxAge: 10 * 60 * 1000,
-      rateLimit: true,
-      jwksRequestsPerMinute: 10
-    })
-  : null;
-
-function getAuth0SigningKey(kid) {
-  if (!auth0JwksClient) {
-    return Promise.reject(new Error('Auth0 is not configured'));
-  }
-
-  return new Promise((resolve, reject) => {
-    auth0JwksClient.getSigningKey(kid, (error, key) => {
-      if (error) return reject(error);
-      const signingKey = key?.getPublicKey?.() || key?.publicKey || key?.rsaPublicKey;
-      if (!signingKey) return reject(new Error('Unable to resolve signing key'));
-      resolve(signingKey);
-    });
-  });
-}
-
-async function verifyAuth0IdToken(idToken) {
-  if (!AUTH0_DOMAIN || !AUTH0_CLIENT_ID) {
-    throw new Error('Auth0 domain/client id not configured');
-  }
-
-  const decoded = jwt.decode(idToken, { complete: true });
-  const kid = decoded?.header?.kid;
-  if (!kid) {
-    throw new Error('Invalid Auth0 token header');
-  }
-
-  const signingKey = await getAuth0SigningKey(kid);
-  return new Promise((resolve, reject) => {
-    jwt.verify(
-      idToken,
-      signingKey,
-      {
-        algorithms: ['RS256'],
-        issuer: auth0Issuer,
-        audience: AUTH0_CLIENT_ID
-      },
-      (error, payload) => {
-        if (error) return reject(error);
-        resolve(payload);
-      }
-    );
-  });
-}
 
 function getEmailDomain(email) {
   const normalized = String(email || '').toLowerCase();
