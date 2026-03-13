@@ -1202,10 +1202,33 @@ app.post('/api/auth/auth0/session', async (req, res) => {
       return res.status(400).json({ error: 'Invalid userType' });
     }
 
-    // Verify the access token by calling Auth0's /userinfo endpoint (avoids JWKS network calls)
-    const userInfoRes = await fetch(`https://${AUTH0_DOMAIN}/userinfo`, {
-      headers: { Authorization: `Bearer ${accessToken}` }
-    });
+    // Verify the access token by calling Auth0's /userinfo endpoint with a strict timeout
+    // so serverless invocations cannot hang until platform timeout.
+    const userInfoUrl = `https://${AUTH0_DOMAIN}/userinfo`;
+    const userInfoTimeoutMs = Math.max(1000, Number(process.env.AUTH0_USERINFO_TIMEOUT_MS || 4500));
+    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+    const timeoutHandle = setTimeout(() => {
+      if (controller) controller.abort();
+    }, userInfoTimeoutMs);
+
+    let userInfoRes;
+    try {
+      if (typeof fetch !== 'function') {
+        throw new Error('Global fetch is unavailable in this runtime');
+      }
+      userInfoRes = await fetch(userInfoUrl, {
+        headers: { Authorization: `Bearer ${accessToken}` },
+        signal: controller ? controller.signal : undefined
+      });
+    } catch (requestError) {
+      const requestMessage = requestError?.name === 'AbortError'
+        ? `Auth0 userinfo request timed out after ${userInfoTimeoutMs}ms`
+        : `Auth0 userinfo request failed: ${requestError?.message || 'unknown error'}`;
+      throw new Error(requestMessage);
+    } finally {
+      clearTimeout(timeoutHandle);
+    }
+
     if (!userInfoRes.ok) {
       const errBody = await userInfoRes.text().catch(() => '');
       throw new Error(`Auth0 userinfo rejected (${userInfoRes.status}): ${errBody.slice(0, 120)}`);
