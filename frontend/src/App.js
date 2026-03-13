@@ -227,11 +227,10 @@ export default function AIRecruitmentAgent() {
       <button
         type="button"
         onClick={toggleTheme}
-        className="theme-toggle fixed right-3 top-3 z-[100] inline-flex items-center gap-2 rounded-full border border-white/15 bg-slate-900/80 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-black/20 backdrop-blur-md transition hover:bg-slate-800/90 md:right-5 md:top-5 md:text-sm"
+        className="theme-toggle fixed right-3 top-3 z-[100] inline-flex h-10 w-10 items-center justify-center rounded-full border border-white/15 bg-slate-900/80 text-white shadow-lg shadow-black/20 backdrop-blur-md transition hover:bg-slate-800/90 md:right-5 md:top-5"
         aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
       >
         {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
-        <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
       </button>
 
       <div className="relative z-10">
