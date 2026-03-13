@@ -1383,7 +1383,7 @@ app.post('/api/candidates', async (req, res) => {
       id: candidateId++,
       name,
       email,
-      position,
+      position: String(position || '').trim(),
       resumeScore: 0,
       quizScore: 0,
       interviewScore: 0,
@@ -1584,8 +1584,140 @@ Focus on:
   }
 });
 
-// Video interview analysis
-app.post('/api/candidates/:id/video-interview', async (req, res) => {
+async function transcribeVideoWithOpenAI(file) {
+  const apiKey = process.env.OPENAI_API_KEY;
+  if (!apiKey || !file) return '';
+
+  try {
+    const buffer = file.buffer || await fs.readFile(file.path);
+    const blob = new Blob([buffer], { type: file.mimetype || 'application/octet-stream' });
+    const form = new FormData();
+    form.append('file', blob, file.originalname || 'candidate-video.webm');
+    form.append('model', process.env.OPENAI_TRANSCRIBE_MODEL || 'gpt-4o-mini-transcribe');
+    form.append('response_format', 'text');
+
+    const response = await fetchWithTimeout('https://api.openai.com/v1/audio/transcriptions', {
+      method: 'POST',
+      headers: {
+        Authorization: `Bearer ${apiKey}`
+      },
+      body: form
+    }, Math.max(12000, AI_REQUEST_TIMEOUT_MS));
+
+    const text = await response.text();
+    if (!response.ok) {
+      throw new Error(text || `OpenAI transcription failed (${response.status})`);
+    }
+
+    return String(text || '').trim();
+  } catch (error) {
+    console.error('Video transcription error:', error.message);
+    return '';
+  }
+}
+
+function fallbackSpeechVideoAnalysis(transcript = '', position = 'Candidate') {
+  const words = String(transcript || '').trim().split(/\s+/).filter(Boolean);
+  const wordCount = words.length;
+  const keywords = extractInterviewKeywords(position, 6);
+  const lowerTranscript = transcript.toLowerCase();
+  const relevanceHits = keywords.filter(k => lowerTranscript.includes(k.toLowerCase())).length;
+
+  const clarityScore = clampScore(Math.min(25, Math.round(8 + wordCount / 12)), 0, 25, 12);
+  const relevanceScore = clampScore(Math.min(25, 8 + (relevanceHits * 4)), 0, 25, 12);
+  const confidenceScore = clampScore(Math.min(25, Math.round(10 + wordCount / 18)), 0, 25, 12);
+  const communicationScore = clampScore(Math.min(25, Math.round((clarityScore + relevanceScore + confidenceScore) / 3 + 2)), 0, 25, 12);
+  const totalScore = clampScore(clarityScore + relevanceScore + confidenceScore + communicationScore, 0, 100, 55);
+
+  return {
+    transcript: String(transcript || '').trim(),
+    clarityScore,
+    relevanceScore,
+    confidenceScore,
+    communicationScore,
+    totalScore,
+    strengths: [
+      'Candidate communicated key ideas in understandable language',
+      'Response showed intent aligned with the target role',
+      'Speech content included meaningful professional context'
+    ],
+    improvements: [
+      'Use more structured examples with measurable outcomes',
+      'Improve role-specific keyword depth and technical detail',
+      'Reduce filler words and keep a clear STAR-style flow'
+    ],
+    summary: `Speech-based evaluation completed for ${position}. Transcript quality suggests ${totalScore >= 75 ? 'strong readiness' : totalScore >= 60 ? 'moderate readiness with improvements needed' : 'early-stage readiness that needs coaching'}.`
+  };
+}
+
+async function analyzeSpeechTranscriptWithAI(transcript = '', position = 'Candidate', analysisType = 'live') {
+  const safeTranscript = String(transcript || '').trim();
+  if (!safeTranscript) return fallbackSpeechVideoAnalysis('', position);
+
+  const hasApiKey = process.env.OPENROUTER_API_KEY || process.env.GOOGLE_GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
+  if (!hasApiKey) return fallbackSpeechVideoAnalysis(safeTranscript, position);
+
+  const prompt = `You are evaluating a candidate's spoken interview content for role: ${position}.
+Analysis type: ${analysisType}
+
+Transcript:
+${safeTranscript}
+
+Return ONLY valid JSON object:
+{
+  "clarityScore": 0,
+  "relevanceScore": 0,
+  "confidenceScore": 0,
+  "communicationScore": 0,
+  "totalScore": 0,
+  "strengths": ["string", "string", "string"],
+  "improvements": ["string", "string", "string"],
+  "summary": "string"
+}
+
+Rules:
+- clarityScore, relevanceScore, confidenceScore, communicationScore are integers 0-25.
+- totalScore is integer 0-100 and should align with component scores.
+- strengths and improvements must be practical and based on transcript evidence.`;
+
+  const systemPrompt = 'You are a strict interview evaluator. Return JSON only.';
+
+  try {
+    const raw = await callAI(prompt, systemPrompt, { task: 'interview' });
+    const parsed = parseJsonFromAI(raw, 'object');
+
+    const clarityScore = clampScore(parsed.clarityScore, 0, 25, 12);
+    const relevanceScore = clampScore(parsed.relevanceScore, 0, 25, 12);
+    const confidenceScore = clampScore(parsed.confidenceScore, 0, 25, 12);
+    const communicationScore = clampScore(parsed.communicationScore, 0, 25, 12);
+
+    const strengths = Array.isArray(parsed.strengths)
+      ? parsed.strengths.map(s => String(s || '').trim()).filter(Boolean).slice(0, 5)
+      : fallbackSpeechVideoAnalysis(safeTranscript, position).strengths;
+
+    const improvements = Array.isArray(parsed.improvements)
+      ? parsed.improvements.map(s => String(s || '').trim()).filter(Boolean).slice(0, 5)
+      : fallbackSpeechVideoAnalysis(safeTranscript, position).improvements;
+
+    return {
+      transcript: safeTranscript,
+      clarityScore,
+      relevanceScore,
+      confidenceScore,
+      communicationScore,
+      totalScore: clampScore(parsed.totalScore, 0, 100, clarityScore + relevanceScore + confidenceScore + communicationScore),
+      strengths,
+      improvements,
+      summary: String(parsed.summary || '').trim() || `Speech analysis completed for ${position}.`
+    };
+  } catch (error) {
+    console.error('Speech analysis AI error:', error.message);
+    return fallbackSpeechVideoAnalysis(safeTranscript, position);
+  }
+}
+
+// Video interview and upload speech analysis
+app.post('/api/candidates/:id/video-interview', upload.single('video'), async (req, res) => {
   try {
     const candidateId = parseInt(req.params.id);
     const candidate = candidates.find(c => c.id === candidateId);
@@ -1594,60 +1726,49 @@ app.post('/api/candidates/:id/video-interview', async (req, res) => {
       return res.status(404).json({ error: 'Candidate not found' });
     }
 
-    // On Vercel: skip file upload (4.5MB limit + 10s timeout make video impossible)
-    // Just return simulated analysis directly
-    if (process.env.VERCEL) {
-      const analysis = {
-        bodyLanguageScore: 22,
-        communicationScore: 23,
-        eyeContactScore: 21,
-        presentationScore: 22,
-        totalScore: 88,
-        strengths: ['Professional appearance', 'Clear communication', 'Good eye contact'],
-        improvements: ['Reduce nervous gestures', 'More confident tone'],
-        summary: 'Candidate demonstrated strong professional presence and communication skills.'
-      };
-      candidate.videoInterviewScore = analysis.totalScore;
-      candidate.videoAnalyzedAt = new Date().toISOString();
-      await saveCandidates();
-      return res.json({
-        success: true,
-        videoAnalysis: { analysis, analyzedAt: new Date().toISOString() },
-        score: analysis.totalScore
-      });
+    const analysisType = String(req.body?.analysisType || 'live').trim().toLowerCase();
+    const rolePosition = String(req.body?.position || candidate.position || 'Candidate').trim();
+    const providedTranscript = String(req.body?.transcript || '').trim();
+
+    let videoUrl = null;
+    if (useGCS && req.file?.path) {
+      const cloudPath = `videos/${candidateId}/${Date.now()}-${req.file.originalname}`;
+      videoUrl = await uploadFileToCloud(req.file.path, cloudPath);
     }
 
-    // Local: process with multer
-    upload.single('video')(req, res, async (err) => {
-      if (err) return res.status(400).json({ error: 'File upload failed: ' + err.message });
-      if (!req.file) return res.status(400).json({ error: 'No video uploaded' });
+    let transcript = providedTranscript;
+    if (!transcript && req.file) {
+      transcript = await transcribeVideoWithOpenAI(req.file);
+    }
 
-      let videoUrl = null;
-      if (useGCS) {
-        const cloudPath = `videos/${candidateId}/${Date.now()}-${req.file.originalname}`;
-        videoUrl = await uploadFileToCloud(req.file.path, cloudPath);
-      }
+    const analysis = await analyzeSpeechTranscriptWithAI(transcript, rolePosition, analysisType);
 
-      const analysis = {
-        bodyLanguageScore: 22, communicationScore: 23, eyeContactScore: 21,
-        presentationScore: 22, totalScore: 88,
-        strengths: ['Professional appearance', 'Clear communication', 'Good eye contact'],
-        improvements: ['Reduce nervous gestures', 'More confident tone'],
-        summary: 'Candidate demonstrated strong professional presence and communication skills.'
-      };
-
+    if (analysisType === 'upload') {
+      candidate.uploadVideoScore = analysis.totalScore;
+      candidate.uploadVideoTranscript = analysis.transcript;
+      candidate.uploadVideoAnalyzedAt = new Date().toISOString();
+      if (videoUrl) candidate.uploadVideoUrl = videoUrl;
+    } else {
       candidate.videoInterviewScore = analysis.totalScore;
-      candidate.videoUrl = videoUrl;
+      candidate.videoInterviewTranscript = analysis.transcript;
       candidate.videoAnalyzedAt = new Date().toISOString();
-      await saveCandidates();
+      if (videoUrl) candidate.videoUrl = videoUrl;
+    }
 
-      try { await fs.unlink(req.file.path); } catch (e) { }
+    await saveCandidates();
 
-      res.json({
-        success: true,
-        videoAnalysis: { analysis, analyzedAt: new Date().toISOString() },
-        score: analysis.totalScore
-      });
+    if (req.file?.path) {
+      try { await fs.unlink(req.file.path); } catch {}
+    }
+
+    return res.json({
+      success: true,
+      videoAnalysis: {
+        analysis,
+        analyzedAt: new Date().toISOString(),
+        type: analysisType
+      },
+      score: analysis.totalScore
     });
   } catch (error) {
     console.error('Video interview error:', error);

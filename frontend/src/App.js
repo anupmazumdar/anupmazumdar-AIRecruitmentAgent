@@ -653,8 +653,7 @@ function CandidatePortal({ setUserType, subscription, authState, logout }) {
 function ProfileStage({ candidateData, setCandidateData, setStage }) {
   const [formData, setFormData] = useState({
     name: candidateData.name,
-    email: candidateData.email,
-    position: candidateData.position
+    email: candidateData.email
   });
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
@@ -670,8 +669,7 @@ function ProfileStage({ candidateData, setCandidateData, setStage }) {
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           name: formData.name,
-          email: formData.email,
-          position: formData.position
+          email: formData.email
         })
       });
 
@@ -720,28 +718,8 @@ function ProfileStage({ candidateData, setCandidateData, setStage }) {
           />
         </div>
 
-        <div>
-          <label className="block text-slate-300 mb-2">Position</label>
-          <select
-            value={formData.position}
-            onChange={(e) => setFormData({ ...formData, position: e.target.value })}
-            className="w-full px-4 py-3 text-sm md:text-base bg-slate-800/50 rounded-lg border border-slate-600 focus:border-indigo-500 focus:outline-none transition-all"
-            required
-          >
-            <option value="">Select position</option>
-            <option value="Software Engineer">Software Engineer</option>
-            <option value="Data Scientist">Data Scientist</option>
-            <option value="Product Manager">Product Manager</option>
-            <option value="Frontend Developer">Frontend Developer</option>
-            <option value="Backend Developer">Backend Developer</option>
-            <option value="Full Stack Developer">Full Stack Developer</option>
-            <option value="DevOps Engineer">DevOps Engineer</option>
-            <option value="UI/UX Designer">UI/UX Designer</option>
-            <option value="Machine Learning Engineer">Machine Learning Engineer</option>
-            <option value="Android Developer">Android Developer</option>
-            <option value="iOS Developer">iOS Developer</option>
-            <option value="QA Engineer">QA Engineer</option>
-          </select>
+        <div className="rounded-lg border border-indigo-500/30 bg-indigo-900/20 p-3 text-sm text-indigo-200">
+          Position selection has moved to the <strong>AI Career Coach</strong> step so role matching is based on your skills and goals.
         </div>
 
         {error && (
@@ -1136,6 +1114,7 @@ function CareerGuidanceStage({ candidateData, setCandidateData, setStage }) {
         </button>
         <button
           onClick={() => setStage('resume')}
+          disabled={!candidateData.position}
           className="flex-1 min-h-[44px] py-3 text-sm md:text-base bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg font-semibold hover:from-indigo-500 hover:to-purple-500 transition-all"
         >
           Continue to Resume Analysis →
@@ -1433,6 +1412,8 @@ function UploadVideoStage({ candidateData, setCandidateData, setStage }) {
       const formData = new FormData();
       formData.append('video', videoFile);
       formData.append('candidateId', candidateData.id);
+      formData.append('analysisType', 'upload');
+      formData.append('position', candidateData.position || 'Candidate');
 
       const response = await fetch(`${API_URL}/api/candidates/${candidateData.id}/video-interview`, {
         method: 'POST',
@@ -1449,9 +1430,10 @@ function UploadVideoStage({ candidateData, setCandidateData, setStage }) {
 
       setAnalysis({
         score,
-        bodyLanguageScore: data.videoAnalysis?.analysis?.bodyLanguageScore || Math.floor(Math.random() * 5) + 20,
-        communicationScore: data.videoAnalysis?.analysis?.communicationScore || Math.floor(Math.random() * 5) + 20,
-        presentationScore: data.videoAnalysis?.analysis?.presentationScore || Math.floor(Math.random() * 5) + 20,
+        transcript: data.videoAnalysis?.analysis?.transcript || '',
+        clarityScore: data.videoAnalysis?.analysis?.clarityScore || Math.floor(Math.random() * 5) + 20,
+        relevanceScore: data.videoAnalysis?.analysis?.relevanceScore || Math.floor(Math.random() * 5) + 20,
+        confidenceScore: data.videoAnalysis?.analysis?.confidenceScore || Math.floor(Math.random() * 5) + 20,
         strengths: data.videoAnalysis?.analysis?.strengths || [
           'Professional appearance',
           'Clear communication',
@@ -1600,18 +1582,25 @@ function UploadVideoStage({ candidateData, setCandidateData, setStage }) {
 
             <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
               <div className="bg-slate-800/50 rounded-lg p-3 text-center">
-                <p className="text-xs text-slate-400 mb-1">Body Language</p>
-                <p className="text-lg font-bold text-purple-300">{analysis.bodyLanguageScore}/25</p>
+                <p className="text-xs text-slate-400 mb-1">Speech Clarity</p>
+                <p className="text-lg font-bold text-purple-300">{analysis.clarityScore}/25</p>
               </div>
               <div className="bg-slate-800/50 rounded-lg p-3 text-center">
-                <p className="text-xs text-slate-400 mb-1">Communication</p>
-                <p className="text-lg font-bold text-purple-300">{analysis.communicationScore}/25</p>
+                <p className="text-xs text-slate-400 mb-1">Role Relevance</p>
+                <p className="text-lg font-bold text-purple-300">{analysis.relevanceScore}/25</p>
               </div>
               <div className="bg-slate-800/50 rounded-lg p-3 text-center">
-                <p className="text-xs text-slate-400 mb-1">Presentation</p>
-                <p className="text-lg font-bold text-purple-300">{analysis.presentationScore}/25</p>
+                <p className="text-xs text-slate-400 mb-1">Confidence</p>
+                <p className="text-lg font-bold text-purple-300">{analysis.confidenceScore}/25</p>
               </div>
             </div>
+
+            {analysis.transcript && (
+              <div className="mb-4 bg-slate-800/50 border border-slate-700 rounded-lg p-3">
+                <p className="text-xs text-slate-400 mb-1">Detected speech transcript</p>
+                <p className="text-sm text-slate-300 whitespace-pre-wrap">{analysis.transcript}</p>
+              </div>
+            )}
 
             <div className="space-y-4">
               <div>
@@ -2273,8 +2262,12 @@ function VideoInterviewStage({ candidateData, setCandidateData, setStage }) {
   const [timer, setTimer] = useState(0);
   const videoRef = useRef(null);
   const mediaRecorderRef = useRef(null);
+  const speechRecognitionRef = useRef(null);
   const chunksRef = useRef([]);
   const timerRef = useRef(null);
+  const [speechSupported, setSpeechSupported] = useState(true);
+  const [liveTranscript, setLiveTranscript] = useState('');
+  const [questionTranscripts, setQuestionTranscripts] = useState([]);
 
   const questions = [
     "Tell me about a challenging project you worked on and how you overcame obstacles.",
@@ -2348,6 +2341,30 @@ function VideoInterviewStage({ candidateData, setCandidateData, setStage }) {
 
     mediaRecorderRef.current.start(100);
     setRecording(true);
+    setLiveTranscript('');
+
+    // Capture spoken content in real time for AI speech analysis.
+    const SpeechRecognition = window.SpeechRecognition || window.webkitSpeechRecognition;
+    if (SpeechRecognition) {
+      const recognition = new SpeechRecognition();
+      recognition.continuous = true;
+      recognition.interimResults = true;
+      recognition.lang = 'en-US';
+      recognition.onresult = (event) => {
+        let combined = '';
+        for (let i = 0; i < event.results.length; i += 1) {
+          combined += `${event.results[i][0].transcript} `;
+        }
+        setLiveTranscript(combined.trim());
+      };
+      recognition.onerror = () => {
+        setSpeechSupported(false);
+      };
+      speechRecognitionRef.current = recognition;
+      recognition.start();
+    } else {
+      setSpeechSupported(false);
+    }
 
     // Start timer
     timerRef.current = setInterval(() => {
@@ -2359,6 +2376,20 @@ function VideoInterviewStage({ candidateData, setCandidateData, setStage }) {
     if (mediaRecorderRef.current && recording) {
       mediaRecorderRef.current.stop();
       setRecording(false);
+
+      if (speechRecognitionRef.current) {
+        try {
+          speechRecognitionRef.current.stop();
+        } catch {}
+      }
+
+      setQuestionTranscripts((prev) => ([
+        ...prev,
+        {
+          question: questions[currentQuestion],
+          transcript: liveTranscript
+        }
+      ]));
 
       if (timerRef.current) {
         clearInterval(timerRef.current);
@@ -2384,6 +2415,9 @@ function VideoInterviewStage({ candidateData, setCandidateData, setStage }) {
       const videoBlob = new Blob(recordedBlobs, { type: 'video/webm' });
       formData.append('video', videoBlob, 'interview.webm');
       formData.append('candidateId', '1');
+      formData.append('analysisType', 'live');
+      formData.append('position', candidateData.position || 'Candidate');
+      formData.append('transcript', questionTranscripts.map((q) => `Q: ${q.question}\nA: ${q.transcript}`).join('\n\n'));
 
       const response = await fetch(`${API_URL}/api/candidates/${candidateData.id}/video-interview`, {
         method: 'POST',
@@ -2500,6 +2534,15 @@ function VideoInterviewStage({ candidateData, setCandidateData, setStage }) {
           <div>
             <p className="text-sm font-semibold text-indigo-300 mb-2">Question {currentQuestion + 1}:</p>
             <p className="text-slate-200">{questions[currentQuestion]}</p>
+            {!speechSupported && (
+              <p className="mt-2 text-xs text-yellow-300">Speech-to-text is unavailable in this browser. AI will analyze uploaded media audio where possible.</p>
+            )}
+            {recording && liveTranscript && (
+              <div className="mt-3 rounded-lg border border-slate-700 bg-slate-900/50 p-2">
+                <p className="text-xs text-slate-400 mb-1">Live transcript</p>
+                <p className="text-xs text-slate-200 whitespace-pre-wrap">{liveTranscript}</p>
+              </div>
+            )}
           </div>
         </div>
       </div>
