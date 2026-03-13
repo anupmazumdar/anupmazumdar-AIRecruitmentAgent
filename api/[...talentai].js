@@ -191,6 +191,19 @@ async function initializeData() {
   console.log(`📊 Data loaded: ${users.length} users, ${candidates.length} candidates, ${questionBank.length} questions`);
 }
 
+let dataReadyPromise = null;
+
+function ensureDataInitialized() {
+  if (!dataReadyPromise) {
+    dataReadyPromise = initializeData().catch((error) => {
+      dataReadyPromise = null;
+      throw error;
+    });
+  }
+
+  return dataReadyPromise;
+}
+
 async function ensureSuperAdminAccount() {
   const existingAdmin = users.find(u => u.userType === 'superadmin');
   if (existingAdmin) {
@@ -240,6 +253,16 @@ async function saveSubscriptions() {
 async function saveQuestionBank() {
   await saveDataToCloud('questionBank.json', questionBank);
 }
+
+app.use(async (req, res, next) => {
+  try {
+    await ensureDataInitialized();
+    next();
+  } catch (error) {
+    console.error('Initialization error:', error);
+    res.status(500).json({ error: 'Server initialization failed' });
+  }
+});
 
 function resolveJwtSecret() {
   const configured = String(process.env.JWT_SECRET || '').trim();
@@ -2411,8 +2434,8 @@ app.get('/api/health', (req, res) => {
 
 // ==================== START SERVER ====================
 async function startServer() {
-  // Load data from cloud
-  await initializeData();
+  // Load data from cloud and seed superadmin before serving traffic
+  await ensureDataInitialized();
 
   // Don't listen to port if running on Vercel (serverless)
   if (process.env.VERCEL) {
@@ -2435,8 +2458,8 @@ async function startServer() {
 if (!process.env.VERCEL) {
   startServer().catch(console.error);
 } else {
-  // Always initialize data first for serverless requests
-  initializeData().catch(console.error);
+  // Warm initialization for serverless; request middleware also guarantees readiness.
+  ensureDataInitialized().catch(console.error);
 }
 
 module.exports = app;
