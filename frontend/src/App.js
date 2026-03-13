@@ -4,7 +4,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
-import { Upload, CheckCircle, XCircle, User, Briefcase, MessageSquare, Award, FileText, Users, TrendingUp, Crown, Zap, Sparkles, Check, X, Mail, Lock, Eye, EyeOff, LogOut, Video, VideoOff, Search, Paperclip, Image as ImageIcon, Clock3 } from 'lucide-react';
+import { Upload, CheckCircle, XCircle, User, Briefcase, MessageSquare, Award, FileText, Users, TrendingUp, Crown, Zap, Sparkles, Check, X, Mail, Lock, Eye, EyeOff, LogOut, Video, VideoOff, Search, Paperclip, Image as ImageIcon, Clock3, Sun, Moon } from 'lucide-react';
 import Home from './pages/Home';
 import SupportChatbot from './components/SupportChatbot';
 
@@ -153,6 +153,7 @@ export default function AIRecruitmentAgent() {
   const [userType, setUserType] = useState(null);
   const [selectedPlan, setSelectedPlan] = useState(null); // NEW: Track selected plan
   const [authUserType, setAuthUserType] = useState(null);
+  const [theme, setTheme] = useState(() => localStorage.getItem('talentai_theme') || 'dark');
   const [subscription, setSubscription] = useState(null);
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -174,6 +175,12 @@ export default function AIRecruitmentAgent() {
       }
     }
   }, []);
+
+  useEffect(() => {
+    document.body.classList.toggle('theme-light', theme === 'light');
+    document.body.classList.toggle('theme-dark', theme !== 'light');
+    localStorage.setItem('talentai_theme', theme);
+  }, [theme]);
 
   const login = (userData) => {
     const authData = {
@@ -207,12 +214,26 @@ export default function AIRecruitmentAgent() {
     setAuthUserType(null);
   };
 
+  const toggleTheme = () => {
+    setTheme((currentTheme) => (currentTheme === 'dark' ? 'light' : 'dark'));
+  };
+
   return (
-    <div className="min-h-screen overflow-x-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-white text-sm md:text-base lg:text-lg">
+    <div className={`app-shell min-h-screen overflow-x-hidden text-sm md:text-base lg:text-lg ${theme === 'light' ? 'theme-light' : 'theme-dark'} bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-white`}>
       <div className="fixed inset-0 opacity-20">
         <div className="absolute top-0 left-1/4 h-48 w-48 rounded-full bg-indigo-500 blur-3xl animate-pulse md:h-72 md:w-72 lg:h-96 lg:w-96"></div>
         <div className="absolute bottom-0 right-1/4 h-48 w-48 rounded-full bg-purple-500 blur-3xl animate-pulse md:h-72 md:w-72 lg:h-96 lg:w-96" style={{ animationDelay: '1s' }}></div>
       </div>
+
+      <button
+        type="button"
+        onClick={toggleTheme}
+        className="theme-toggle fixed right-3 top-3 z-[100] inline-flex items-center gap-2 rounded-full border border-white/15 bg-slate-900/80 px-3 py-2 text-xs font-semibold text-white shadow-lg shadow-black/20 backdrop-blur-md transition hover:bg-slate-800/90 md:right-5 md:top-5 md:text-sm"
+        aria-label={`Switch to ${theme === 'dark' ? 'light' : 'dark'} mode`}
+      >
+        {theme === 'dark' ? <Sun size={16} /> : <Moon size={16} />}
+        <span>{theme === 'dark' ? 'Light Mode' : 'Dark Mode'}</span>
+      </button>
 
       <div className="relative z-10">
         {!userType ? (

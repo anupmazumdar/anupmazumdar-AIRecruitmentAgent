@@ -120,11 +120,17 @@ frontend/
 
 This project now includes the official Auth0 React SDK (`@auth0/auth0-react@2.x`) and wraps the app with `Auth0Provider` in [src/index.js](src/index.js).
 
+Current auth flow:
+
+- Auth0 login and signup use popup mode from the modal UI instead of full-page redirect mode.
+- After Auth0 login succeeds, the frontend exchanges the Auth0 access token with `POST /api/auth/auth0/session` to create the TalentAI API session.
+- The backend resolves Auth0 identity through the Auth0 `/userinfo` endpoint, which is more reliable on Vercel serverless than on-demand JWKS verification.
+
 Configured Auth0 app:
 
 - Domain: `dev-shjk32vx4oscfrde.us.auth0.com`
 - Client ID: `KHC4ncaBYv0W4NqgVSLD5vJI8SuqPHDk`
-- Redirect URI: `https://anupmazumdar-ai-recruitment-agent.vercel.app/`
+- Redirect URI / origin: `https://anupmazumdar-ai-recruitment-agent.vercel.app/`
 - Logout return URI: `https://anupmazumdar-ai-recruitment-agent.vercel.app/`
 
 Required frontend env vars:
@@ -138,10 +144,17 @@ REACT_APP_AUTH0_LOGOUT_RETURN_TO=https://anupmazumdar-ai-recruitment-agent.verce
 
 Important: your Auth0 application is currently configured only for the Vercel origin above. Running this app on a different origin (for example `http://localhost:3000`) will cause Auth0 callback/logout/web-origin mismatch errors unless you add that origin in the Auth0 application settings.
 
+For popup mode to work, make sure the Auth0 application includes the deployment domain in `Allowed Web Origins`.
+
 Auth0 handoff behavior in this app:
 
 - First-time Auth0 users must explicitly choose Candidate or Recruiter before creating a TalentAI API session.
 - Recruiter onboarding through Auth0 also requires a company name, and backend approval depends on server-side `AUTH0_ALLOWED_RECRUITER_DOMAINS` configuration.
+
+## Theme Toggle
+
+- The app now includes a top-right Light Mode / Dark Mode toggle in the global shell.
+- The selected theme persists in the browser via `localStorage` using the key `talentai_theme`.
 
 ## Troubleshooting
 

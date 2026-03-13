@@ -9,6 +9,52 @@
   min-height: 100vh;
 }
 
+.app-shell {
+  transition: background 200ms ease, color 200ms ease, filter 200ms ease;
+}
+
+.theme-toggle {
+  -webkit-tap-highlight-color: transparent;
+}
+
+.theme-light {
+  background: linear-gradient(135deg, #f8fafc 0%, #e2e8f0 45%, #dbeafe 100%) !important;
+  color: #0f172a !important;
+  filter: invert(1) hue-rotate(180deg);
+}
+
+.theme-light .theme-toggle {
+  background: rgba(255, 255, 255, 0.92) !important;
+  border-color: rgba(15, 23, 42, 0.12) !important;
+  color: #0f172a !important;
+  box-shadow: 0 16px 40px rgba(15, 23, 42, 0.12) !important;
+}
+
+.theme-light img,
+.theme-light video,
+.theme-light iframe,
+.theme-light canvas,
+.theme-light svg,
+.theme-light [data-no-theme-invert='true'] {
+  filter: invert(1) hue-rotate(180deg);
+}
+
+.theme-light .theme-toggle svg {
+  filter: none;
+}
+
+.theme-light ::-webkit-scrollbar-track {
+  background: #cbd5e1;
+}
+
+.theme-light ::-webkit-scrollbar-thumb {
+  background: #64748b;
+}
+
+.theme-light ::-webkit-scrollbar-thumb:hover {
+  background: #475569;
+}
+
 /* Custom scrollbar styling (optional) */
 ::-webkit-scrollbar {
   width: 10px;

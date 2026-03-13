@@ -393,6 +393,13 @@ Shortlist Threshold: 68+ weighted score
 
 ## Recent Updates
 
+### v2.6 — Auth0 Stability Fixes + Theme Toggle
+
+- Switched Auth0 login and signup from redirect mode to popup mode to eliminate browser `Invalid state` errors during modal-based authentication.
+- Reworked `/api/auth/auth0/session` to validate the Auth0 session through the Auth0 `/userinfo` endpoint using an access token instead of JWKS-based ID-token verification, improving Vercel serverless reliability.
+- Hardened Auth0 session error handling so audit-log failures cannot crash the serverless function during auth error paths.
+- Added a persistent top-right Light Mode / Dark Mode toggle for the full app shell; the selected theme is saved in `localStorage` under `talentai_theme`.
+
 ### v2.5 — Auth0 Onboarding Hardening + Audit Logs
 
 - Enforced explicit role selection for first-time Auth0 sign in before TalentAI session creation.
