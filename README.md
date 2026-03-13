@@ -47,28 +47,28 @@ Sole Creator: Anup Mazumdar | MCA Student | UEM Jaipur (2025-2027)
 ```text
 Stage 1          Stage 2          Stage 3          Stage 4
 ┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────┐
-│ Profile │────▶│ Resume  │────▶│  Video  │────▶│Technical│
-│ Creation│     │ Upload  │     │  Intro  │     │  Quiz   │
+│ Profile │────▶│ Career  │────▶│ Resume  │────▶│  Video  │
+│ Creation│     │  Coach  │     │ Upload  │     │  Intro  │
 └─────────┘     └─────────┘     └─────────┘     └─────────┘
                                                       │
                                                       ▼
 Stage 8          Stage 7          Stage 6          Stage 5
 ┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────┐
-│ Career  │◀────│ Results │◀────│  Live   │◀────│   AI    │
-│  Coach  │     │Analytics│     │  Video  │     │Interview│
+│ Results │◀────│  Live   │◀────│   AI    │◀────│Technical│
+│Analytics│     │  Video  │     │Interview│     │  Quiz   │
 └─────────┘     └─────────┘     └─────────┘     └─────────┘
 ```
 
 | Stage | Description | AI Model |
 | --- | --- | --- |
 | 1. Profile Creation | Candidate registers and fills profile | - |
-| 2. Resume Upload | AI parses and scores resume | Gemini Pro / Llama fallback |
-| 3. Video Introduction | Candidate records intro video; AI-graded for communication quality | GCP Storage + GPT-4o |
-| 4. Technical Quiz | Domain-specific auto-graded quiz with configurable time limits | GPT-4o Mini |
-| 5. AI Interview | AI conducts structured interview | Claude Sonnet / GPT-4o fallback |
-| 6. Live Video Recording | Final video assessment with AI scoring | GCP Storage + GPT-4o |
-| 7. Results & Analytics | Scores, rankings, and detailed feedback | Multi-model |
-| 8. Career Coach | AI-powered personalised guidance, skill gap analysis, next-step recommendations | Claude Sonnet |
+| 2. Career Coach | AI-powered personalised guidance, skill gap analysis, and preparation tips before assessment | Claude Sonnet |
+| 3. Resume Upload | AI parses and scores resume | Gemini Pro / Llama fallback |
+| 4. Video Introduction | Candidate records intro video; AI-graded for communication quality | GCP Storage + GPT-4o |
+| 5. Technical Quiz | Domain-specific auto-graded quiz with configurable time limits | GPT-4o Mini |
+| 6. AI Interview | AI conducts structured interview | Claude Sonnet / GPT-4o fallback |
+| 7. Live Video Recording | Final video assessment with AI scoring | GCP Storage + GPT-4o |
+| 8. Results & Analytics | Scores, rankings, and detailed feedback | Multi-model |
 
 ---
 
@@ -201,7 +201,7 @@ TalentAI has a three-tier access model: **Candidate → Recruiter → Superadmin
 
 | Role | Capabilities |
 | --- | --- |
-| Candidate | Complete the 7-stage pipeline, view own results, access Career Coach post-assessment |
+| Candidate | Complete the 8-stage pipeline, access Career Coach (Stage 2), view own results |
 | Recruiter | View allowed candidates, manage question bank (update/refresh), run AI grading |
 | Superadmin | All recruiter capabilities + full platform control (see below) |
 
@@ -225,7 +225,7 @@ TalentAI has a three-tier access model: **Candidate → Recruiter → Superadmin
 
 ### Career Coach
 
-After a candidate completes all 7 assessment stages, a **Career Coach** panel becomes available. It is powered by the same OpenRouter AI engine and provides personalised improvement guidance, skill gap analysis, and next-step recommendations based on the candidate's actual assessment results.
+After a candidate completes all 8 assessment stages, the **Career Coach** panel (Stage 2) also remains accessible for ongoing guidance. It is powered by the same OpenRouter AI engine and provides personalised improvement guidance, skill gap analysis, and next-step recommendations based on the candidate's actual assessment results.
 
 ---
 
