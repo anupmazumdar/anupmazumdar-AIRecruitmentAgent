@@ -2,8 +2,8 @@
 // FIX: Users select subscription FIRST, then sign up
 // FIX: Pricing always visible, better flow
 
-import React, { useState, useEffect, useRef } from 'react';
-import { Upload, CheckCircle, XCircle, User, Briefcase, MessageSquare, Award, Clock, FileText, Users, TrendingUp, Mic, MicOff, Crown, Zap, Sparkles, Check, X, Mail, Lock, Eye, EyeOff, LogOut, Video, VideoOff, Play, Pause, RotateCcw, DollarSign } from 'lucide-react';
+import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
+import { Upload, CheckCircle, XCircle, User, Briefcase, MessageSquare, Award, FileText, Users, TrendingUp, Crown, Zap, Sparkles, Check, X, Mail, Lock, Eye, EyeOff, LogOut, Video, VideoOff, DollarSign } from 'lucide-react';
 
 // ==================== BACKEND API URL ====================
 const API_URL = process.env.NODE_ENV === 'production' ? '' : (process.env.REACT_APP_API_URL || 'http://localhost:3001');
@@ -821,7 +821,7 @@ function CandidatePortal({ setUserType, subscription, authState, logout }) {
         email: authState.user.email
       }));
     }
-  }, [authState.user]);
+  }, [authState.user, candidateData.id]);
 
   const stages = [
     { id: 'profile', label: 'Profile', icon: User },
@@ -1012,7 +1012,6 @@ function ProfileStage({ candidateData, setCandidateData, setStage }) {
 // ==================== RESUME UPLOAD STAGE ====================
 function ResumeUploadStage({ candidateData, setCandidateData, setStage }) {
   const [file, setFile] = useState(null);
-  const [uploading, setUploading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState(null);
   const [error, setError] = useState('');
@@ -1252,7 +1251,6 @@ function ResumeUploadStage({ candidateData, setCandidateData, setStage }) {
 // ==================== UPLOAD VIDEO STAGE ====================
 function UploadVideoStage({ candidateData, setCandidateData, setStage }) {
   const [videoFile, setVideoFile] = useState(null);
-  const [uploading, setUploading] = useState(false);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState(null);
   const [error, setError] = useState('');
@@ -1529,32 +1527,13 @@ function TechnicalQuizStage({ candidateData, setCandidateData, setStage }) {
   const timerRef = useRef(null);
   const REVIEW_PER_PAGE = 10;
 
-  useEffect(() => { generateQuestions(); }, []);
-
-  // Countdown timer
-  useEffect(() => {
-    if (!loading && !quizComplete && questions.length > 0) {
-      timerRef.current = setInterval(() => {
-        setTimeLeft(prev => {
-          if (prev <= 1) {
-            clearInterval(timerRef.current);
-            calculateScore();
-            return 0;
-          }
-          return prev - 1;
-        });
-      }, 1000);
-    }
-    return () => clearInterval(timerRef.current);
-  }, [loading, quizComplete, questions]);
-
   const formatTime = (secs) => {
     const m = Math.floor(secs / 60).toString().padStart(2, '0');
     const s = (secs % 60).toString().padStart(2, '0');
     return `${m}:${s}`;
   };
 
-  const generateQuestions = async () => {
+  const generateQuestions = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(`${API_URL}/api/generate-quiz`, {
@@ -1583,9 +1562,9 @@ function TechnicalQuizStage({ candidateData, setCandidateData, setStage }) {
     } finally {
       setLoading(false);
     }
-  };
+  }, [candidateData.position]);
 
-  const calculateScore = (answersOverride) => {
+  const calculateScore = useCallback((answersOverride) => {
     clearInterval(timerRef.current);
     const ans = answersOverride || answers;
     let correct = 0;
@@ -1594,7 +1573,26 @@ function TechnicalQuizStage({ candidateData, setCandidateData, setStage }) {
     setScore(finalScore);
     setCandidateData(prev => ({ ...prev, quizScore: finalScore }));
     setQuizComplete(true);
-  };
+  }, [answers, questions, setCandidateData]);
+
+  useEffect(() => { generateQuestions(); }, [generateQuestions]);
+
+  // Countdown timer
+  useEffect(() => {
+    if (!loading && !quizComplete && questions.length > 0) {
+      timerRef.current = setInterval(() => {
+        setTimeLeft(prev => {
+          if (prev <= 1) {
+            clearInterval(timerRef.current);
+            calculateScore();
+            return 0;
+          }
+          return prev - 1;
+        });
+      }, 1000);
+    }
+    return () => clearInterval(timerRef.current);
+  }, [loading, quizComplete, questions, calculateScore]);
 
   const handleAnswer = (idx) => setAnswers(prev => ({ ...prev, [currentQuestion]: idx }));
 
@@ -1775,10 +1773,7 @@ function TextInterviewStage({ candidateData, setCandidateData, setStage, authSta
     ? Math.round(answerScores.reduce((a, b) => a + b, 0) / answerScores.length)
     : null;
 
-  useEffect(() => { startInterview(); }, []);
-  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
-
-  const startInterview = async () => {
+  const startInterview = useCallback(async () => {
     setLoading(true);
     try {
       const res = await fetch(`${API_URL}/api/interview/start`, {
@@ -1804,7 +1799,10 @@ function TextInterviewStage({ candidateData, setCandidateData, setStage, authSta
     } finally {
       setLoading(false);
     }
-  };
+  }, [authState?.token, candidateData.candidateId, candidateData.id, candidateData.name, candidateData.position, totalQuestions]);
+
+  useEffect(() => { startInterview(); }, [startInterview]);
+  useEffect(() => { messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
 
   const sendMessage = async () => {
     if (!currentInput.trim() || loading) return;
@@ -2300,7 +2298,7 @@ function ResultsStage({ candidateData, authState }) {
   ];
   const totalScore = Math.round(scores.reduce((a, b) => a + b, 0) / 5);
 
-  const fetchAdvice = async () => {
+  const fetchAdvice = useCallback(async () => {
     setLoadingAdvice(true);
     try {
       const res = await fetch(`${API_URL}/api/career-advice`, {
@@ -2315,9 +2313,9 @@ function ResultsStage({ candidateData, authState }) {
     } finally {
       setLoadingAdvice(false);
     }
-  };
+  }, [authState?.token, candidateData]);
 
-  useEffect(() => { fetchAdvice(); }, []);
+  useEffect(() => { fetchAdvice(); }, [fetchAdvice]);
 
   const gradeColor = totalScore >= 85 ? 'from-green-500 to-emerald-500' : totalScore >= 70 ? 'from-yellow-500 to-orange-500' : 'from-red-500 to-pink-500';
   const gradeLabel = totalScore >= 85 ? '🏆 Excellent' : totalScore >= 70 ? '👍 Good' : '📈 Keep Growing';
@@ -2469,11 +2467,12 @@ function SuperAdminDashboard({ authState, logout }) {
   const [note, setNote] = useState('');
   const [saving, setSaving] = useState(null);
 
-  const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authState?.token}` };
+  const headers = useMemo(
+    () => ({ 'Content-Type': 'application/json', 'Authorization': `Bearer ${authState?.token}` }),
+    [authState?.token]
+  );
 
-  useEffect(() => { fetchAll(); }, []);
-
-  const fetchAll = async () => {
+  const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
       const [rRes, sRes, cRes] = await Promise.all([
@@ -2487,7 +2486,9 @@ function SuperAdminDashboard({ authState, logout }) {
       if (cData.success) setCandidates(cData.candidates || []);
     } catch (e) { console.error(e); }
     setLoading(false);
-  };
+  }, [headers]);
+
+  useEffect(() => { fetchAll(); }, [fetchAll]);
 
   const toggleAccess = async (recruiter) => {
     setSaving(recruiter.id);
@@ -2719,20 +2720,21 @@ function RecruiterDashboard({ setUserType, subscription, setShowSubscriptionModa
   const [search, setSearch] = useState('');
   const [expandedId, setExpandedId] = useState(null);
 
+  const fetchCandidates = useCallback(async () => {
+    try {
+      const res = await fetch(`${API_URL}/api/recruiter/candidates`, {
+        headers: { 'Authorization': `Bearer ${authState?.token}` }
+      });
+      const data = await res.json();
+      if (data.success) setCandidates(data.candidates);
+    } catch (e) {
+      console.error('Failed to load candidates:', e);
+    } finally { setLoading(false); }
+  }, [authState?.token]);
+
   useEffect(() => {
-    const fetchCandidates = async () => {
-      try {
-        const res = await fetch(`${API_URL}/api/recruiter/candidates`, {
-          headers: { 'Authorization': `Bearer ${authState?.token}` }
-        });
-        const data = await res.json();
-        if (data.success) setCandidates(data.candidates);
-      } catch (e) {
-        console.error('Failed to load candidates:', e);
-      } finally { setLoading(false); }
-    };
     fetchCandidates();
-  }, []);
+  }, [fetchCandidates]);
 
   const filtered = candidates.filter(c => {
     const matchFilter = filter === 'all' || c.status === filter;
@@ -2975,7 +2977,7 @@ function AdminQuestionPanel({ authState }) {
     setTimeout(() => setNotification(null), 3000);
   };
 
-  const fetchQuestions = async () => {
+  const fetchQuestions = useCallback(async () => {
     try {
       const res = await fetch(`${API_URL}/api/admin/questions`, {
         headers: { 'Authorization': `Bearer ${authState?.token}` }
@@ -2983,9 +2985,9 @@ function AdminQuestionPanel({ authState }) {
       const data = await res.json();
       if (data.success) setQuestions(data.questions);
     } catch (e) { console.error(e); }
-  };
+  }, [authState?.token]);
 
-  useEffect(() => { fetchQuestions(); }, []);
+  useEffect(() => { fetchQuestions(); }, [fetchQuestions]);
 
   const handleSave = async () => {
     const pos = form.useCustom ? form.customPosition.trim() : form.position;
