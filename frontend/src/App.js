@@ -564,6 +564,7 @@ function CandidatePortal({ setUserType, subscription, authState, logout }) {
     quizScore: 0,
     interviewScore: 0,
     videoInterviewScore: 0,
+    careerGuidance: null,
     totalScore: 0
   });
 
@@ -580,6 +581,7 @@ function CandidatePortal({ setUserType, subscription, authState, logout }) {
 
   const stages = [
     { id: 'profile', label: 'Profile', icon: User },
+    { id: 'careerCoach', label: 'AI Career Coach', icon: MessageSquare },
     { id: 'resume', label: 'Resume', icon: FileText },
     { id: 'uploadVideo', label: 'Video Upload', icon: Upload },
     { id: 'quiz', label: 'Quiz', icon: Award },
@@ -635,6 +637,7 @@ function CandidatePortal({ setUserType, subscription, authState, logout }) {
 
       <div className="max-w-3xl mx-auto w-full">
         {stage === 'profile' && <ProfileStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} />}
+        {stage === 'careerCoach' && <CareerGuidanceStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} />}
         {stage === 'resume' && <ResumeUploadStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} />}
         {stage === 'uploadVideo' && <UploadVideoStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} />}
         {stage === 'quiz' && <TechnicalQuizStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} />}
@@ -680,7 +683,7 @@ function ProfileStage({ candidateData, setCandidateData, setStage }) {
 
       // Store the real candidate ID returned from backend
       setCandidateData({ ...candidateData, ...formData, id: data.candidate.id });
-      setStage('resume');
+      setStage('careerCoach');
     } catch (err) {
       setError(err.message || 'Failed to save profile. Please try again.');
     } finally {
@@ -760,6 +763,338 @@ function ProfileStage({ candidateData, setCandidateData, setStage }) {
           ) : 'Continue'}
         </button>
       </form>
+    </div>
+  );
+}
+
+// ==================== AI CAREER GUIDANCE STAGE ====================
+function CareerGuidanceStage({ candidateData, setCandidateData, setStage }) {
+  const [targetRole, setTargetRole] = useState(candidateData.position || '');
+  const [skillsInput, setSkillsInput] = useState('');
+  const [chatMessage, setChatMessage] = useState('');
+  const [analyzing, setAnalyzing] = useState(false);
+  const [chatLoading, setChatLoading] = useState(false);
+  const [chatHistory, setChatHistory] = useState([
+    {
+      role: 'assistant',
+      text: 'Hi! I am your TalentAI career coach. Share your current skills and your target role. I will suggest a practical roadmap to reach that role.'
+    }
+  ]);
+  const [guidance, setGuidance] = useState(candidateData.careerGuidance);
+
+  const roleSkillMap = {
+    'Software Engineer': ['Data Structures', 'Algorithms', 'JavaScript', 'System Design', 'Git'],
+    'Frontend Developer': ['HTML', 'CSS', 'JavaScript', 'React', 'Accessibility'],
+    'Backend Developer': ['Node.js', 'APIs', 'Databases', 'Authentication', 'System Design'],
+    'Full Stack Developer': ['React', 'Node.js', 'SQL', 'System Design', 'Testing'],
+    'Data Scientist': ['Python', 'Statistics', 'Machine Learning', 'SQL', 'Data Visualization'],
+    'Machine Learning Engineer': ['Python', 'Machine Learning', 'Deep Learning', 'MLOps', 'Data Engineering'],
+    'DevOps Engineer': ['Linux', 'CI/CD', 'Docker', 'Kubernetes', 'Cloud'],
+    'Product Manager': ['Product Strategy', 'User Research', 'Analytics', 'Roadmapping', 'Communication'],
+    'UI/UX Designer': ['User Research', 'Wireframing', 'Figma', 'Design Systems', 'Prototyping'],
+    'Android Developer': ['Kotlin', 'Android SDK', 'Architecture Patterns', 'REST APIs', 'Testing'],
+    'iOS Developer': ['Swift', 'iOS SDK', 'Architecture Patterns', 'REST APIs', 'Testing'],
+    'QA Engineer': ['Manual Testing', 'Automation Testing', 'Selenium', 'API Testing', 'Test Strategy']
+  };
+
+  const buildGuidance = (role, skills) => {
+    const normalizedSkills = skills
+      .map((s) => s.trim())
+      .filter(Boolean)
+      .map((s) => s.toLowerCase());
+
+    const expectedSkills = roleSkillMap[role] || ['Communication', 'Problem Solving', 'Domain Knowledge'];
+    const matchingSkills = expectedSkills.filter((expected) => normalizedSkills.some((skill) => skill.includes(expected.toLowerCase())));
+    const missingSkills = expectedSkills.filter((expected) => !matchingSkills.includes(expected));
+
+    const proficiency = Math.round((matchingSkills.length / expectedSkills.length) * 100);
+
+    const roadmap = [
+      `Weeks 1-2: Strengthen fundamentals for ${role} and revise one core topic daily.`,
+      `Weeks 3-4: Build at least one project focused on ${missingSkills[0] || expectedSkills[0]}.`,
+      `Weeks 5-6: Practice interview questions and publish project outcomes on GitHub/LinkedIn.`,
+      'Weeks 7-8: Apply to targeted roles and refine based on recruiter feedback.'
+    ];
+
+    const recommendations = missingSkills.length
+      ? missingSkills.map((skill) => `Improve ${skill} with hands-on practice and mini-projects.`)
+      : ['Your skill profile is strong. Focus on interview storytelling and advanced projects.'];
+
+    return {
+      role,
+      skills,
+      proficiency,
+      matchingSkills,
+      missingSkills,
+      roadmap,
+      recommendations
+    };
+  };
+
+  const handleAnalyze = async () => {
+    const skills = skillsInput.split(',').map((s) => s.trim()).filter(Boolean);
+
+    if (!targetRole || skills.length === 0) {
+      setChatHistory((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          text: 'Please select your target role and enter at least one skill to continue.'
+        }
+      ]);
+      return;
+    }
+
+    setAnalyzing(true);
+    setChatHistory((prev) => [
+      ...prev,
+      {
+        role: 'user',
+        text: `Target Role: ${targetRole}. My skills: ${skills.join(', ')}`
+      }
+    ]);
+
+    try {
+      const response = await fetch(`${API_URL}/api/career-coach`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'analyze',
+          targetRole,
+          skills
+        })
+      });
+
+      const data = await parseApiJson(response);
+      if (!response.ok || !data.success || !data.guidance) {
+        throw new Error(data.error || 'Failed to generate AI guidance');
+      }
+
+      const result = data.guidance;
+      setGuidance(result);
+      setChatHistory((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          text: result.missingSkills?.length
+            ? `Great start. You already match ${result.matchingSkills?.length || 0} core skills. Focus next on: ${result.missingSkills.join(', ')}.`
+            : 'Excellent profile for this role. Focus on advanced projects and interview readiness to stand out.'
+        }
+      ]);
+
+      setCandidateData({
+        ...candidateData,
+        position: targetRole,
+        careerGuidance: result
+      });
+    } catch (error) {
+      const fallbackResult = buildGuidance(targetRole, skills);
+      setGuidance(fallbackResult);
+      setChatHistory((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          text: `I could not reach the live AI service right now, so I generated guidance locally. Focus next on: ${(fallbackResult.missingSkills || []).join(', ') || 'advanced projects and mock interviews'}.`
+        }
+      ]);
+      setCandidateData({
+        ...candidateData,
+        position: targetRole,
+        careerGuidance: fallbackResult
+      });
+    } finally {
+      setAnalyzing(false);
+    }
+  };
+
+  const sendMessage = async () => {
+    const message = chatMessage.trim();
+    if (!message || chatLoading) return;
+
+    const skills = skillsInput.split(',').map((s) => s.trim()).filter(Boolean);
+
+    setChatHistory((prev) => [
+      ...prev,
+      { role: 'user', text: message }
+    ]);
+    setChatMessage('');
+
+    setChatLoading(true);
+    try {
+      const response = await fetch(`${API_URL}/api/career-coach`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          mode: 'chat',
+          message,
+          targetRole,
+          skills,
+          guidance
+        })
+      });
+
+      const data = await parseApiJson(response);
+      const reply = data?.reply || data?.message || 'Please share your target role and current skills, and I will help with a concrete career plan.';
+
+      setChatHistory((prev) => [
+        ...prev,
+        { role: 'assistant', text: reply }
+      ]);
+    } catch (error) {
+      setChatHistory((prev) => [
+        ...prev,
+        {
+          role: 'assistant',
+          text: 'I am having trouble connecting right now. Please click "Get AI Career Guidance" to generate your plan, then ask follow-up questions.'
+        }
+      ]);
+    } finally {
+      setChatLoading(false);
+    }
+  };
+
+  return (
+    <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-4 md:p-8 border border-slate-700">
+      <h2 className="text-xl md:text-2xl font-bold mb-2">AI Career Coach</h2>
+      <p className="text-slate-300 text-sm md:text-base mb-6">
+        Chat with AI, share your current skills, choose your target role, and get a personalized career path before resume analysis.
+      </p>
+
+      <div className="space-y-4 mb-6">
+        <div>
+          <label className="block text-slate-300 mb-2">Target Role</label>
+          <select
+            value={targetRole}
+            onChange={(e) => setTargetRole(e.target.value)}
+            className="w-full px-4 py-3 text-sm md:text-base bg-slate-800/50 rounded-lg border border-slate-600 focus:border-indigo-500 focus:outline-none"
+          >
+            <option value="">Select your role goal</option>
+            <option value="Software Engineer">Software Engineer</option>
+            <option value="Data Scientist">Data Scientist</option>
+            <option value="Product Manager">Product Manager</option>
+            <option value="Frontend Developer">Frontend Developer</option>
+            <option value="Backend Developer">Backend Developer</option>
+            <option value="Full Stack Developer">Full Stack Developer</option>
+            <option value="DevOps Engineer">DevOps Engineer</option>
+            <option value="UI/UX Designer">UI/UX Designer</option>
+            <option value="Machine Learning Engineer">Machine Learning Engineer</option>
+            <option value="Android Developer">Android Developer</option>
+            <option value="iOS Developer">iOS Developer</option>
+            <option value="QA Engineer">QA Engineer</option>
+          </select>
+        </div>
+
+        <div>
+          <label className="block text-slate-300 mb-2">Your Skills (comma separated)</label>
+          <input
+            type="text"
+            value={skillsInput}
+            onChange={(e) => setSkillsInput(e.target.value)}
+            className="w-full px-4 py-3 text-sm md:text-base bg-slate-800/50 rounded-lg border border-slate-600 focus:border-indigo-500 focus:outline-none"
+            placeholder="React, JavaScript, Node.js, SQL"
+          />
+        </div>
+
+        <button
+          onClick={handleAnalyze}
+          disabled={analyzing}
+          className="w-full min-h-[44px] py-3 text-sm md:text-base bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg font-semibold hover:from-indigo-500 hover:to-purple-500 transition-all"
+        >
+          {analyzing ? 'Generating AI Guidance...' : 'Get AI Career Guidance'}
+        </button>
+      </div>
+
+      <div className="rounded-xl border border-slate-700 bg-slate-800/40 p-3 md:p-4 mb-6">
+        <h3 className="font-semibold mb-3">Career Chat</h3>
+        <div className="max-h-64 overflow-y-auto space-y-2 mb-3 pr-1">
+          {chatHistory.map((item, index) => (
+            <div
+              key={index}
+              className={`rounded-lg px-3 py-2 text-sm ${item.role === 'assistant' ? 'bg-slate-700/60 text-slate-100' : 'bg-indigo-600/40 text-indigo-100 ml-4'}`}
+            >
+              {item.text}
+            </div>
+          ))}
+        </div>
+
+        <div className="flex flex-col sm:flex-row gap-2">
+          <input
+            type="text"
+            value={chatMessage}
+            onChange={(e) => setChatMessage(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key === 'Enter') {
+                e.preventDefault();
+                sendMessage();
+              }
+            }}
+            className="flex-1 px-4 py-2.5 text-sm md:text-base bg-slate-900/60 rounded-lg border border-slate-600 focus:border-indigo-500 focus:outline-none"
+            placeholder="Ask AI about your career path..."
+          />
+          <button
+            onClick={sendMessage}
+            disabled={chatLoading}
+            className="min-h-[44px] px-5 py-2.5 text-sm md:text-base bg-slate-700 hover:bg-slate-600 rounded-lg font-semibold transition-all disabled:opacity-50"
+          >
+            {chatLoading ? 'Sending...' : 'Send'}
+          </button>
+        </div>
+      </div>
+
+      {guidance && (
+        <div className="rounded-xl border border-green-500/30 bg-green-900/10 p-4 md:p-5 mb-6">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-3">
+            <h3 className="text-lg font-semibold text-green-300">Career Path Guidance</h3>
+            <span className="text-sm px-3 py-1 rounded-full bg-slate-800/70 border border-slate-600">
+              Role readiness: {guidance.proficiency}%
+            </span>
+          </div>
+
+          <div className="mb-3">
+            <p className="text-sm text-slate-300 mb-2">Skills to improve:</p>
+            <div className="flex flex-wrap gap-2">
+              {(guidance.missingSkills.length ? guidance.missingSkills : ['No major skill gaps detected']).map((skill, idx) => (
+                <span key={idx} className="text-xs md:text-sm px-2.5 py-1 rounded-full bg-yellow-500/20 text-yellow-200 border border-yellow-500/30">
+                  {skill}
+                </span>
+              ))}
+            </div>
+          </div>
+
+          <div className="mb-3">
+            <p className="text-sm text-slate-300 mb-2">Recommended next steps:</p>
+            <ul className="space-y-1 text-sm text-slate-200">
+              {guidance.recommendations.map((item, idx) => (
+                <li key={idx}>• {item}</li>
+              ))}
+            </ul>
+          </div>
+
+          <div>
+            <p className="text-sm text-slate-300 mb-2">8-week roadmap:</p>
+            <ul className="space-y-1 text-sm text-slate-200">
+              {guidance.roadmap.map((item, idx) => (
+                <li key={idx}>• {item}</li>
+              ))}
+            </ul>
+          </div>
+        </div>
+      )}
+
+      <div className="flex flex-col sm:flex-row gap-3">
+        <button
+          onClick={() => setStage('profile')}
+          className="min-h-[44px] px-6 py-3 text-sm md:text-base bg-slate-700 hover:bg-slate-600 rounded-lg font-semibold transition-all"
+        >
+          Back
+        </button>
+        <button
+          onClick={() => setStage('resume')}
+          className="flex-1 min-h-[44px] py-3 text-sm md:text-base bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg font-semibold hover:from-indigo-500 hover:to-purple-500 transition-all"
+        >
+          Continue to Resume Analysis →
+        </button>
+      </div>
     </div>
   );
 }

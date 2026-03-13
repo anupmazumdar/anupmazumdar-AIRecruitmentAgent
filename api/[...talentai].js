@@ -2439,6 +2439,205 @@ function chatbotFallbackReply(message = '', role = 'guest') {
   return 'I can help with profile setup, resume scoring, quizzes, interviews, pricing, and recruiter dashboard workflows. Tell me what you want to do next.';
 }
 
+const CAREER_COACH_ROLE_SKILLS = {
+  'Software Engineer': ['Data Structures', 'Algorithms', 'JavaScript', 'System Design', 'Git'],
+  'Frontend Developer': ['HTML', 'CSS', 'JavaScript', 'React', 'Accessibility'],
+  'Backend Developer': ['Node.js', 'APIs', 'Databases', 'Authentication', 'System Design'],
+  'Full Stack Developer': ['React', 'Node.js', 'SQL', 'System Design', 'Testing'],
+  'Data Scientist': ['Python', 'Statistics', 'Machine Learning', 'SQL', 'Data Visualization'],
+  'Machine Learning Engineer': ['Python', 'Machine Learning', 'Deep Learning', 'MLOps', 'Data Engineering'],
+  'DevOps Engineer': ['Linux', 'CI/CD', 'Docker', 'Kubernetes', 'Cloud'],
+  'Product Manager': ['Product Strategy', 'User Research', 'Analytics', 'Roadmapping', 'Communication'],
+  'UI/UX Designer': ['User Research', 'Wireframing', 'Figma', 'Design Systems', 'Prototyping'],
+  'Android Developer': ['Kotlin', 'Android SDK', 'Architecture Patterns', 'REST APIs', 'Testing'],
+  'iOS Developer': ['Swift', 'iOS SDK', 'Architecture Patterns', 'REST APIs', 'Testing'],
+  'QA Engineer': ['Manual Testing', 'Automation Testing', 'Selenium', 'API Testing', 'Test Strategy']
+};
+
+function parseCareerCoachSkills(rawSkills) {
+  if (Array.isArray(rawSkills)) {
+    return rawSkills.map(s => String(s || '').trim()).filter(Boolean).slice(0, 30);
+  }
+
+  return String(rawSkills || '')
+    .split(',')
+    .map(s => s.trim())
+    .filter(Boolean)
+    .slice(0, 30);
+}
+
+function buildCareerCoachFallback(role = '', skills = []) {
+  const expectedSkills = CAREER_COACH_ROLE_SKILLS[role] || ['Communication', 'Problem Solving', 'Domain Knowledge'];
+  const normalized = skills.map(s => s.toLowerCase());
+
+  const matchingSkills = expectedSkills.filter((expected) =>
+    normalized.some((skill) => skill.includes(expected.toLowerCase()))
+  );
+  const missingSkills = expectedSkills.filter((expected) => !matchingSkills.includes(expected));
+  const proficiency = Math.round((matchingSkills.length / Math.max(expectedSkills.length, 1)) * 100);
+
+  const roadmap = [
+    `Weeks 1-2: Build fundamentals for ${role} with daily practice and topic revision.`,
+    `Weeks 3-4: Build one project focused on ${missingSkills[0] || expectedSkills[0]} and publish code with README.`,
+    'Weeks 5-6: Practice interviews with STAR structure and improve problem explanation clarity.',
+    'Weeks 7-8: Apply to target roles, collect feedback, and iterate your portfolio and resume.'
+  ];
+
+  const recommendations = missingSkills.length
+    ? missingSkills.map((skill) => `Improve ${skill} with hands-on mini projects and guided courses.`)
+    : ['Strong baseline profile. Focus on advanced projects, interview storytelling, and consistency.'];
+
+  return {
+    role,
+    skills,
+    proficiency: clampScore(proficiency, 0, 100, 0),
+    matchingSkills,
+    missingSkills,
+    recommendations,
+    roadmap
+  };
+}
+
+function normalizeCareerCoachGuidance(parsed = {}, fallback = {}) {
+  const guidance = parsed && typeof parsed === 'object' && !Array.isArray(parsed) ? parsed : {};
+  const safeRole = String(guidance.role || fallback.role || '').trim();
+  const safeSkills = Array.isArray(guidance.skills)
+    ? guidance.skills.map(s => String(s || '').trim()).filter(Boolean).slice(0, 30)
+    : (fallback.skills || []);
+
+  const matchingSkills = Array.isArray(guidance.matchingSkills)
+    ? guidance.matchingSkills.map(s => String(s || '').trim()).filter(Boolean).slice(0, 15)
+    : (fallback.matchingSkills || []);
+
+  const missingSkills = Array.isArray(guidance.missingSkills)
+    ? guidance.missingSkills.map(s => String(s || '').trim()).filter(Boolean).slice(0, 15)
+    : (fallback.missingSkills || []);
+
+  const recommendations = Array.isArray(guidance.recommendations)
+    ? guidance.recommendations.map(s => String(s || '').trim()).filter(Boolean).slice(0, 10)
+    : (fallback.recommendations || []);
+
+  const roadmap = Array.isArray(guidance.roadmap)
+    ? guidance.roadmap.map(s => String(s || '').trim()).filter(Boolean).slice(0, 8)
+    : (fallback.roadmap || []);
+
+  return {
+    role: safeRole,
+    skills: safeSkills,
+    proficiency: clampScore(guidance.proficiency, 0, 100, fallback.proficiency || 0),
+    matchingSkills,
+    missingSkills,
+    recommendations,
+    roadmap
+  };
+}
+
+function careerCoachChatFallback(message = '', targetRole = '', skills = [], guidance = null) {
+  const baseRole = targetRole || 'your selected role';
+  const weakArea = guidance?.missingSkills?.[0] || 'core fundamentals';
+  const skillHint = skills.length ? `Based on your current skills (${skills.slice(0, 5).join(', ')}), ` : '';
+
+  if (/resume|cv/i.test(message)) {
+    return `${skillHint}tailor your resume to ${baseRole} by adding measurable project outcomes and keywords for ${weakArea}.`;
+  }
+  if (/roadmap|plan|next/i.test(message)) {
+    return `Start with ${weakArea}, build one project in 2 weeks, and practice interview explanations every day. Keep improving until your portfolio proves ${baseRole} readiness.`;
+  }
+  if (/course|learn|resource/i.test(message)) {
+    return `Prioritize practical learning for ${weakArea}. Pick one course, complete one mini project, and publish your learnings weekly to GitHub/LinkedIn.`;
+  }
+
+  return `${skillHint}focus first on ${weakArea}, then build a role-focused project and document outcomes clearly. I can also help you break this into a weekly routine.`;
+}
+
+app.post('/api/career-coach', async (req, res) => {
+  try {
+    const mode = String(req.body?.mode || 'analyze').trim().toLowerCase();
+    const targetRole = String(req.body?.targetRole || '').trim();
+    const skills = parseCareerCoachSkills(req.body?.skills);
+    const message = String(req.body?.message || '').trim();
+    const guidanceContext = req.body?.guidance;
+
+    if (mode === 'chat') {
+      if (!message) {
+        return res.status(400).json({ error: 'Message is required' });
+      }
+
+      const hasApiKey = process.env.OPENROUTER_API_KEY || process.env.GOOGLE_GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
+      if (hasApiKey) {
+        const systemPrompt = `You are TalentAI Career Coach.
+Give concise, practical career guidance for candidates.
+Keep responses actionable and under 120 words.`;
+
+        const prompt = `Candidate target role: ${targetRole || 'Not set'}
+Candidate skills: ${skills.join(', ') || 'Not provided'}
+Current guidance context: ${JSON.stringify(guidanceContext || {})}
+Candidate message: ${message}
+
+Reply with direct next-step guidance.`;
+
+        try {
+          const reply = await callAI(prompt, systemPrompt, { task: 'career' });
+          return res.json({
+            success: true,
+            reply: String(reply || '').trim().slice(0, 1400) || careerCoachChatFallback(message, targetRole, skills, guidanceContext)
+          });
+        } catch (aiError) {
+          console.error('Career coach chat AI error:', aiError.message);
+        }
+      }
+
+      return res.json({ success: true, reply: careerCoachChatFallback(message, targetRole, skills, guidanceContext) });
+    }
+
+    if (!targetRole || skills.length === 0) {
+      return res.status(400).json({ error: 'targetRole and skills are required for analysis' });
+    }
+
+    const fallbackGuidance = buildCareerCoachFallback(targetRole, skills);
+    const hasApiKey = process.env.OPENROUTER_API_KEY || process.env.GOOGLE_GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
+
+    if (hasApiKey) {
+      const systemPrompt = `You are TalentAI Career Coach.
+Return only valid JSON with no markdown.`;
+
+      const prompt = `Create personalized career guidance for a candidate.
+Target role: ${targetRole}
+Candidate skills: ${skills.join(', ')}
+
+Return EXACT JSON:
+{
+  "role": "${targetRole}",
+  "skills": ["skill"],
+  "proficiency": 0,
+  "matchingSkills": ["skill"],
+  "missingSkills": ["skill"],
+  "recommendations": ["string"],
+  "roadmap": ["string", "string", "string", "string"]
+}
+
+Rules:
+- proficiency is integer 0-100.
+- recommendations must focus on improving missing skills.
+- roadmap should be practical, progressive, and weekly-oriented.`;
+
+      try {
+        const response = await callAI(prompt, systemPrompt, { task: 'career' });
+        const parsed = parseJsonFromAI(response, 'object');
+        const guidance = normalizeCareerCoachGuidance(parsed, fallbackGuidance);
+        return res.json({ success: true, guidance });
+      } catch (aiError) {
+        console.error('Career coach guidance AI error:', aiError.message);
+      }
+    }
+
+    return res.json({ success: true, guidance: fallbackGuidance });
+  } catch (error) {
+    console.error('Career coach endpoint error:', error);
+    return res.status(500).json({ error: 'Failed to process career coach request' });
+  }
+});
+
 app.post('/api/chatbot', async (req, res) => {
   try {
     const message = String(req.body?.message || '').trim();
