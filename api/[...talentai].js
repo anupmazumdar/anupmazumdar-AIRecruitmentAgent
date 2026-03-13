@@ -210,6 +210,7 @@ let users = [];
 let candidates = [];
 let subscriptions = [];
 let questionBank = []; // Admin-managed questions
+let upgradeResources = []; // Superadmin-managed YouTube/video resources by role
 let quizSettings = {
   candidateDurationMinutes: 30,
   recruiterDurationMinutes: 30,
@@ -220,6 +221,7 @@ let userId = 1;
 let candidateId = 1;
 let subscriptionId = 1;
 let questionId = 1;
+let upgradeResourceId = 1;
 
 // Load data from cloud on startup
 async function initializeData() {
@@ -227,6 +229,7 @@ async function initializeData() {
   candidates = await loadDataFromCloud('candidates.json', []);
   subscriptions = await loadDataFromCloud('subscriptions.json', []);
   questionBank = await loadDataFromCloud('questionBank.json', []);
+  upgradeResources = await loadDataFromCloud('upgradeResources.json', []);
   quizSettings = await loadDataFromCloud('quizSettings.json', quizSettings);
 
   // Set IDs to max + 1
@@ -234,6 +237,7 @@ async function initializeData() {
   if (candidates.length > 0) candidateId = Math.max(...candidates.map(c => c.id)) + 1;
   if (subscriptions.length > 0) subscriptionId = Math.max(...subscriptions.map(s => s.id)) + 1;
   if (questionBank.length > 0) questionId = Math.max(...questionBank.map(q => q.id)) + 1;
+  if (upgradeResources.length > 0) upgradeResourceId = Math.max(...upgradeResources.map(r => r.id)) + 1;
 
   await ensureSuperAdminAccount();
 
@@ -301,6 +305,10 @@ async function saveSubscriptions() {
 
 async function saveQuestionBank() {
   await saveDataToCloud('questionBank.json', questionBank);
+}
+
+async function saveUpgradeResources() {
+  await saveDataToCloud('upgradeResources.json', upgradeResources);
 }
 
 async function saveQuizSettings() {
@@ -982,6 +990,143 @@ app.put('/api/quiz/settings', authenticateToken, async (req, res) => {
     return res.json({ success: true, settings: quizSettings });
   } catch (error) {
     return res.status(500).json({ error: 'Failed to update quiz settings' });
+  }
+});
+
+function normalizeRoleKey(value, fallback = 'General') {
+  const trimmed = String(value || '').trim();
+  return trimmed || fallback;
+}
+
+function normalizeUpgradeResource(resource) {
+  return {
+    id: resource.id,
+    role: normalizeRoleKey(resource.role),
+    title: String(resource.title || '').trim(),
+    url: String(resource.url || '').trim(),
+    description: String(resource.description || '').trim(),
+    createdAt: resource.createdAt || null,
+    updatedAt: resource.updatedAt || null,
+    createdBy: resource.createdBy || null
+  };
+}
+
+function isYouTubeUrl(url) {
+  const value = String(url || '').trim().toLowerCase();
+  return value.includes('youtube.com/') || value.includes('youtu.be/');
+}
+
+// Candidate-facing superadmin-curated resources
+app.get('/api/upgrade-resources', authenticateToken, (req, res) => {
+  if (!['candidate', 'recruiter', 'superadmin'].includes(req.user?.userType)) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+
+  const requestedRole = normalizeRoleKey(req.query?.role, '').toLowerCase();
+  const filtered = requestedRole
+    ? upgradeResources.filter((item) => item.role.toLowerCase() === requestedRole || item.role.toLowerCase() === 'general')
+    : upgradeResources;
+
+  return res.json({
+    success: true,
+    resources: filtered
+      .map(normalizeUpgradeResource)
+      .sort((a, b) => String(a.role).localeCompare(String(b.role)) || String(a.title).localeCompare(String(b.title)))
+  });
+});
+
+// Superadmin-only resource management for Upgrade Skills stage
+app.get('/api/superadmin/resources', authenticateToken, requireSuperAdmin, (req, res) => {
+  return res.json({
+    success: true,
+    resources: upgradeResources
+      .map(normalizeUpgradeResource)
+      .sort((a, b) => String(a.role).localeCompare(String(b.role)) || String(a.title).localeCompare(String(b.title)))
+  });
+});
+
+app.post('/api/superadmin/resources', authenticateToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const role = normalizeRoleKey(req.body?.role);
+    const title = String(req.body?.title || '').trim();
+    const url = String(req.body?.url || '').trim();
+    const description = String(req.body?.description || '').trim();
+
+    if (!title || !url) {
+      return res.status(400).json({ error: 'role, title, and url are required' });
+    }
+
+    if (!isYouTubeUrl(url)) {
+      return res.status(400).json({ error: 'Only YouTube video links are allowed for superadmin resources' });
+    }
+
+    const resource = {
+      id: upgradeResourceId++,
+      role,
+      title,
+      url,
+      description,
+      createdAt: new Date().toISOString(),
+      updatedAt: new Date().toISOString(),
+      createdBy: req.user?.email || 'superadmin'
+    };
+
+    upgradeResources.push(resource);
+    await saveUpgradeResources();
+    return res.status(201).json({ success: true, resource: normalizeUpgradeResource(resource) });
+  } catch (error) {
+    return res.status(500).json({ error: 'Failed to create resource' });
+  }
+});
+
+app.put('/api/superadmin/resources/:id', authenticateToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const idx = upgradeResources.findIndex((item) => item.id === id);
+    if (idx === -1) return res.status(404).json({ error: 'Resource not found' });
+
+    const role = normalizeRoleKey(req.body?.role, upgradeResources[idx].role);
+    const title = String(req.body?.title || upgradeResources[idx].title || '').trim();
+    const url = String(req.body?.url || upgradeResources[idx].url || '').trim();
+    const description = String(req.body?.description ?? upgradeResources[idx].description ?? '').trim();
+
+    if (!title || !url) {
+      return res.status(400).json({ error: 'role, title, and url are required' });
+    }
+
+    if (!isYouTubeUrl(url)) {
+      return res.status(400).json({ error: 'Only YouTube video links are allowed for superadmin resources' });
+    }
+
+    upgradeResources[idx] = {
+      ...upgradeResources[idx],
+      role,
+      title,
+      url,
+      description,
+      updatedAt: new Date().toISOString()
+    };
+
+    await saveUpgradeResources();
+    return res.json({ success: true, resource: normalizeUpgradeResource(upgradeResources[idx]) });
+  } catch (error) {
+    return res.status(500).json({ error: 'Failed to update resource' });
+  }
+});
+
+app.delete('/api/superadmin/resources/:id', authenticateToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const before = upgradeResources.length;
+    upgradeResources = upgradeResources.filter((item) => item.id !== id);
+    if (upgradeResources.length === before) {
+      return res.status(404).json({ error: 'Resource not found' });
+    }
+
+    await saveUpgradeResources();
+    return res.json({ success: true });
+  } catch (error) {
+    return res.status(500).json({ error: 'Failed to delete resource' });
   }
 });
 
@@ -2493,6 +2638,131 @@ function generateLocalCareerAdvice(position, totalScore, resumeScore, quizScore,
 
   return { strengths, weaknesses, improvements, suitableCompanies, nextSteps };
 }
+
+function getUpgradeSuggestionCatalog(role) {
+  const normalizedRole = String(role || '').trim().toLowerCase();
+
+  if (normalizedRole.includes('frontend')) {
+    return [
+      { title: 'roadmap.sh Frontend', url: 'https://roadmap.sh/frontend', type: 'roadmap', category: 'Frontend', why: 'Structured frontend roadmap aligned to hiring expectations.' },
+      { title: 'javascript.info', url: 'https://javascript.info', type: 'website', category: 'JavaScript', why: 'Deep practical JavaScript reference for interview and project work.' },
+      { title: 'web.dev', url: 'https://web.dev', type: 'articles', category: 'Performance', why: 'Modern frontend performance, accessibility, and best practices.' },
+      { title: 'The Odin Project', url: 'https://www.theodinproject.com', type: 'course', category: 'Projects', why: 'Hands-on projects for portfolio building.' }
+    ];
+  }
+
+  if (normalizedRole.includes('data') || normalizedRole.includes('machine learning')) {
+    return [
+      { title: 'roadmap.sh AI/Data Scientist', url: 'https://roadmap.sh/ai-data-scientist', type: 'roadmap', category: 'ML/AI', why: 'Clear role roadmap for ML and data roles.' },
+      { title: 'fast.ai', url: 'https://www.fast.ai', type: 'course', category: 'Deep Learning', why: 'Project-based deep learning course with strong practical focus.' },
+      { title: 'Kaggle Learn', url: 'https://www.kaggle.com/learn', type: 'course', category: 'Practice', why: 'Hands-on micro-courses and datasets for skill development.' },
+      { title: 'Towards Data Science', url: 'https://towardsdatascience.com', type: 'blog', category: 'Articles', why: 'Good source of applied ML articles and trends.' }
+    ];
+  }
+
+  if (normalizedRole.includes('devops') || normalizedRole.includes('cloud')) {
+    return [
+      { title: 'roadmap.sh DevOps', url: 'https://roadmap.sh/devops', type: 'roadmap', category: 'DevOps', why: 'Covers the core skills expected in DevOps interviews.' },
+      { title: 'Microsoft Learn', url: 'https://learn.microsoft.com', type: 'documentation', category: 'Cloud', why: 'Structured learning paths for cloud fundamentals and deployment.' },
+      { title: 'Google Cloud Skills Boost', url: 'https://cloudskillsboost.google', type: 'course', category: 'Cloud', why: 'Guided labs and role-based cloud training.' },
+      { title: 'The New Stack', url: 'https://thenewstack.io', type: 'blog', category: 'Cloud-native', why: 'Ongoing industry coverage for containers, Kubernetes, and DevOps.' }
+    ];
+  }
+
+  return [
+    { title: 'roadmap.sh Backend', url: 'https://roadmap.sh/backend', type: 'roadmap', category: 'Backend', why: 'Structured backend roadmap for role progression.' },
+    { title: 'Full Stack Open', url: 'https://fullstackopen.com', type: 'course', category: 'Projects', why: 'Strong project-based curriculum for full-stack and backend work.' },
+    { title: 'System Design Primer', url: 'https://github.com/donnemartin/system-design-primer', type: 'github', category: 'System Design', why: 'Widely used open-source interview prep resource.' },
+    { title: 'ByteByteGo Blog', url: 'https://blog.bytebytego.com', type: 'blog', category: 'Architecture', why: 'Simple explanations for common system design patterns.' },
+    { title: 'LeetCode', url: 'https://leetcode.com', type: 'practice', category: 'DSA', why: 'Required practice for coding rounds and technical screening.' }
+  ];
+}
+
+function buildUpgradeSuggestionsFallback(role, candidateData = {}) {
+  const weakAreas = [];
+  if ((candidateData.resumeScore || 0) < 70) weakAreas.push('resume presentation');
+  if ((candidateData.quizScore || 0) < 70) weakAreas.push('technical fundamentals');
+  if ((candidateData.interviewScore || 0) < 70) weakAreas.push('interview communication');
+  if ((candidateData.videoInterviewScore || 0) < 70 || (candidateData.uploadVideoScore || 0) < 70) weakAreas.push('video communication and confidence');
+
+  return {
+    weakAreas,
+    suggestions: getUpgradeSuggestionCatalog(role).map((item) => ({
+      ...item,
+      why: weakAreas.length ? `${item.why} Priority area: ${weakAreas[0]}.` : item.why
+    }))
+  };
+}
+
+app.post('/api/upgrade-skills/suggestions', authenticateToken, async (req, res) => {
+  try {
+    if (!['candidate', 'recruiter', 'superadmin'].includes(req.user?.userType)) {
+      return res.status(403).json({ error: 'Access denied' });
+    }
+
+    const role = normalizeRoleKey(req.body?.position || req.body?.targetRole, 'General');
+    const candidateData = req.body?.candidateData || {};
+    const fallback = buildUpgradeSuggestionsFallback(role, candidateData);
+    const hasApiKey = process.env.OPENROUTER_API_KEY || process.env.GOOGLE_GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
+
+    if (!hasApiKey) {
+      return res.json({ success: true, ...fallback, source: 'fallback' });
+    }
+
+    const prompt = `Suggest learning resources for a ${role} candidate.
+Scores: resume ${Number(candidateData.resumeScore) || 0}, quiz ${Number(candidateData.quizScore) || 0}, interview ${Number(candidateData.interviewScore) || 0}, live video ${Number(candidateData.videoInterviewScore) || 0}, uploaded video ${Number(candidateData.uploadVideoScore) || 0}.
+
+Return ONLY valid JSON in this exact shape:
+{
+  "weakAreas": ["string"],
+  "suggestions": [
+    {
+      "title": "string",
+      "url": "https://example.com",
+      "type": "website",
+      "category": "string",
+      "why": "string"
+    }
+  ]
+}
+
+Rules:
+- Give 6 resources total.
+- Mix websites, blogs, articles, documentation, or courses.
+- Use real, publicly accessible links only.
+- Tailor suggestions to the candidate's job role and weakest assessment areas.`;
+
+    try {
+      const raw = await callAI(prompt, 'You are a strict career resource recommendation engine. Return JSON only.', { task: 'career' });
+      const parsed = parseJsonFromAI(raw, 'object');
+      const suggestions = Array.isArray(parsed?.suggestions)
+        ? parsed.suggestions.filter((item) => item && item.title && item.url).slice(0, 6).map((item) => ({
+          title: String(item.title).trim(),
+          url: String(item.url).trim(),
+          type: String(item.type || 'website').trim(),
+          category: String(item.category || role).trim(),
+          why: String(item.why || '').trim()
+        }))
+        : [];
+
+      if (suggestions.length > 0) {
+        return res.json({
+          success: true,
+          weakAreas: Array.isArray(parsed?.weakAreas) ? parsed.weakAreas.map((item) => String(item || '').trim()).filter(Boolean) : fallback.weakAreas,
+          suggestions,
+          source: 'ai'
+        });
+      }
+    } catch (aiError) {
+      console.error('Upgrade skills AI suggestion error:', aiError.message);
+    }
+
+    return res.json({ success: true, ...fallback, source: 'fallback' });
+  } catch (error) {
+    console.error('Upgrade skills endpoint error:', error);
+    return res.status(500).json({ error: 'Failed to generate upgrade skill suggestions' });
+  }
+});
 
 app.post('/api/career-advice', async (req, res) => {
   try {

@@ -33,7 +33,7 @@ Sole Creator: Anup Mazumdar | MCA Student | UEM Jaipur (2025-2027)
 - Candidate Scoring: Weighted multi-criteria scoring with detailed insights.
 - Video Assessment: Live video recording, introduction upload, and AI-powered video grading.
 - Career Coach: AI-powered career coaching panel available from Stage 2 onwards.
-- Upgrade Skills Roadmap: Personalised learning roadmap with curated resource links generated after results, helping candidates upskill based on their assessment gaps.
+- Upgrade Skills Roadmap: Superadmin-curated YouTube videos plus AI-suggested websites, blogs, articles, and courses generated after results to help candidates upskill by role and gap area.
 - Recruiter Dashboard: Real-time analytics, candidate rankings, and pipeline management.
 - Per-Recruiter Candidate Visibility: Superadmin can restrict which candidates each recruiter can view.
 - Superadmin Panel: Full platform control — manage recruiters, candidates, question bank, and access policies.
@@ -215,6 +215,7 @@ TalentAI has a three-tier access model: **Candidate → Recruiter → Superadmin
   - Default: recruiter sees all candidates.
   - Restrict mode: superadmin picks a whitelist of specific candidates per recruiter via a candidate checklist in the dashboard.
 - **Question Bank Management** — Full access to update, replace, and refresh quiz questions for any domain via the embedded Question Panel.
+- **Resource Management (Upgrade Skills)** — Add, edit, or remove YouTube video links per job role for the Upgrade Skills section (Stage 9). Candidates see superadmin-curated videos for their applied role alongside AI-suggested resources.
 - **Configurable Quiz Durations** — Set time limits for each quiz independently.
 - **Platform Stats** — Real-time overview of recruiter count, active access, candidate totals, and average score.
 
@@ -227,7 +228,7 @@ TalentAI has a three-tier access model: **Candidate → Recruiter → Superadmin
 
 ### Career Coach
 
-After a candidate completes all 8 assessment stages, the **Career Coach** panel (Stage 2) also remains accessible for ongoing guidance. It is powered by the same OpenRouter AI engine and provides personalised improvement guidance, skill gap analysis, and next-step recommendations based on the candidate's actual assessment results.
+After the candidate starts at Stage 2, the **Career Coach** panel remains accessible throughout the rest of the journey for ongoing guidance. It is powered by the same OpenRouter AI engine and provides personalised improvement guidance, skill gap analysis, and next-step recommendations based on the candidate's actual assessment results.
 
 ---
 
@@ -235,12 +236,12 @@ After a candidate completes all 8 assessment stages, the **Career Coach** panel 
 
 After viewing their results (Stage 8), candidates unlock the **Upgrade Skills** section (Stage 9) — a dedicated page separate from the results dashboard. It combines two sources of learning content:
 
-1. **Admin-Curated YouTube Videos** — Superadmin and recruiters can add YouTube video links per job role/domain from the admin panel. Candidates see these curated videos relevant to their applied role.
+1. **Superadmin-Curated YouTube Videos** — The superadmin can add YouTube video links per job role/domain from the admin panel. Candidates see these curated videos relevant to their applied role.
 2. **AI-Suggested Resources** — AI analyses the candidate's assessment scores and gap areas, then recommends tailored websites, blogs, articles, documentation, and courses per skill category and job role.
 
-### Admin: Adding YouTube Resource Links
+### Superadmin: Adding YouTube Resource Links
 
-Superadmin and recruiters can manage video resources from the admin panel under the **Resources** tab:
+The superadmin can manage video resources from the admin panel under the **Resources** tab:
 
 - Add a YouTube video link with a title, description, and target job role tag (e.g., Backend Engineer, Data Scientist, Full-Stack Developer).
 - Edit or remove existing links at any time.
@@ -252,6 +253,7 @@ Superadmin and recruiters can manage video resources from the admin panel under 
 The AI generates role-specific recommendations after analysing each candidate's weak areas:
 
 #### Backend / Full-Stack Engineer
+
 | Resource | Type |
 | --- | --- |
 | [roadmap.sh/backend](https://roadmap.sh/backend) | Developer roadmap |
@@ -261,6 +263,7 @@ The AI generates role-specific recommendations after analysing each candidate's 
 | [MDN Web Docs](https://developer.mozilla.org) | Reference docs |
 
 #### Frontend Engineer
+
 | Resource | Type |
 | --- | --- |
 | [roadmap.sh/frontend](https://roadmap.sh/frontend) | Developer roadmap |
@@ -270,6 +273,7 @@ The AI generates role-specific recommendations after analysing each candidate's 
 | [freeCodeCamp](https://www.freecodecamp.org) | Certifications |
 
 #### Data Structures & Algorithms
+
 | Resource | Type |
 | --- | --- |
 | [LeetCode](https://leetcode.com) | Practice problems |
@@ -278,6 +282,7 @@ The AI generates role-specific recommendations after analysing each candidate's 
 | [CS50 (Harvard)](https://cs50.harvard.edu) | Free foundational CS course |
 
 #### Data Scientist / ML Engineer
+
 | Resource | Type |
 | --- | --- |
 | [roadmap.sh/ai-data-scientist](https://roadmap.sh/ai-data-scientist) | Roadmap |
@@ -288,6 +293,7 @@ The AI generates role-specific recommendations after analysing each candidate's 
 | [Coursera — Andrew Ng ML](https://www.coursera.org/specializations/machine-learning-introduction) | Foundational ML course |
 
 #### Cloud / DevOps Engineer
+
 | Resource | Type |
 | --- | --- |
 | [roadmap.sh/devops](https://roadmap.sh/devops) | Roadmap |
@@ -298,6 +304,7 @@ The AI generates role-specific recommendations after analysing each candidate's 
 | [The New Stack](https://thenewstack.io) | Cloud-native articles and blogs |
 
 #### General / Core Computer Science
+
 | Resource | Type |
 | --- | --- |
 | [MIT OpenCourseWare](https://ocw.mit.edu) | University-level CS courses (free) |
@@ -313,7 +320,7 @@ The AI generates role-specific recommendations after analysing each candidate's 
 3. Admin-curated YouTube videos for the candidate's role are shown at the top.
 4. AI-suggested websites, blogs, articles, and courses are listed below, grouped by category.
 5. Candidates can bookmark resources and mark topics as complete.
-- **Resource Management (Upgrade Skills)** — Add, edit, or remove YouTube video links per job role for the Upgrade Skills section (Stage 9). Candidates see curated videos for their applied role alongside AI-suggested resources.
+
 ---
 
 ## Video AI Grading
@@ -378,14 +385,16 @@ Shortlist Threshold: 68+ weighted score
 ## Recent Updates
 
 ### v2.1 — Upgrade Skills Roadmap (Stage 9)
-- New final stage: admin-curated YouTube videos + AI-suggested websites, blogs, articles, and courses.
-- Admins can add/edit/remove YouTube links per job role from the admin panel (Resources tab).
+
+- New final stage: superadmin-curated YouTube videos + AI-suggested websites, blogs, articles, and courses.
+- Superadmin can add/edit/remove YouTube links per job role from the Resources tab.
 - AI generates role-specific resource recommendations based on assessment gap areas.
 - Resources grouped by job role: Backend, Frontend, DSA, ML/AI, Cloud/DevOps, Core CS.
 - Dedicated section separate from the results dashboard.
 - Pipeline updated from 8-stage to 9-stage.
 
 ### v2.0 — Superadmin Access Control & Candidate Visibility
+
 - Superadmin can now remove any recruiter or candidate account (with cascade cleanup of related views and subscriptions).
 - New `PUT /api/superadmin/recruiters/:id/candidate-access` endpoint — superadmin sets a per-recruiter candidate whitelist.
 - `GET /api/recruiter/candidates` now enforces `allowedCandidateIds` filtering; `null` means unrestricted.
@@ -394,12 +403,14 @@ Shortlist Threshold: 68+ weighted score
 - Recruiter list, recruiter detail panel, and candidate account list all include Remove buttons.
 
 ### v1.5 — Question Bank, Quiz Durations & Career Coach
+
 - Question bank policy enforced: recruiters and admins can update/refresh questions; arbitrary add/delete is restricted.
 - Quiz duration is now configurable per domain — superadmin sets time limits independently per quiz.
 - Career Coach feature: unlocked post-assessment, provides AI-driven personalised guidance.
 - Video AI grading: candidate-uploaded videos are now scored by AI and factored into the overall ranking.
 
 ### v1.1 — Auth & Pipeline Fixes
+
 - Fixed `authState` prop wiring in `TechnicalQuizStage` to prevent auth context loss during quiz.
 - General security middleware hardening (`api/middleware/security.js`): rate limiting and CORS improvements.
 

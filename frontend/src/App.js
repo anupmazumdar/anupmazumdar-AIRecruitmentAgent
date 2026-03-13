@@ -626,7 +626,8 @@ function CandidatePortal({ setUserType, subscription, authState, logout }) {
     { id: 'quiz', label: 'Quiz', icon: Award },
     { id: 'interview', label: 'Interview', icon: MessageSquare },
     { id: 'video', label: 'Live Video', icon: Video },
-    { id: 'results', label: 'Results', icon: TrendingUp }
+    { id: 'results', label: 'Results', icon: TrendingUp },
+    { id: 'upgradeSkills', label: 'Upgrade Skills', icon: Sparkles }
   ];
 
   const currentStageIndex = stages.findIndex(s => s.id === stage);
@@ -648,7 +649,7 @@ function CandidatePortal({ setUserType, subscription, authState, logout }) {
 
       {/* Progress Bar */}
       <div className="max-w-5xl mx-auto mb-8 overflow-x-auto">
-        <div className="flex min-w-[700px] items-center justify-between">
+        <div className="flex min-w-[880px] items-center justify-between">
           {stages.map((s, idx) => {
             const Icon = s.icon;
             const isCompleted = idx < currentStageIndex;
@@ -682,7 +683,8 @@ function CandidatePortal({ setUserType, subscription, authState, logout }) {
         {stage === 'quiz' && <TechnicalQuizStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} authState={authState} />}
         {stage === 'interview' && <TextInterviewStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} authState={authState} />}
         {stage === 'video' && <VideoInterviewStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} />}
-        {stage === 'results' && <ResultsStage candidateData={candidateData} />}
+        {stage === 'results' && <ResultsStage candidateData={candidateData} authState={authState} setStage={setStage} />}
+        {stage === 'upgradeSkills' && <UpgradeSkillsStage candidateData={candidateData} authState={authState} setStage={setStage} />}
       </div>
     </div>
   );
@@ -2691,7 +2693,7 @@ function VideoInterviewStage({ candidateData, setCandidateData, setStage }) {
   );
 }
 
-function ResultsStage({ candidateData, authState }) {
+function ResultsStage({ candidateData, authState, setStage }) {
   const [advice, setAdvice] = useState(null);
   const [loadingAdvice, setLoadingAdvice] = useState(false);
   const preferredCompany = candidateData.targetCompany || candidateData.careerGuidance?.targetCompany || '';
@@ -2879,6 +2881,194 @@ function ResultsStage({ candidateData, authState }) {
             <p className="text-slate-300 leading-relaxed">{advice.nextSteps}</p>
           </div>
         </div>
+      )}
+
+      <div className="bg-slate-900/50 border border-slate-700 rounded-2xl p-4 md:p-6 text-center">
+        <h3 className="text-lg font-bold mb-2">Ready for the final stage?</h3>
+        <p className="text-sm text-slate-400 mb-4">Keep your results exactly as they are, then move to Upgrade Skills for superadmin-curated YouTube videos and AI-suggested learning resources.</p>
+        <button
+          onClick={() => setStage('upgradeSkills')}
+          className="min-h-[44px] px-6 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl font-semibold hover:from-indigo-500 hover:to-purple-500 transition-all"
+        >
+          Continue to Upgrade Skills →
+        </button>
+      </div>
+    </div>
+  );
+}
+
+function UpgradeSkillsStage({ candidateData, authState, setStage }) {
+  const [adminResources, setAdminResources] = useState([]);
+  const [suggestions, setSuggestions] = useState([]);
+  const [weakAreas, setWeakAreas] = useState([]);
+  const [loading, setLoading] = useState(true);
+  const [source, setSource] = useState('fallback');
+
+  const role = candidateData.position || candidateData.careerGuidance?.role || 'General';
+
+  const groupedSuggestions = suggestions.reduce((acc, item) => {
+    const key = item.category || 'General';
+    acc[key] = acc[key] || [];
+    acc[key].push(item);
+    return acc;
+  }, {});
+
+  const fetchUpgradeSkills = useCallback(async () => {
+    setLoading(true);
+    try {
+      const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authState?.token}` };
+      const [resourcesRes, suggestionsRes] = await Promise.all([
+        fetch(`${API_URL}/api/upgrade-resources?role=${encodeURIComponent(role)}`, { headers }),
+        fetch(`${API_URL}/api/upgrade-skills/suggestions`, {
+          method: 'POST',
+          headers,
+          body: JSON.stringify({ position: role, candidateData })
+        })
+      ]);
+
+      const [resourcesData, suggestionsData] = await Promise.all([
+        parseApiJson(resourcesRes),
+        parseApiJson(suggestionsRes)
+      ]);
+
+      if (resourcesData.success) setAdminResources(resourcesData.resources || []);
+      if (suggestionsData.success) {
+        setSuggestions(suggestionsData.suggestions || []);
+        setWeakAreas(suggestionsData.weakAreas || []);
+        setSource(suggestionsData.source || 'fallback');
+      }
+    } catch (error) {
+      console.error('Upgrade skills fetch failed:', error);
+    } finally {
+      setLoading(false);
+    }
+  }, [authState?.token, candidateData, role]);
+
+  useEffect(() => {
+    fetchUpgradeSkills();
+  }, [fetchUpgradeSkills]);
+
+  return (
+    <div className="space-y-6">
+      <div className="bg-gradient-to-br from-indigo-900/50 to-fuchsia-900/40 rounded-2xl p-5 md:p-8 border border-indigo-500/30">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <div>
+            <h2 className="text-2xl md:text-3xl font-bold">Upgrade Skills</h2>
+            <p className="mt-2 text-sm md:text-base text-slate-300">Final stage for role-specific upskilling. Superadmin-curated YouTube videos appear first, followed by AI-suggested websites, blogs, articles, docs, and courses for <span className="font-semibold text-white">{role}</span>.</p>
+          </div>
+          <button
+            onClick={() => setStage('results')}
+            className="min-h-[44px] px-4 py-2 rounded-xl bg-slate-800/60 hover:bg-slate-700/60 transition-all text-sm font-semibold"
+          >
+            ← Back to Results
+          </button>
+        </div>
+      </div>
+
+      {weakAreas.length > 0 && (
+        <div className="bg-amber-900/20 border border-amber-500/30 rounded-2xl p-4 md:p-5">
+          <h3 className="text-lg font-bold text-amber-300 mb-3">Priority Focus Areas</h3>
+          <div className="flex flex-wrap gap-2">
+            {weakAreas.map((item, index) => (
+              <span key={index} className="px-3 py-1.5 rounded-full text-sm bg-amber-500/15 border border-amber-500/30 text-amber-100">
+                {item}
+              </span>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {loading ? (
+        <div className="bg-slate-900/50 rounded-2xl p-8 border border-slate-700 text-center">
+          <div className="animate-spin rounded-full h-10 w-10 border-b-4 border-indigo-500 mx-auto mb-4"></div>
+          <p className="text-slate-300">Building your upgrade plan...</p>
+        </div>
+      ) : (
+        <>
+          <div className="bg-slate-900/50 border border-slate-700 rounded-2xl p-4 md:p-6">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div>
+                <h3 className="text-lg font-bold text-red-300">🎥 Superadmin YouTube Resources</h3>
+                <p className="text-xs md:text-sm text-slate-400 mt-1">Curated links added by the superadmin for your target role.</p>
+              </div>
+              <span className="text-xs px-3 py-1 rounded-full bg-slate-800/80 border border-slate-600 text-slate-300">{adminResources.length} videos</span>
+            </div>
+
+            {adminResources.length === 0 ? (
+              <div className="rounded-xl border border-dashed border-slate-600 bg-slate-800/30 p-5 text-sm text-slate-400">
+                No superadmin YouTube videos have been added for this role yet.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                {adminResources.map((resource) => (
+                  <div key={resource.id} className="rounded-xl border border-slate-700 bg-slate-800/40 p-4 flex flex-col gap-3">
+                    <div>
+                      <p className="text-xs uppercase tracking-wide text-red-300 mb-1">{resource.role}</p>
+                      <h4 className="font-semibold text-white">{resource.title}</h4>
+                      {resource.description && <p className="text-sm text-slate-400 mt-2">{resource.description}</p>}
+                    </div>
+                    <a
+                      href={resource.url}
+                      target="_blank"
+                      rel="noreferrer"
+                      className="inline-flex items-center justify-center min-h-[44px] px-4 py-2 rounded-lg bg-red-600/80 hover:bg-red-500 text-white font-semibold text-sm transition-all"
+                    >
+                      Watch on YouTube
+                    </a>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          <div className="bg-slate-900/50 border border-slate-700 rounded-2xl p-4 md:p-6">
+            <div className="flex items-center justify-between gap-3 mb-4">
+              <div>
+                <h3 className="text-lg font-bold text-indigo-300">🧠 AI-Suggested Learning Resources</h3>
+                <p className="text-xs md:text-sm text-slate-400 mt-1">Source: {source === 'ai' ? 'live AI suggestions' : 'local fallback suggestions'}.</p>
+              </div>
+              <button
+                onClick={fetchUpgradeSkills}
+                className="min-h-[44px] px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm font-semibold transition-all"
+              >
+                Refresh Suggestions
+              </button>
+            </div>
+
+            {Object.keys(groupedSuggestions).length === 0 ? (
+              <div className="rounded-xl border border-dashed border-slate-600 bg-slate-800/30 p-5 text-sm text-slate-400">
+                No suggestions are available right now.
+              </div>
+            ) : (
+              <div className="space-y-5">
+                {Object.entries(groupedSuggestions).map(([category, items]) => (
+                  <div key={category}>
+                    <h4 className="text-sm font-semibold uppercase tracking-wide text-slate-300 mb-3">{category}</h4>
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      {items.map((item, index) => (
+                        <div key={`${category}-${index}`} className="rounded-xl border border-indigo-500/20 bg-indigo-900/10 p-4 flex flex-col gap-2">
+                          <div className="flex items-center justify-between gap-2">
+                            <h5 className="font-semibold text-white">{item.title}</h5>
+                            <span className="text-[11px] px-2 py-1 rounded-full bg-slate-800/70 border border-slate-600 text-slate-300 uppercase">{item.type}</span>
+                          </div>
+                          {item.why && <p className="text-sm text-slate-400">{item.why}</p>}
+                          <a
+                            href={item.url}
+                            target="_blank"
+                            rel="noreferrer"
+                            className="inline-flex items-center text-sm text-indigo-300 hover:text-indigo-200 underline underline-offset-2 mt-1"
+                          >
+                            Open Resource
+                          </a>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+        </>
       )}
     </div>
   );
@@ -3077,7 +3267,7 @@ function SuperAdminDashboard({ authState, logout }) {
       {/* Tabs */}
       <div className="max-w-7xl mx-auto">
         <div className="mb-5 flex flex-wrap gap-2">
-          {['recruiters', 'candidates', 'questions'].map(tab => (
+          {['recruiters', 'candidates', 'questions', 'resources'].map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)}
               className={`min-h-[44px] px-5 py-2 rounded-xl font-semibold text-sm md:text-base capitalize transition-all ${
                 activeTab === tab ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-800/50 text-slate-400 hover:bg-slate-700/50'
@@ -3324,6 +3514,227 @@ function SuperAdminDashboard({ authState, logout }) {
             <AdminQuestionPanel authState={authState} embedded={true} />
           </div>
         )}
+
+        {activeTab === 'resources' && (
+          <div className="bg-slate-900/60 backdrop-blur-xl rounded-2xl border border-slate-700 p-4 md:p-5">
+            <SuperAdminResourcePanel authState={authState} />
+          </div>
+        )}
+      </div>
+    </div>
+  );
+}
+
+function SuperAdminResourcePanel({ authState }) {
+  const ROLE_OPTIONS = [
+    'General', 'Software Engineer', 'Frontend Developer', 'Backend Developer', 'Full Stack Developer',
+    'Data Scientist', 'Machine Learning Engineer', 'DevOps Engineer', 'UI/UX Designer',
+    'Product Manager', 'Android Developer', 'iOS Developer', 'QA Engineer'
+  ];
+
+  const emptyForm = { role: 'General', title: '', url: '', description: '' };
+  const [resources, setResources] = useState([]);
+  const [form, setForm] = useState(emptyForm);
+  const [editingId, setEditingId] = useState(null);
+  const [loading, setLoading] = useState(true);
+  const [saving, setSaving] = useState(false);
+  const [deletingId, setDeletingId] = useState(null);
+  const [notice, setNotice] = useState(null);
+
+  const headers = useMemo(
+    () => ({ 'Content-Type': 'application/json', 'Authorization': `Bearer ${authState?.token}` }),
+    [authState?.token]
+  );
+
+  const showNotice = (msg, type = 'success') => {
+    setNotice({ msg, type });
+    setTimeout(() => setNotice(null), 3000);
+  };
+
+  const fetchResources = useCallback(async () => {
+    setLoading(true);
+    try {
+      const res = await fetch(`${API_URL}/api/superadmin/resources`, { headers });
+      const data = await parseApiJson(res);
+      if (data.success) setResources(data.resources || []);
+    } catch (error) {
+      console.error(error);
+    } finally {
+      setLoading(false);
+    }
+  }, [headers]);
+
+  useEffect(() => { fetchResources(); }, [fetchResources]);
+
+  const resetForm = () => {
+    setForm(emptyForm);
+    setEditingId(null);
+  };
+
+  const handleSave = async () => {
+    if (!form.title.trim() || !form.url.trim()) {
+      showNotice('Title and YouTube URL are required.', 'error');
+      return;
+    }
+
+    setSaving(true);
+    try {
+      const method = editingId ? 'PUT' : 'POST';
+      const url = editingId ? `${API_URL}/api/superadmin/resources/${editingId}` : `${API_URL}/api/superadmin/resources`;
+      const res = await fetch(url, {
+        method,
+        headers,
+        body: JSON.stringify(form)
+      });
+      const data = await parseApiJson(res);
+      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to save resource');
+      showNotice(editingId ? 'Resource updated.' : 'Resource created.');
+      resetForm();
+      fetchResources();
+    } catch (error) {
+      showNotice(error.message || 'Failed to save resource', 'error');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const handleEdit = (resource) => {
+    setEditingId(resource.id);
+    setForm({
+      role: resource.role || 'General',
+      title: resource.title || '',
+      url: resource.url || '',
+      description: resource.description || ''
+    });
+  };
+
+  const handleDelete = async (resource) => {
+    if (!window.confirm(`Delete resource "${resource.title}"?`)) return;
+    setDeletingId(resource.id);
+    try {
+      const res = await fetch(`${API_URL}/api/superadmin/resources/${resource.id}`, {
+        method: 'DELETE',
+        headers
+      });
+      const data = await parseApiJson(res);
+      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to delete resource');
+      showNotice('Resource deleted.');
+      fetchResources();
+    } catch (error) {
+      showNotice(error.message || 'Failed to delete resource', 'error');
+    } finally {
+      setDeletingId(null);
+    }
+  };
+
+  return (
+    <div className="space-y-5">
+      {notice && (
+        <div className={`rounded-xl px-4 py-3 text-sm font-semibold ${notice.type === 'error' ? 'bg-red-600 text-white' : 'bg-green-600 text-white'}`}>
+          {notice.msg}
+        </div>
+      )}
+
+      <div className="bg-gradient-to-br from-red-900/40 to-rose-900/40 rounded-2xl p-4 md:p-6 border border-red-500/30">
+        <h2 className="text-xl md:text-2xl font-bold">🎥 Superadmin Resource Manager</h2>
+        <p className="text-slate-300 text-sm md:text-base mt-1">Add YouTube links for the candidate Upgrade Skills stage. These are superadmin-only resources and are shown by job role after Results.</p>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-5">
+        <div className="lg:col-span-1 bg-slate-800/40 rounded-2xl border border-slate-700 p-4 md:p-5 space-y-4">
+          <h3 className="font-semibold text-white">{editingId ? 'Edit Resource' : 'Add Resource'}</h3>
+          <div>
+            <label className="block text-sm text-slate-300 mb-2">Job Role</label>
+            <select
+              value={form.role}
+              onChange={(e) => setForm(prev => ({ ...prev, role: e.target.value }))}
+              className="w-full px-3 py-2 bg-slate-900/60 border border-slate-600 rounded-lg focus:border-red-500 focus:outline-none text-sm"
+            >
+              {ROLE_OPTIONS.map((role) => <option key={role} value={role}>{role}</option>)}
+            </select>
+          </div>
+          <div>
+            <label className="block text-sm text-slate-300 mb-2">Title</label>
+            <input
+              value={form.title}
+              onChange={(e) => setForm(prev => ({ ...prev, title: e.target.value }))}
+              className="w-full px-3 py-2 bg-slate-900/60 border border-slate-600 rounded-lg focus:border-red-500 focus:outline-none text-sm"
+              placeholder="System Design Crash Course"
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-slate-300 mb-2">YouTube URL</label>
+            <input
+              value={form.url}
+              onChange={(e) => setForm(prev => ({ ...prev, url: e.target.value }))}
+              className="w-full px-3 py-2 bg-slate-900/60 border border-slate-600 rounded-lg focus:border-red-500 focus:outline-none text-sm"
+              placeholder="https://www.youtube.com/watch?v=..."
+            />
+          </div>
+          <div>
+            <label className="block text-sm text-slate-300 mb-2">Description</label>
+            <textarea
+              rows={3}
+              value={form.description}
+              onChange={(e) => setForm(prev => ({ ...prev, description: e.target.value }))}
+              className="w-full px-3 py-2 bg-slate-900/60 border border-slate-600 rounded-lg focus:border-red-500 focus:outline-none text-sm resize-none"
+              placeholder="Why this video is useful for the selected role"
+            />
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={handleSave}
+              disabled={saving}
+              className="flex-1 min-h-[44px] px-4 py-2.5 bg-red-600 hover:bg-red-500 rounded-xl font-semibold transition-all disabled:opacity-50"
+            >
+              {saving ? 'Saving...' : editingId ? 'Update Resource' : 'Add Resource'}
+            </button>
+            {editingId && (
+              <button
+                onClick={resetForm}
+                className="min-h-[44px] px-4 py-2.5 bg-slate-700 hover:bg-slate-600 rounded-xl font-semibold transition-all"
+              >
+                Cancel
+              </button>
+            )}
+          </div>
+        </div>
+
+        <div className="lg:col-span-2 bg-slate-800/40 rounded-2xl border border-slate-700 p-4 md:p-5">
+          <div className="flex items-center justify-between gap-3 mb-4">
+            <h3 className="font-semibold text-white">Existing YouTube Resources</h3>
+            <span className="text-xs px-3 py-1 rounded-full bg-slate-900/70 border border-slate-600 text-slate-300">{resources.length} total</span>
+          </div>
+
+          {loading ? (
+            <div className="p-10 text-center"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-red-500 mx-auto" /></div>
+          ) : resources.length === 0 ? (
+            <div className="rounded-xl border border-dashed border-slate-600 bg-slate-900/40 p-8 text-center text-slate-400">
+              No resources added yet.
+            </div>
+          ) : (
+            <div className="space-y-3 max-h-[700px] overflow-y-auto pr-1">
+              {resources.map((resource) => (
+                <div key={resource.id} className="rounded-xl border border-slate-700 bg-slate-900/40 p-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
+                  <div className="min-w-0">
+                    <p className="text-xs uppercase tracking-wide text-red-300 mb-1">{resource.role}</p>
+                    <h4 className="font-semibold text-white break-words">{resource.title}</h4>
+                    <a href={resource.url} target="_blank" rel="noreferrer" className="text-sm text-indigo-300 hover:text-indigo-200 underline underline-offset-2 break-all">
+                      {resource.url}
+                    </a>
+                    {resource.description && <p className="text-sm text-slate-400 mt-2">{resource.description}</p>}
+                  </div>
+                  <div className="flex gap-2 md:flex-shrink-0">
+                    <button onClick={() => handleEdit(resource)} className="min-h-[44px] px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm font-semibold transition-all">Edit</button>
+                    <button onClick={() => handleDelete(resource)} disabled={deletingId === resource.id} className="min-h-[44px] px-4 py-2 rounded-lg bg-rose-700 hover:bg-rose-600 text-sm font-semibold transition-all disabled:opacity-50">
+                      {deletingId === resource.id ? 'Deleting...' : 'Delete'}
+                    </button>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );
