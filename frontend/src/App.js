@@ -281,7 +281,7 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
     isLoading: isAuth0Loading,
     isAuthenticated: isAuth0Authenticated,
     error: auth0Error,
-    loginWithRedirect,
+    loginWithPopup,
     logout: auth0Logout,
     getIdTokenClaims,
     user: auth0User
@@ -460,7 +460,7 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
             <>
               <button
                 type="button"
-                onClick={() => loginWithRedirect()}
+                onClick={async () => { setError(''); try { await loginWithPopup(); } catch (e) { if (e.message !== 'Popup closed') setError(e.message); } }}
                 disabled={isAuth0Loading}
                 className="w-full min-h-[44px] py-2.5 rounded-lg font-semibold text-sm md:text-base bg-cyan-700 hover:bg-cyan-600 transition-all disabled:opacity-60"
               >
@@ -468,7 +468,7 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
               </button>
               <button
                 type="button"
-                onClick={() => loginWithRedirect({ authorizationParams: { screen_hint: 'signup' } })}
+                onClick={async () => { setError(''); try { await loginWithPopup({ authorizationParams: { screen_hint: 'signup' } }); } catch (e) { if (e.message !== 'Popup closed') setError(e.message); } }}
                 disabled={isAuth0Loading}
                 className="w-full min-h-[44px] py-2.5 rounded-lg font-semibold text-sm md:text-base bg-slate-800 border border-slate-600 hover:bg-slate-700 transition-all disabled:opacity-60"
               >
