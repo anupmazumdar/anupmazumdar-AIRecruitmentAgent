@@ -156,6 +156,12 @@ app.use(cors());
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
+const DEFAULT_SUPERADMIN = {
+  name: process.env.SUPERADMIN_NAME || 'TalentAI Admin',
+  email: (process.env.SUPERADMIN_EMAIL || 'admin@talentai.local').toLowerCase(),
+  password: process.env.SUPERADMIN_PASSWORD || 'Admin@12345'
+};
+
 // In-memory storage (backed by cloud when available)
 let users = [];
 let candidates = [];
@@ -179,7 +185,28 @@ async function initializeData() {
   if (subscriptions.length > 0) subscriptionId = Math.max(...subscriptions.map(s => s.id)) + 1;
   if (questionBank.length > 0) questionId = Math.max(...questionBank.map(q => q.id)) + 1;
 
+  await ensureSuperAdminAccount();
+
   console.log(`📊 Data loaded: ${users.length} users, ${candidates.length} candidates, ${questionBank.length} questions`);
+}
+
+async function ensureSuperAdminAccount() {
+  const existingAdmin = users.find(u => u.userType === 'superadmin');
+  if (existingAdmin) return;
+
+  const hashedPassword = await bcrypt.hash(DEFAULT_SUPERADMIN.password, 10);
+  users.push({
+    id: userId++,
+    name: DEFAULT_SUPERADMIN.name,
+    email: DEFAULT_SUPERADMIN.email,
+    password: hashedPassword,
+    userType: 'superadmin',
+    company: 'TalentAI',
+    createdAt: new Date().toISOString()
+  });
+
+  await saveUsers();
+  console.log(`🔐 Seeded superadmin account: ${DEFAULT_SUPERADMIN.email}`);
 }
 
 // Auto-save functions
@@ -393,6 +420,14 @@ function authenticateToken(req, res, next) {
   }
 }
 
+function requireSuperAdmin(req, res, next) {
+  if (req.user?.userType !== 'superadmin') {
+    return res.status(403).json({ error: 'Superadmin access required' });
+  }
+
+  next();
+}
+
 // ==================== AUTHENTICATION ROUTES ====================
 
 // Register
@@ -586,7 +621,7 @@ app.delete('/api/admin/questions/:id', authenticateToken, async (req, res) => {
 // ==================== SUPER-ADMIN RECRUITER MANAGEMENT ====================
 
 // GET all recruiters with their access status
-app.get('/api/superadmin/recruiters', authenticateToken, (req, res) => {
+app.get('/api/superadmin/recruiters', authenticateToken, requireSuperAdmin, (req, res) => {
   const recruiters = users
     .filter(u => u.userType === 'recruiter')
     .map(({ password: _, ...u }) => ({
@@ -599,7 +634,7 @@ app.get('/api/superadmin/recruiters', authenticateToken, (req, res) => {
 });
 
 // GET super-admin platform stats
-app.get('/api/superadmin/stats', authenticateToken, (req, res) => {
+app.get('/api/superadmin/stats', authenticateToken, requireSuperAdmin, (req, res) => {
   const recruiterCount = users.filter(u => u.userType === 'recruiter').length;
   const candidateCount = candidates.length;
   const activeRecruiters = users.filter(u => u.userType === 'recruiter' && u.canViewCandidates !== false).length;
@@ -613,7 +648,7 @@ app.get('/api/superadmin/stats', authenticateToken, (req, res) => {
 });
 
 // PUT toggle recruiter access
-app.put('/api/superadmin/recruiters/:id/access', authenticateToken, async (req, res) => {
+app.put('/api/superadmin/recruiters/:id/access', authenticateToken, requireSuperAdmin, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const { canViewCandidates, accessNote } = req.body;
@@ -633,7 +668,7 @@ app.put('/api/superadmin/recruiters/:id/access', authenticateToken, async (req, 
 });
 
 // PUT update recruiter details (name, company)
-app.put('/api/superadmin/recruiters/:id', authenticateToken, async (req, res) => {
+app.put('/api/superadmin/recruiters/:id', authenticateToken, requireSuperAdmin, async (req, res) => {
   try {
     const id = parseInt(req.params.id);
     const user = users.find(u => u.id === id && u.userType === 'recruiter');

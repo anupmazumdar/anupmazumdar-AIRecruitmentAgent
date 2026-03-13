@@ -270,6 +270,12 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
           </div>
         )}
 
+        {authMode === 'login' && (
+          <div className="mb-4 p-3 bg-slate-800/60 border border-slate-700 rounded-lg text-xs text-slate-300">
+            Admin access uses the regular sign-in form. Log in with a superadmin account to open the admin dashboard.
+          </div>
+        )}
+
         <form onSubmit={handleSubmit} className="space-y-3">
           {authMode === 'register' && (
             <>
@@ -447,6 +453,15 @@ function HomePage({ setUserType, setShowSubscriptionModal, setShowAuthModal, set
           </div>
         ) : (
           <>
+            <button
+              onClick={() => {
+                setAuthMode('login');
+                setShowAuthModal(true);
+              }}
+              className="px-5 py-2 bg-orange-600/90 rounded-lg hover:bg-orange-500 transition-all text-sm"
+            >
+              Admin Login
+            </button>
             <button
               onClick={() => {
                 setAuthMode('login');
