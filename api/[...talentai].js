@@ -159,8 +159,8 @@ app.use(express.urlencoded({ extended: true, limit: '10mb' }));
 
 const DEFAULT_SUPERADMIN = {
   name: process.env.SUPERADMIN_NAME || 'TalentAI Admin',
-  email: (process.env.SUPERADMIN_EMAIL || 'admin@talentai.local').toLowerCase(),
-  password: process.env.SUPERADMIN_PASSWORD || 'Admin@12345'
+  email: (process.env.SUPERADMIN_EMAIL || 'anupmazumdar987@gmail.com').toLowerCase(),
+  password: process.env.SUPERADMIN_PASSWORD || 'Anup@2610'
 };
 
 // In-memory storage (backed by cloud when available)
@@ -193,7 +193,21 @@ async function initializeData() {
 
 async function ensureSuperAdminAccount() {
   const existingAdmin = users.find(u => u.userType === 'superadmin');
-  if (existingAdmin) return;
+  if (existingAdmin) {
+    const emailChanged = existingAdmin.email !== DEFAULT_SUPERADMIN.email;
+    const passwordValid = await bcrypt.compare(DEFAULT_SUPERADMIN.password, existingAdmin.password);
+
+    if (emailChanged || !passwordValid) {
+      existingAdmin.name = DEFAULT_SUPERADMIN.name;
+      existingAdmin.email = DEFAULT_SUPERADMIN.email;
+      existingAdmin.password = await bcrypt.hash(DEFAULT_SUPERADMIN.password, 10);
+      existingAdmin.updatedAt = new Date().toISOString();
+      await saveUsers();
+      console.log(`🔐 Updated superadmin account: ${DEFAULT_SUPERADMIN.email}`);
+    }
+
+    return;
+  }
 
   const hashedPassword = await bcrypt.hash(DEFAULT_SUPERADMIN.password, 10);
   users.push({
