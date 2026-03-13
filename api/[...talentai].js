@@ -638,6 +638,18 @@ function normalizeResumeAnalysis(parsed = {}, resumeText = '') {
 }
 
 // ==================== AUTHENTICATION MIDDLEWARE ====================
+function hasPlatformAccess(user = null) {
+  return !user || user.canAccessPlatform !== false;
+}
+
+function sanitizeManagedUser(user = {}) {
+  const { password: _, ...safe } = user;
+  return {
+    ...safe,
+    canAccessPlatform: hasPlatformAccess(user)
+  };
+}
+
 function authenticateToken(req, res, next) {
   const authHeader = req.headers['authorization'];
   const token = authHeader && authHeader.split(' ')[1];
@@ -648,6 +660,10 @@ function authenticateToken(req, res, next) {
 
   try {
     const decoded = jwt.verify(token, JWT_SECRET);
+    const currentUser = users.find(u => u.id === decoded.userId || u.email === decoded.email);
+    if (!currentUser || !hasPlatformAccess(currentUser)) {
+      return res.status(403).json({ error: 'Access revoked by admin' });
+    }
     req.user = decoded;
     next();
   } catch (err) {
@@ -707,6 +723,7 @@ app.post('/api/auth/register', async (req, res) => {
       email: email.toLowerCase(),
       password: hashedPassword,
       userType: normalizedUserType,
+      canAccessPlatform: true,
       company: normalizedUserType === 'recruiter' ? normalizedCompany : null,
       createdAt: new Date().toISOString()
     };
@@ -743,6 +760,10 @@ app.post('/api/auth/login', async (req, res) => {
     const user = users.find(u => u.email.toLowerCase() === email.toLowerCase());
     if (!user) {
       return res.status(401).json({ error: 'Invalid email or password' });
+    }
+
+    if (!hasPlatformAccess(user)) {
+      return res.status(403).json({ error: 'Access revoked by admin' });
     }
 
     const isPasswordValid = await bcrypt.compare(password, user.password);
@@ -875,31 +896,77 @@ app.delete('/api/admin/questions/:id', authenticateToken, async (req, res) => {
 
 // ==================== SUPER-ADMIN RECRUITER MANAGEMENT ====================
 
+function getManagedUsers(userType) {
+  return users
+    .filter(u => u.userType === userType)
+    .map((user) => ({
+      ...sanitizeManagedUser(user),
+      candidatesViewed: user.userType === 'recruiter'
+        ? candidates.filter(c => (user.viewedCandidates || []).includes(c.id)).length
+        : undefined,
+      totalCandidatesInSystem: user.userType === 'recruiter' ? candidates.length : undefined
+    }));
+}
+
 // GET all recruiters with their access status
 app.get('/api/superadmin/recruiters', authenticateToken, requireSuperAdmin, (req, res) => {
-  const recruiters = users
-    .filter(u => u.userType === 'recruiter')
-    .map(({ password: _, ...u }) => ({
-      ...u,
-      canViewCandidates: u.canViewCandidates !== false, // default true
-      candidatesViewed: candidates.filter(c => (u.viewedCandidates || []).includes(c.id)).length,
-      totalCandidatesInSystem: candidates.length
-    }));
+  const recruiters = getManagedUsers('recruiter').map((user) => ({
+    ...user,
+    canViewCandidates: user.canViewCandidates !== false && user.canAccessPlatform !== false
+  }));
   res.json({ success: true, recruiters });
+});
+
+// GET all candidate accounts with platform access status
+app.get('/api/superadmin/candidates', authenticateToken, requireSuperAdmin, (req, res) => {
+  res.json({ success: true, candidates: getManagedUsers('candidate') });
+});
+
+// GET managed users by type (candidate | recruiter)
+app.get('/api/superadmin/users', authenticateToken, requireSuperAdmin, (req, res) => {
+  const requestedType = String(req.query?.type || '').trim().toLowerCase();
+  if (!['candidate', 'recruiter'].includes(requestedType)) {
+    return res.status(400).json({ error: 'type query must be candidate or recruiter' });
+  }
+
+  return res.json({ success: true, users: getManagedUsers(requestedType) });
 });
 
 // GET super-admin platform stats
 app.get('/api/superadmin/stats', authenticateToken, requireSuperAdmin, (req, res) => {
   const recruiterCount = users.filter(u => u.userType === 'recruiter').length;
   const candidateCount = candidates.length;
-  const activeRecruiters = users.filter(u => u.userType === 'recruiter' && u.canViewCandidates !== false).length;
+  const activeRecruiters = users.filter(u => u.userType === 'recruiter' && hasPlatformAccess(u)).length;
+  const activeCandidates = users.filter(u => u.userType === 'candidate' && hasPlatformAccess(u)).length;
   const avgScore = candidateCount > 0
     ? Math.round(candidates.reduce((sum, c) => sum + (c.totalScore || 0), 0) / candidateCount)
     : 0;
   res.json({
     success: true,
-    stats: { recruiterCount, activeRecruiters, candidateCount, avgScore }
+    stats: { recruiterCount, activeRecruiters, candidateCount, activeCandidates, avgScore }
   });
+});
+
+// PUT toggle platform access for any candidate or recruiter account
+app.put('/api/superadmin/users/:id/access', authenticateToken, requireSuperAdmin, async (req, res) => {
+  try {
+    const id = parseInt(req.params.id);
+    const { canAccessPlatform, accessNote } = req.body;
+    const user = users.find(u => u.id === id && ['candidate', 'recruiter'].includes(u.userType));
+    if (!user) return res.status(404).json({ error: 'Managed user not found' });
+
+    user.canAccessPlatform = Boolean(canAccessPlatform);
+    if (user.userType === 'recruiter') {
+      user.canViewCandidates = user.canAccessPlatform;
+    }
+    user.accessNote = accessNote || '';
+    user.accessUpdatedAt = new Date().toISOString();
+    await saveUsers();
+
+    return res.json({ success: true, user: sanitizeManagedUser(user) });
+  } catch (error) {
+    return res.status(500).json({ error: 'Failed to update user access' });
+  }
 });
 
 // PUT toggle recruiter access
@@ -911,12 +978,12 @@ app.put('/api/superadmin/recruiters/:id/access', authenticateToken, requireSuper
     if (!user) return res.status(404).json({ error: 'Recruiter not found' });
 
     user.canViewCandidates = Boolean(canViewCandidates);
+    user.canAccessPlatform = Boolean(canViewCandidates);
     user.accessNote = accessNote || '';
     user.accessUpdatedAt = new Date().toISOString();
     await saveUsers();
 
-    const { password: _, ...safe } = user;
-    res.json({ success: true, recruiter: safe });
+    res.json({ success: true, recruiter: sanitizeManagedUser(user) });
   } catch (error) {
     res.status(500).json({ error: 'Failed to update access' });
   }

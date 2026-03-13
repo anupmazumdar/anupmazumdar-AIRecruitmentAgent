@@ -2888,6 +2888,7 @@ function ScoreCard({ title, score, icon: Icon }) {
 // ==================== SUPER-ADMIN DASHBOARD ====================
 function SuperAdminDashboard({ authState, logout }) {
   const [recruiters, setRecruiters] = useState([]);
+  const [candidateAccounts, setCandidateAccounts] = useState([]);
   const [stats, setStats] = useState(null);
   const [candidates, setCandidates] = useState([]);
   const [loading, setLoading] = useState(true);
@@ -2905,17 +2906,20 @@ function SuperAdminDashboard({ authState, logout }) {
   const fetchAll = useCallback(async () => {
     setLoading(true);
     try {
-      const [rRes, sRes, cRes] = await Promise.all([
-        fetch(`${API_URL}/api/superadmin/recruiters`, { headers }),
+      const [rRes, cuRes, sRes, cRes] = await Promise.all([
+        fetch(`${API_URL}/api/superadmin/users?type=recruiter`, { headers }),
+        fetch(`${API_URL}/api/superadmin/users?type=candidate`, { headers }),
         fetch(`${API_URL}/api/superadmin/stats`, { headers }),
         fetch(`${API_URL}/api/candidates`, { headers })
       ]);
-      const [rData, sData, cData] = await Promise.all([
+      const [rData, cuData, sData, cData] = await Promise.all([
         parseApiJson(rRes),
+        parseApiJson(cuRes),
         parseApiJson(sRes),
         parseApiJson(cRes)
       ]);
-      if (rData.success) setRecruiters(rData.recruiters);
+      if (rData.success) setRecruiters(rData.users || []);
+      if (cuData.success) setCandidateAccounts(cuData.users || []);
       if (sData.success) setStats(sData.stats);
       if (cData.success) setCandidates(cData.candidates || []);
     } catch (e) { console.error(e); }
@@ -2924,16 +2928,24 @@ function SuperAdminDashboard({ authState, logout }) {
 
   useEffect(() => { fetchAll(); }, [fetchAll]);
 
-  const toggleAccess = async (recruiter) => {
-    setSaving(recruiter.id);
+  const toggleAccess = async (managedUser, userType) => {
+    setSaving(managedUser.id);
     try {
-      const res = await fetch(`${API_URL}/api/superadmin/recruiters/${recruiter.id}/access`, {
+      const res = await fetch(`${API_URL}/api/superadmin/users/${managedUser.id}/access`, {
         method: 'PUT', headers,
-        body: JSON.stringify({ canViewCandidates: !recruiter.canViewCandidates, accessNote: note })
+        body: JSON.stringify({ canAccessPlatform: !managedUser.canAccessPlatform, accessNote: note })
       });
       const data = await parseApiJson(res);
       if (data.success) {
-        setRecruiters(prev => prev.map(r => r.id === recruiter.id ? { ...r, canViewCandidates: data.recruiter.canViewCandidates } : r));
+        const updatedUser = data.user;
+        if (userType === 'recruiter') {
+          setRecruiters(prev => prev.map(r => r.id === managedUser.id ? { ...r, ...updatedUser } : r));
+          if (selectedRecruiter?.id === managedUser.id) {
+            setSelectedRecruiter(prev => ({ ...prev, ...updatedUser }));
+          }
+        } else {
+          setCandidateAccounts(prev => prev.map(c => c.id === managedUser.id ? { ...c, ...updatedUser } : c));
+        }
       }
     } catch (e) { console.error(e); }
     setSaving(null);
@@ -2945,10 +2957,15 @@ function SuperAdminDashboard({ authState, logout }) {
     r.company?.toLowerCase().includes(search.toLowerCase())
   );
 
+  const filteredCandidates = candidateAccounts.filter(c =>
+    c.name?.toLowerCase().includes(search.toLowerCase()) ||
+    c.email?.toLowerCase().includes(search.toLowerCase())
+  );
+
   const statCards = stats ? [
     { label: 'Total Recruiters', value: stats.recruiterCount, icon: '👥', color: 'from-blue-600 to-indigo-600' },
     { label: 'Active Access', value: stats.activeRecruiters, icon: '🟢', color: 'from-green-600 to-emerald-600' },
-    { label: 'Candidates', value: stats.candidateCount, icon: '🎯', color: 'from-purple-600 to-pink-600' },
+    { label: 'Candidates', value: stats.activeCandidates ?? stats.candidateCount, icon: '🎯', color: 'from-purple-600 to-pink-600' },
     { label: 'Avg Score', value: `${stats.avgScore}/100`, icon: '📊', color: 'from-orange-600 to-amber-600' }
   ] : [];
 
@@ -2958,7 +2975,7 @@ function SuperAdminDashboard({ authState, logout }) {
       <div className="mx-auto mb-6 flex max-w-7xl flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
           <h1 className="bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-2xl font-black text-transparent md:text-3xl">Super Admin</h1>
-          <p className="mt-0.5 text-sm text-slate-400 md:text-base">Manage recruiters & platform access</p>
+          <p className="mt-0.5 text-sm text-slate-400 md:text-base">Grant or revoke platform access for recruiters and candidates</p>
         </div>
         <button onClick={logout} className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-800/50 px-4 py-2 text-sm transition-all hover:bg-slate-700/50 md:text-base">
           <LogOut size={14} /> Logout
@@ -3024,17 +3041,17 @@ function SuperAdminDashboard({ authState, logout }) {
                       </div>
                       <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:gap-3 md:flex-shrink-0">
                         <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
-                          r.canViewCandidates ? 'bg-green-900/50 text-green-400 border border-green-700/40' : 'bg-red-900/50 text-red-400 border border-red-700/40'
-                        }`}>{r.canViewCandidates ? '● Active' : '● Revoked'}</span>
+                          r.canAccessPlatform ? 'bg-green-900/50 text-green-400 border border-green-700/40' : 'bg-red-900/50 text-red-400 border border-red-700/40'
+                        }`}>{r.canAccessPlatform ? '● Active' : '● Revoked'}</span>
                         <button
-                          onClick={e => { e.stopPropagation(); toggleAccess(r); }}
+                          onClick={e => { e.stopPropagation(); toggleAccess(r, 'recruiter'); }}
                           disabled={saving === r.id}
                           className={`min-h-[44px] px-3 py-1.5 rounded-lg text-xs md:text-sm font-semibold transition-all ${
-                            r.canViewCandidates
+                            r.canAccessPlatform
                               ? 'bg-red-900/30 hover:bg-red-900/50 text-red-300 border border-red-700/30'
                               : 'bg-green-900/30 hover:bg-green-900/50 text-green-300 border border-green-700/30'
                           }`}>
-                          {saving === r.id ? '...' : r.canViewCandidates ? 'Revoke' : 'Grant'}
+                          {saving === r.id ? '...' : r.canAccessPlatform ? 'Revoke' : 'Grant'}
                         </button>
                       </div>
                     </div>
@@ -3057,10 +3074,10 @@ function SuperAdminDashboard({ authState, logout }) {
                   </div>
                   <div className="space-y-3 mb-4">
                     <div className={`p-3 rounded-xl border text-center ${
-                      selectedRecruiter.canViewCandidates ? 'bg-green-900/20 border-green-700/30' : 'bg-red-900/20 border-red-700/30'
+                      selectedRecruiter.canAccessPlatform ? 'bg-green-900/20 border-green-700/30' : 'bg-red-900/20 border-red-700/30'
                     }`}>
-                      <p className={`font-bold text-sm ${selectedRecruiter.canViewCandidates ? 'text-green-400' : 'text-red-400'}`}>
-                        {selectedRecruiter.canViewCandidates ? '✅ Can view candidate profiles' : '🚫 Access revoked'}
+                      <p className={`font-bold text-sm ${selectedRecruiter.canAccessPlatform ? 'text-green-400' : 'text-red-400'}`}>
+                        {selectedRecruiter.canAccessPlatform ? '✅ Platform access granted' : '🚫 Platform access revoked'}
                       </p>
                     </div>
                     <div className="bg-slate-800/50 rounded-xl p-3 text-xs space-y-1">
@@ -3072,13 +3089,13 @@ function SuperAdminDashboard({ authState, logout }) {
                   <textarea value={note} onChange={e => setNote(e.target.value)}
                     placeholder="Optional: add a note about this access change..."
                     rows={2} className="w-full px-3 py-2 bg-slate-800/60 rounded-xl border border-slate-600 focus:border-indigo-500 focus:outline-none text-xs resize-none mb-3" />
-                  <button onClick={() => toggleAccess(selectedRecruiter)} disabled={saving === selectedRecruiter.id}
+                  <button onClick={() => toggleAccess(selectedRecruiter, 'recruiter')} disabled={saving === selectedRecruiter.id}
                     className={`w-full py-2.5 rounded-xl font-bold text-sm transition-all ${
-                      selectedRecruiter.canViewCandidates
+                      selectedRecruiter.canAccessPlatform
                         ? 'bg-red-600 hover:bg-red-500 text-white'
                         : 'bg-green-600 hover:bg-green-500 text-white'
                     }`}>
-                    {saving === selectedRecruiter.id ? 'Saving...' : selectedRecruiter.canViewCandidates ? '🚫 Revoke Access' : '✅ Grant Access'}
+                    {saving === selectedRecruiter.id ? 'Saving...' : selectedRecruiter.canAccessPlatform ? '🚫 Revoke Access' : '✅ Grant Access'}
                   </button>
                 </>
               ) : (
@@ -3094,48 +3111,47 @@ function SuperAdminDashboard({ authState, logout }) {
         {activeTab === 'candidates' && (
           <div className="bg-slate-900/60 backdrop-blur-xl rounded-2xl border border-slate-700 overflow-hidden">
             <div className="p-4 border-b border-slate-700">
-              <h3 className="font-semibold">All Candidates — {candidates.length} total</h3>
+              <h3 className="font-semibold">Candidate Accounts — {candidateAccounts.length} total</h3>
             </div>
-            {candidates.length === 0 ? (
-              <div className="p-12 text-center text-slate-500"><p className="text-4xl mb-3">🎯</p><p>No candidates registered yet</p></div>
+            <div className="p-4 border-b border-slate-700 flex gap-3">
+              <input value={search} onChange={e => setSearch(e.target.value)}
+                placeholder="Search candidates by name or email..."
+                className="flex-1 px-4 py-2.5 bg-slate-800/60 rounded-xl border border-slate-600 focus:border-indigo-500 focus:outline-none text-sm md:text-base" />
+            </div>
+            {filteredCandidates.length === 0 ? (
+              <div className="p-12 text-center text-slate-500"><p className="text-4xl mb-3">🎯</p><p>No candidate accounts found</p></div>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="border-b border-slate-700 text-slate-400 text-xs uppercase">
-                      {['Name', 'Position', 'Resume', 'Quiz', 'Interview', 'Video', 'Total', 'Status'].map(h => (
-                        <th key={h} className="text-left px-4 py-3 font-semibold">{h}</th>
-                      ))}
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-slate-700/30">
-                    {candidates.map(c => (
-                      <tr key={c.id} className="hover:bg-slate-800/30 transition-all">
-                        <td className="px-4 py-3">
-                          <p className="font-semibold">{c.name}</p>
-                          <p className="text-xs text-slate-500">{c.email}</p>
-                        </td>
-                        <td className="px-4 py-3 text-slate-300 text-xs">{c.position}</td>
-                        {[c.resumeScore, c.quizScore, c.interviewScore, c.videoInterviewScore].map((s, i) => (
-                          <td key={i} className={`px-4 py-3 font-bold ${
-                            (s || 0) >= 75 ? 'text-green-400' : (s || 0) >= 55 ? 'text-yellow-400' : 'text-slate-500'
-                          }`}>{s || '—'}</td>
-                        ))}
-                        <td className={`px-4 py-3 font-black text-base ${
-                          (c.totalScore || 0) >= 75 ? 'text-green-400' : (c.totalScore || 0) >= 55 ? 'text-yellow-400' : 'text-red-400'
-                        }`}>{c.totalScore || '—'}</td>
-                        <td className="px-4 py-3">
-                          <span className={`px-2 py-0.5 rounded-full text-xs font-semibold capitalize ${
-                            c.status === 'hired' ? 'bg-green-900/50 text-green-400' :
-                            c.status === 'shortlisted' ? 'bg-blue-900/50 text-blue-400' :
-                            c.status === 'rejected' ? 'bg-red-900/50 text-red-400' :
-                            'bg-slate-700 text-slate-300'
-                          }`}>{c.status || 'review'}</span>
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="divide-y divide-slate-700/30">
+                {filteredCandidates.map((candidateUser) => {
+                  const relatedApplications = candidates.filter(c => String(c.email || '').toLowerCase() === String(candidateUser.email || '').toLowerCase());
+                  return (
+                    <div key={candidateUser.id} className="p-4 flex flex-col gap-3 md:flex-row md:items-center md:gap-4 hover:bg-slate-800/30 transition-all">
+                      <div className="w-10 h-10 rounded-full bg-gradient-to-br from-purple-600 to-pink-600 flex items-center justify-center text-sm font-bold flex-shrink-0">
+                        {candidateUser.name?.[0]?.toUpperCase() || '?'}
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-semibold text-sm truncate">{candidateUser.name || 'Unnamed'}</p>
+                        <p className="text-xs text-slate-400 truncate">{candidateUser.email}</p>
+                        <p className="text-xs text-slate-500 truncate">Applications: {relatedApplications.length}</p>
+                      </div>
+                      <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:gap-3 md:flex-shrink-0">
+                        <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
+                          candidateUser.canAccessPlatform ? 'bg-green-900/50 text-green-400 border border-green-700/40' : 'bg-red-900/50 text-red-400 border border-red-700/40'
+                        }`}>{candidateUser.canAccessPlatform ? '● Active' : '● Revoked'}</span>
+                        <button
+                          onClick={() => toggleAccess(candidateUser, 'candidate')}
+                          disabled={saving === candidateUser.id}
+                          className={`min-h-[44px] px-3 py-1.5 rounded-lg text-xs md:text-sm font-semibold transition-all ${
+                            candidateUser.canAccessPlatform
+                              ? 'bg-red-900/30 hover:bg-red-900/50 text-red-300 border border-red-700/30'
+                              : 'bg-green-900/30 hover:bg-green-900/50 text-green-300 border border-green-700/30'
+                          }`}>
+                          {saving === candidateUser.id ? '...' : candidateUser.canAccessPlatform ? 'Revoke' : 'Grant'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
               </div>
             )}
           </div>
