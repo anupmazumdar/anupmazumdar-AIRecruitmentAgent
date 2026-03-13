@@ -210,6 +210,12 @@ let users = [];
 let candidates = [];
 let subscriptions = [];
 let questionBank = []; // Admin-managed questions
+let quizSettings = {
+  candidateDurationMinutes: 30,
+  recruiterDurationMinutes: 30,
+  updatedAt: null,
+  updatedBy: null
+};
 let userId = 1;
 let candidateId = 1;
 let subscriptionId = 1;
@@ -221,6 +227,7 @@ async function initializeData() {
   candidates = await loadDataFromCloud('candidates.json', []);
   subscriptions = await loadDataFromCloud('subscriptions.json', []);
   questionBank = await loadDataFromCloud('questionBank.json', []);
+  quizSettings = await loadDataFromCloud('quizSettings.json', quizSettings);
 
   // Set IDs to max + 1
   if (users.length > 0) userId = Math.max(...users.map(u => u.id)) + 1;
@@ -294,6 +301,10 @@ async function saveSubscriptions() {
 
 async function saveQuestionBank() {
   await saveDataToCloud('questionBank.json', questionBank);
+}
+
+async function saveQuizSettings() {
+  await saveDataToCloud('quizSettings.json', quizSettings);
 }
 
 app.use(async (req, res, next) => {
@@ -829,45 +840,42 @@ app.post('/api/subscriptions', authenticateToken, async (req, res) => {
 
 // GET all questions (optionally filter by position)
 app.get('/api/admin/questions', authenticateToken, (req, res) => {
+  if (!['recruiter', 'superadmin'].includes(req.user?.userType)) {
+    return res.status(403).json({ error: 'Recruiter or superadmin access required' });
+  }
+
   const { position } = req.query;
   const filtered = position
     ? questionBank.filter(q => q.position.toLowerCase() === position.toLowerCase())
     : questionBank;
-  res.json({ success: true, questions: filtered });
+  res.json({ success: true, questions: filtered, quizSettings });
 });
 
 // GET all unique positions that have questions
 app.get('/api/admin/positions', authenticateToken, (req, res) => {
+  if (!['recruiter', 'superadmin'].includes(req.user?.userType)) {
+    return res.status(403).json({ error: 'Recruiter or superadmin access required' });
+  }
+
   const positions = [...new Set(questionBank.map(q => q.position))];
   res.json({ success: true, positions });
 });
 
-// POST create a new question
+// POST create is disabled: questions can be modified or AI-refreshed only
 app.post('/api/admin/questions', authenticateToken, async (req, res) => {
-  try {
-    const { position, question, options, correctAnswer } = req.body;
-    if (!position || !question || !options || options.length < 2 || correctAnswer === undefined) {
-      return res.status(400).json({ error: 'Missing required fields: position, question, options (min 2), correctAnswer' });
-    }
-    const newQuestion = {
-      id: questionId++,
-      position,
-      question,
-      options,
-      correctAnswer: parseInt(correctAnswer),
-      createdAt: new Date().toISOString()
-    };
-    questionBank.push(newQuestion);
-    await saveQuestionBank();
-    res.status(201).json({ success: true, question: newQuestion });
-  } catch (error) {
-    res.status(500).json({ error: 'Failed to create question' });
-  }
+  return res.status(405).json({
+    error: 'Question creation disabled',
+    message: 'Questions can only be modified or AI-refreshed. Adding extra questions is disabled.'
+  });
 });
 
 // PUT update an existing question
 app.put('/api/admin/questions/:id', authenticateToken, async (req, res) => {
   try {
+    if (!['recruiter', 'superadmin'].includes(req.user?.userType)) {
+      return res.status(403).json({ error: 'Recruiter or superadmin access required' });
+    }
+
     const id = parseInt(req.params.id);
     const idx = questionBank.findIndex(q => q.id === id);
     if (idx === -1) return res.status(404).json({ error: 'Question not found' });
@@ -882,15 +890,98 @@ app.put('/api/admin/questions/:id', authenticateToken, async (req, res) => {
 
 // DELETE a question
 app.delete('/api/admin/questions/:id', authenticateToken, async (req, res) => {
+  return res.status(405).json({
+    error: 'Question deletion disabled',
+    message: 'Questions can only be modified or AI-refreshed.'
+  });
+});
+
+// PUT refresh question bank for a position using AI while keeping count fixed
+app.put('/api/admin/questions/refresh/:position', authenticateToken, async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
-    const idx = questionBank.findIndex(q => q.id === id);
-    if (idx === -1) return res.status(404).json({ error: 'Question not found' });
-    questionBank.splice(idx, 1);
+    if (!['recruiter', 'superadmin'].includes(req.user?.userType)) {
+      return res.status(403).json({ error: 'Recruiter or superadmin access required' });
+    }
+
+    const position = decodeURIComponent(String(req.params.position || '')).trim();
+    const existing = questionBank.filter(q => q.position.toLowerCase() === position.toLowerCase());
+    if (existing.length === 0) {
+      return res.status(404).json({ error: 'No existing questions for this position to refresh' });
+    }
+
+    const count = existing.length;
+    const hasApiKey = process.env.OPENROUTER_API_KEY || process.env.GOOGLE_GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
+    if (!hasApiKey) {
+      return res.status(400).json({ error: 'AI key not configured for question refresh' });
+    }
+
+    const prompt = `Generate exactly ${count} fresh technical MCQ questions for ${position}.
+Return ONLY JSON array:
+[{
+  "question": "string",
+  "options": ["A","B","C","D"],
+  "correctAnswer": 0
+}]`;
+    const systemPrompt = 'You are a strict assessment generator. Return valid JSON only.';
+
+    const raw = await callAI(prompt, systemPrompt, { task: 'quiz' });
+    const generated = parseJsonFromAI(raw, 'array').slice(0, count);
+
+    if (!generated.length) {
+      return res.status(500).json({ error: 'Failed to generate refreshed questions' });
+    }
+
+    const next = generated.map((q, i) => ({
+      id: existing[i]?.id || questionId++,
+      position,
+      question: String(q.question || '').trim(),
+      options: Array.isArray(q.options) ? q.options.slice(0, 4).map(o => String(o || '').trim()) : [],
+      correctAnswer: Number.isFinite(Number(q.correctAnswer)) ? Number(q.correctAnswer) : 0,
+      createdAt: existing[i]?.createdAt || new Date().toISOString(),
+      updatedAt: new Date().toISOString()
+    }));
+
+    questionBank = [
+      ...questionBank.filter(q => q.position.toLowerCase() !== position.toLowerCase()),
+      ...next
+    ];
+
     await saveQuestionBank();
-    res.json({ success: true, message: 'Question deleted' });
+    return res.json({ success: true, refreshedCount: next.length, questions: next });
   } catch (error) {
-    res.status(500).json({ error: 'Failed to delete question' });
+    console.error('Question refresh error:', error.message);
+    return res.status(500).json({ error: 'Failed to refresh questions' });
+  }
+});
+
+// Quiz duration settings for candidate/recruiter (minutes)
+app.get('/api/quiz/settings', authenticateToken, (req, res) => {
+  if (!['candidate', 'recruiter', 'superadmin'].includes(req.user?.userType)) {
+    return res.status(403).json({ error: 'Access denied' });
+  }
+  return res.json({ success: true, settings: quizSettings });
+});
+
+app.put('/api/quiz/settings', authenticateToken, async (req, res) => {
+  try {
+    if (!['recruiter', 'superadmin'].includes(req.user?.userType)) {
+      return res.status(403).json({ error: 'Recruiter or superadmin access required' });
+    }
+
+    const candidateDurationMinutes = clampScore(req.body?.candidateDurationMinutes, 5, 180, quizSettings.candidateDurationMinutes || 30);
+    const recruiterDurationMinutes = clampScore(req.body?.recruiterDurationMinutes, 5, 180, quizSettings.recruiterDurationMinutes || 30);
+
+    quizSettings = {
+      candidateDurationMinutes,
+      recruiterDurationMinutes,
+      updatedAt: new Date().toISOString(),
+      updatedBy: req.user?.email || 'unknown'
+    };
+
+    await saveQuizSettings();
+    return res.json({ success: true, settings: quizSettings });
+  } catch (error) {
+    return res.status(500).json({ error: 'Failed to update quiz settings' });
   }
 });
 
@@ -2414,14 +2505,21 @@ const DUMMY_CANDIDATES = [
 
 app.get('/api/recruiter/candidates', authenticateToken, async (req, res) => {
   try {
-    // Merge real candidates with dummy data
-    const realCandidates = candidates.map(c => ({
-      ...c,
-      totalScore: Math.round(((c.resumeScore || 0) + (c.quizScore || 0) + (c.interviewScore || 0) + (c.videoInterviewScore || 0) + (c.uploadVideoScore || 0)) / 5),
-      status: c.status || 'review'
-    }));
-    const allCandidates = [...DUMMY_CANDIDATES, ...realCandidates];
-    res.json({ success: true, candidates: allCandidates });
+    if (!['recruiter', 'superadmin'].includes(req.user?.userType)) {
+      return res.status(403).json({ error: 'Recruiter or superadmin access required' });
+    }
+
+    // Serve only real candidates so admin/recruiter panels stay in sync.
+    const realCandidates = candidates.map(c => {
+      const totalScore = Math.round(((c.resumeScore || 0) + (c.quizScore || 0) + (c.interviewScore || 0) + (c.videoInterviewScore || 0) + (c.uploadVideoScore || 0)) / 5);
+      return {
+        ...c,
+        totalScore,
+        status: c.status || 'review'
+      };
+    });
+
+    res.json({ success: true, candidates: realCandidates });
   } catch (error) {
     console.error('Recruiter candidates error:', error);
     res.status(500).json({ error: 'Failed to fetch candidates' });

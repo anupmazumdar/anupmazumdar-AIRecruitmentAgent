@@ -1727,7 +1727,8 @@ function UploadVideoStage({ candidateData, setCandidateData, setStage }) {
 // ==================== TECHNICAL QUIZ STAGE ====================
 function TechnicalQuizStage({ candidateData, setCandidateData, setStage }) {
   const TOTAL_QUESTIONS = 30;
-  const TIME_LIMIT = 30 * 60; // 30 minutes in seconds
+  const [timeLimitMinutes, setTimeLimitMinutes] = useState(30);
+  const TIME_LIMIT = timeLimitMinutes * 60;
 
   const [loading, setLoading] = useState(true);
   const [questions, setQuestions] = useState([]);
@@ -1806,6 +1807,20 @@ function TechnicalQuizStage({ candidateData, setCandidateData, setStage }) {
   const generateQuestions = useCallback(async () => {
     setLoading(true);
     try {
+      try {
+        const settingsRes = await fetch(`${API_URL}/api/quiz/settings`, {
+          headers: { 'Authorization': `Bearer ${authState?.token}` }
+        });
+        const settingsData = await parseApiJson(settingsRes);
+        if (settingsData.success) {
+          const duration = Number(settingsData.settings?.candidateDurationMinutes);
+          if (Number.isFinite(duration) && duration >= 5) {
+            setTimeLimitMinutes(duration);
+            setTimeLeft(duration * 60);
+          }
+        }
+      } catch {}
+
       const res = await fetch(`${API_URL}/api/generate-quiz`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -1832,7 +1847,7 @@ function TechnicalQuizStage({ candidateData, setCandidateData, setStage }) {
     } finally {
       setLoading(false);
     }
-  }, [candidateData.position]);
+  }, [candidateData.position, authState?.token]);
 
   const calculateScore = useCallback((answersOverride) => {
     clearInterval(timerRef.current);
@@ -1932,7 +1947,7 @@ function TechnicalQuizStage({ candidateData, setCandidateData, setStage }) {
             <span>✅ {correct} correct</span>
             <span>❌ {questions.length - correct} wrong</span>
             <span>⚖️ weighted: {gradingMeta.weightedCorrect.toFixed(1)}/{gradingMeta.totalWeight.toFixed(1)}</span>
-            <span>⏱ 30 min quiz</span>
+            <span>⏱ {timeLimitMinutes} min quiz</span>
           </div>
         </div>
 
@@ -3410,6 +3425,8 @@ function AdminQuestionPanel({ authState }) {
   const [notification, setNotification] = useState(null);
   const [editingQuestion, setEditingQuestion] = useState(null); // null = add mode
   const [showForm, setShowForm] = useState(false);
+  const [quizSettings, setQuizSettings] = useState({ candidateDurationMinutes: 30, recruiterDurationMinutes: 30 });
+  const [savingDuration, setSavingDuration] = useState(false);
 
   // Form state
   const emptyForm = {
@@ -3433,7 +3450,15 @@ function AdminQuestionPanel({ authState }) {
         headers: { 'Authorization': `Bearer ${authState?.token}` }
       });
       const data = await parseApiJson(res);
-      if (data.success) setQuestions(data.questions);
+      if (data.success) {
+        setQuestions(data.questions || []);
+        if (data.quizSettings) {
+          setQuizSettings({
+            candidateDurationMinutes: Number(data.quizSettings.candidateDurationMinutes) || 30,
+            recruiterDurationMinutes: Number(data.quizSettings.recruiterDurationMinutes) || 30
+          });
+        }
+      }
     } catch (e) { console.error(e); }
   }, [authState?.token]);
 
@@ -3447,11 +3472,16 @@ function AdminQuestionPanel({ authState }) {
     if (opts.length < 2) return showNotif('Please add at least 2 answer options.', 'error');
     if (form.correctAnswer >= opts.length) return showNotif('Correct answer index exceeds option count.', 'error');
 
+    if (!editingQuestion) {
+      showNotif('Adding extra questions is disabled. Use Edit or AI Refresh.', 'error');
+      return;
+    }
+
     setSaving(true);
     try {
       const payload = { position: pos, question: form.question.trim(), options: opts, correctAnswer: form.correctAnswer };
-      const url = editingQuestion ? `${API_URL}/api/admin/questions/${editingQuestion.id}` : `${API_URL}/api/admin/questions`;
-      const method = editingQuestion ? 'PUT' : 'POST';
+      const url = `${API_URL}/api/admin/questions/${editingQuestion.id}`;
+      const method = 'PUT';
       const res = await fetch(url, {
         method,
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authState?.token}` },
@@ -3459,7 +3489,7 @@ function AdminQuestionPanel({ authState }) {
       });
       const data = await parseApiJson(res);
       if (!res.ok) throw new Error(data.error);
-      showNotif(editingQuestion ? 'Question updated!' : 'Question added!');
+      showNotif('Question updated!');
       setForm(emptyForm);
       setEditingQuestion(null);
       setShowForm(false);
@@ -3486,20 +3516,47 @@ function AdminQuestionPanel({ authState }) {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const handleDelete = async (id) => {
-    if (!window.confirm('Delete this question?')) return;
-    setDeletingId(id);
+  const handleRefreshPosition = async (position) => {
+    if (!window.confirm(`Refresh all questions for ${position} using AI? Question count will remain the same.`)) return;
+    setDeletingId(position);
     try {
-      const res = await fetch(`${API_URL}/api/admin/questions/${id}`, {
-        method: 'DELETE',
+      const res = await fetch(`${API_URL}/api/admin/questions/refresh/${encodeURIComponent(position)}`, {
+        method: 'PUT',
         headers: { 'Authorization': `Bearer ${authState?.token}` }
       });
-      if (!res.ok) throw new Error('Delete failed');
-      showNotif('Question deleted.');
+      const data = await parseApiJson(res);
+      if (!res.ok || !data.success) throw new Error(data.error || 'Refresh failed');
+      showNotif(`Refreshed ${data.refreshedCount || 0} questions for ${position}.`);
       fetchQuestions();
     } catch (e) {
-      showNotif('Failed to delete.', 'error');
+      showNotif(e.message || 'Failed to refresh questions.', 'error');
     } finally { setDeletingId(null); }
+  };
+
+  const saveDurationSettings = async () => {
+    setSavingDuration(true);
+    try {
+      const payload = {
+        candidateDurationMinutes: Number(quizSettings.candidateDurationMinutes) || 30,
+        recruiterDurationMinutes: Number(quizSettings.recruiterDurationMinutes) || 30
+      };
+      const res = await fetch(`${API_URL}/api/quiz/settings`, {
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authState?.token}` },
+        body: JSON.stringify(payload)
+      });
+      const data = await parseApiJson(res);
+      if (!res.ok || !data.success) throw new Error(data.error || 'Failed to save duration settings');
+      setQuizSettings({
+        candidateDurationMinutes: Number(data.settings?.candidateDurationMinutes) || 30,
+        recruiterDurationMinutes: Number(data.settings?.recruiterDurationMinutes) || 30
+      });
+      showNotif('Quiz duration settings updated.');
+    } catch (e) {
+      showNotif(e.message || 'Failed to update duration.', 'error');
+    } finally {
+      setSavingDuration(false);
+    }
   };
 
   const handleCancel = () => {
@@ -3543,15 +3600,47 @@ function AdminQuestionPanel({ authState }) {
               ⚙️ Admin Question Bank
             </h2>
             <p className="text-slate-300 text-sm md:text-base mt-1">
-              Create and manage assessment questions per job position. No API keys required — candidates will use these questions automatically.
+              Modify and refresh assessment questions per job position. Extra question creation/deletion is disabled.
             </p>
           </div>
           <button
             id="btn-add-question"
-            onClick={() => { setEditingQuestion(null); setForm(emptyForm); setShowForm(true); }}
-            className="min-h-[44px] px-5 py-2.5 text-sm md:text-base bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 rounded-xl font-semibold transition-all flex items-center gap-2 whitespace-nowrap shadow-lg"
+            onClick={() => showNotif('Adding extra questions is disabled. Use Edit or AI Refresh.', 'error')}
+            className="min-h-[44px] px-5 py-2.5 text-sm md:text-base bg-gradient-to-r from-slate-700 to-slate-600 rounded-xl font-semibold transition-all flex items-center gap-2 whitespace-nowrap shadow-lg"
           >
-            <Sparkles size={18} /> + Add Question
+            <Sparkles size={18} /> Add Disabled
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 md:grid-cols-3 gap-3 mt-5">
+          <div className="bg-slate-800/40 rounded-xl p-3">
+            <p className="text-slate-400 text-xs mb-1">Candidate Quiz Duration (min)</p>
+            <input
+              type="number"
+              min={5}
+              max={180}
+              value={quizSettings.candidateDurationMinutes}
+              onChange={(e) => setQuizSettings(prev => ({ ...prev, candidateDurationMinutes: e.target.value }))}
+              className="w-full px-3 py-2 bg-slate-900/60 border border-slate-600 rounded-lg focus:border-orange-500 focus:outline-none text-sm"
+            />
+          </div>
+          <div className="bg-slate-800/40 rounded-xl p-3">
+            <p className="text-slate-400 text-xs mb-1">Recruiter Quiz Duration (min)</p>
+            <input
+              type="number"
+              min={5}
+              max={180}
+              value={quizSettings.recruiterDurationMinutes}
+              onChange={(e) => setQuizSettings(prev => ({ ...prev, recruiterDurationMinutes: e.target.value }))}
+              className="w-full px-3 py-2 bg-slate-900/60 border border-slate-600 rounded-lg focus:border-orange-500 focus:outline-none text-sm"
+            />
+          </div>
+          <button
+            onClick={saveDurationSettings}
+            disabled={savingDuration}
+            className="min-h-[44px] self-end px-4 py-2.5 bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 rounded-xl font-semibold text-sm transition-all disabled:opacity-50"
+          >
+            {savingDuration ? 'Saving...' : 'Save Duration'}
           </button>
         </div>
 
@@ -3578,7 +3667,7 @@ function AdminQuestionPanel({ authState }) {
       {showForm && (
         <div className="bg-slate-900/80 backdrop-blur rounded-2xl p-6 border-2 border-orange-500/50 shadow-2xl">
           <h3 className="text-xl font-bold mb-5 flex items-center gap-2">
-            {editingQuestion ? '✏️ Edit Question' : '➕ Add New Question'}
+            {editingQuestion ? '✏️ Edit Question' : 'Question Update Only'}
           </h3>
 
           <div className="space-y-4">
@@ -3773,12 +3862,12 @@ function AdminQuestionPanel({ authState }) {
                       ✏️ Edit
                     </button>
                     <button
-                      id={`btn-delete-${q.id}`}
-                      onClick={() => handleDelete(q.id)}
-                      disabled={deletingId === q.id}
-                      className="px-4 py-1.5 bg-red-600/20 hover:bg-red-600/40 border border-red-500/30 text-red-300 rounded-lg text-xs font-semibold transition-all disabled:opacity-50"
+                      id={`btn-refresh-${q.id}`}
+                      onClick={() => handleRefreshPosition(q.position)}
+                      disabled={deletingId === q.position}
+                      className="px-4 py-1.5 bg-orange-600/20 hover:bg-orange-600/40 border border-orange-500/30 text-orange-300 rounded-lg text-xs font-semibold transition-all disabled:opacity-50"
                     >
-                      {deletingId === q.id ? '...' : '🗑 Delete'}
+                      {deletingId === q.position ? '...' : '🔄 AI Refresh'}
                     </button>
                   </div>
                 </div>
