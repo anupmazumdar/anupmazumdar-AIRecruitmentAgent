@@ -29,10 +29,14 @@ Sole Creator: Anup Mazumdar | MCA Student | UEM Jaipur (2025-2027)
 
 - AI Resume Parsing: Multi-model AI extracts and scores skills, experience, and education automatically.
 - AI Interview Engine: Natural language AI interviews with real-time response evaluation.
-- Technical Quiz: Auto-graded quizzes with semantic similarity scoring.
+- Technical Quiz: Auto-graded quizzes with configurable durations and semantic similarity scoring.
 - Candidate Scoring: Weighted multi-criteria scoring with detailed insights.
-- Video Assessment: Live video recording and introduction upload.
+- Video Assessment: Live video recording, introduction upload, and AI-powered video grading.
+- Career Coach: AI-powered career coaching panel unlocked after completing the assessment pipeline.
 - Recruiter Dashboard: Real-time analytics, candidate rankings, and pipeline management.
+- Per-Recruiter Candidate Visibility: Superadmin can restrict which candidates each recruiter can view.
+- Superadmin Panel: Full platform control — manage recruiters, candidates, question bank, and access policies.
+- Question Bank Management: Admins and recruiters can update and refresh quiz questions; no arbitrary add/delete.
 - Enterprise Security: JWT authentication, bcrypt encryption, and GCP storage.
 - 100% Free for Candidates: No cost, no barrier for job seekers.
 
@@ -167,6 +171,8 @@ Open [http://localhost:3000](http://localhost:3000) in your browser.
 anupmazumdar-AIRecruitmentAgent/
 ├── api/
 │   ├── [...talentai].js       # Main Express API (serverless-compatible)
+│   ├── middleware/
+│   │   └── security.js        # Rate limiting, CORS, and security middleware
 │   └── uploads/
 ├── frontend/                  # React.js frontend
 │   ├── src/
@@ -183,6 +189,52 @@ anupmazumdar-AIRecruitmentAgent/
 ├── .gitignore
 └── README.md
 ```
+
+---
+
+## Superadmin & Admin System
+
+TalentAI has a three-tier access model: **Candidate → Recruiter → Superadmin**.
+
+### User Roles
+
+| Role | Capabilities |
+| --- | --- |
+| Candidate | Complete the 7-stage pipeline, view own results, access Career Coach post-assessment |
+| Recruiter | View allowed candidates, manage question bank (update/refresh), run AI grading |
+| Superadmin | All recruiter capabilities + full platform control (see below) |
+
+### Superadmin Capabilities
+
+- **Recruiter Management** — Grant or revoke platform access, add optional access notes, remove any recruiter account (with cascade cleanup of related data).
+- **Candidate Account Management** — Grant or revoke candidate access, remove any candidate account.
+- **Per-Recruiter Candidate Visibility** — Control exactly which candidates each recruiter can view.
+  - Default: recruiter sees all candidates.
+  - Restrict mode: superadmin picks a whitelist of specific candidates per recruiter via a candidate checklist in the dashboard.
+- **Question Bank Management** — Full access to update, replace, and refresh quiz questions for any domain via the embedded Question Panel.
+- **Configurable Quiz Durations** — Set time limits for each quiz independently.
+- **Platform Stats** — Real-time overview of recruiter count, active access, candidate totals, and average score.
+
+### Recruiter Capabilities
+
+- View only candidates the superadmin has permitted (or all candidates if no restriction is set).
+- Update and refresh quiz questions for their domain (add/delete restricted to prevent accidental data loss).
+- View detailed candidate profiles including all assessment stages and AI scores.
+- Run AI video grading on uploaded candidate videos.
+
+### Career Coach
+
+After a candidate completes all 7 assessment stages, a **Career Coach** panel becomes available. It is powered by the same OpenRouter AI engine and provides personalised improvement guidance, skill gap analysis, and next-step recommendations based on the candidate's actual assessment results.
+
+---
+
+## Video AI Grading
+
+Uploaded candidate videos are analysed by AI to produce a structured video interview score:
+
+- Transcription via GCP.
+- Content evaluation for communication quality, confidence, and relevance.
+- Score is factored into the overall weighted candidate ranking.
 
 ---
 
@@ -232,6 +284,28 @@ Accuracy features:
 
 Grading Scale: A (85+) · B (70-84) · C (55-69) · D (40-54) · F (<40)
 Shortlist Threshold: 68+ weighted score
+
+---
+
+## Recent Updates
+
+### v2.0 — Superadmin Access Control & Candidate Visibility
+- Superadmin can now remove any recruiter or candidate account (with cascade cleanup of related views and subscriptions).
+- New `PUT /api/superadmin/recruiters/:id/candidate-access` endpoint — superadmin sets a per-recruiter candidate whitelist.
+- `GET /api/recruiter/candidates` now enforces `allowedCandidateIds` filtering; `null` means unrestricted.
+- Superadmin dashboard: collapsible Candidate Visibility panel per recruiter with "All Candidates" vs. restricted checklist mode.
+- Questions tab added to superadmin dashboard with full `AdminQuestionPanel` embedded.
+- Recruiter list, recruiter detail panel, and candidate account list all include Remove buttons.
+
+### v1.5 — Question Bank, Quiz Durations & Career Coach
+- Question bank policy enforced: recruiters and admins can update/refresh questions; arbitrary add/delete is restricted.
+- Quiz duration is now configurable per domain — superadmin sets time limits independently per quiz.
+- Career Coach feature: unlocked post-assessment, provides AI-driven personalised guidance.
+- Video AI grading: candidate-uploaded videos are now scored by AI and factored into the overall ranking.
+
+### v1.1 — Auth & Pipeline Fixes
+- Fixed `authState` prop wiring in `TechnicalQuizStage` to prevent auth context loss during quiz.
+- General security middleware hardening (`api/middleware/security.js`): rate limiting and CORS improvements.
 
 ---
 
