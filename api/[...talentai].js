@@ -256,12 +256,29 @@ const upload = multer({
 });
 
 // ==================== AI SERVICE ====================
-async function callAI(prompt, systemPrompt = "") {
+function getModelOverridesByTask(task = 'general') {
+  const taskKey = String(task || 'general').toLowerCase();
+  const keySuffix = taskKey.toUpperCase();
+
+  const getEnv = (name, fallback = '') => String(process.env[name] || fallback || '').trim();
+
+  return {
+    openrouter: getEnv(`OPENROUTER_MODEL_${keySuffix}`, getEnv('OPENROUTER_MODEL')),
+    gemini: getEnv(`GOOGLE_GEMINI_MODEL_${keySuffix}`, getEnv('GOOGLE_GEMINI_MODEL', 'gemini-pro')),
+    openai: getEnv(`OPENAI_MODEL_${keySuffix}`, getEnv('OPENAI_MODEL', 'gpt-3.5-turbo')),
+    claude: getEnv(`ANTHROPIC_MODEL_${keySuffix}`, getEnv('ANTHROPIC_MODEL', 'claude-sonnet-4-20250514'))
+  };
+}
+
+async function callAI(prompt, systemPrompt = "", options = {}) {
+  const task = options.task || 'general';
+  const modelOverrides = getModelOverridesByTask(task);
+
   // Priority: OpenRouter > env-specified provider > Gemini > OpenAI > Claude
   // OpenRouter key takes top priority — it supports 100+ models via one key
   if (process.env.OPENROUTER_API_KEY) {
     try {
-      return await callOpenRouter(prompt, systemPrompt);
+      return await callOpenRouter(prompt, systemPrompt, { model: modelOverrides.openrouter });
     } catch (err) {
       console.error('OpenRouter error, trying next provider:', err.message);
     }
@@ -270,29 +287,29 @@ async function callAI(prompt, systemPrompt = "") {
   const provider = process.env.AI_PROVIDER || 'gemini';
   try {
     switch (provider) {
-      case 'gemini': return await callGemini(prompt, systemPrompt);
-      case 'openai': return await callOpenAI(prompt, systemPrompt);
-      case 'claude': return await callClaude(prompt, systemPrompt);
-      default:       return await callGemini(prompt, systemPrompt);
+      case 'gemini': return await callGemini(prompt, systemPrompt, { model: modelOverrides.gemini });
+      case 'openai': return await callOpenAI(prompt, systemPrompt, { model: modelOverrides.openai });
+      case 'claude': return await callClaude(prompt, systemPrompt, { model: modelOverrides.claude });
+      default:       return await callGemini(prompt, systemPrompt, { model: modelOverrides.gemini });
     }
   } catch (error) {
     console.error(`AI Error (${provider}):`, error.message);
     if (provider !== 'gemini') {
       console.log('Falling back to Gemini...');
-      return await callGemini(prompt, systemPrompt);
+      return await callGemini(prompt, systemPrompt, { model: modelOverrides.gemini });
     }
     throw error;
   }
 }
 
 // ── OpenRouter (OpenAI-compatible, 100+ models, free tier available) ──────────
-async function callOpenRouter(prompt, systemPrompt = "") {
+async function callOpenRouter(prompt, systemPrompt = "", options = {}) {
   const apiKey = process.env.OPENROUTER_API_KEY;
   if (!apiKey) throw new Error('OpenRouter API key not configured');
 
   // Default to a free/cheap model — override via OPENROUTER_MODEL env var
   // Free models: mistralai/mistral-7b-instruct, google/gemma-3-27b-it:free, meta-llama/llama-3.1-8b-instruct:free
-  const model = process.env.OPENROUTER_MODEL || 'mistralai/mistral-7b-instruct:free';
+  const model = String(options.model || process.env.OPENROUTER_MODEL || 'mistralai/mistral-7b-instruct:free').trim();
 
   const messages = [];
   if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
@@ -320,14 +337,15 @@ async function callOpenRouter(prompt, systemPrompt = "") {
   return data.choices[0]?.message?.content || '';
 }
 
-async function callGemini(prompt, systemPrompt = "") {
+async function callGemini(prompt, systemPrompt = "", options = {}) {
   const apiKey = process.env.GOOGLE_GEMINI_API_KEY;
   if (!apiKey) throw new Error('Google Gemini API key not configured');
+  const model = String(options.model || process.env.GOOGLE_GEMINI_MODEL || 'gemini-pro').trim();
 
   const fullPrompt = systemPrompt ? `${systemPrompt}\n\n${prompt}` : prompt;
 
   const response = await fetch(
-    `https://generativelanguage.googleapis.com/v1beta/models/gemini-pro:generateContent?key=${apiKey}`,
+    `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`,
     {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -349,9 +367,10 @@ async function callGemini(prompt, systemPrompt = "") {
   return data.candidates[0]?.content?.parts[0]?.text || '';
 }
 
-async function callOpenAI(prompt, systemPrompt = "") {
+async function callOpenAI(prompt, systemPrompt = "", options = {}) {
   const apiKey = process.env.OPENAI_API_KEY;
   if (!apiKey) throw new Error('OpenAI API key not configured');
+  const model = String(options.model || process.env.OPENAI_MODEL || 'gpt-3.5-turbo').trim();
 
   const messages = [];
   if (systemPrompt) messages.push({ role: 'system', content: systemPrompt });
@@ -364,7 +383,7 @@ async function callOpenAI(prompt, systemPrompt = "") {
       'Authorization': `Bearer ${apiKey}`
     },
     body: JSON.stringify({
-      model: process.env.OPENAI_MODEL || 'gpt-3.5-turbo',
+      model,
       messages: messages,
       temperature: 0.7,
       max_tokens: 2048
@@ -377,9 +396,10 @@ async function callOpenAI(prompt, systemPrompt = "") {
   return data.choices[0]?.message?.content || '';
 }
 
-async function callClaude(prompt, systemPrompt = "") {
+async function callClaude(prompt, systemPrompt = "", options = {}) {
   const apiKey = process.env.ANTHROPIC_API_KEY;
   if (!apiKey) throw new Error('Anthropic API key not configured');
+  const model = String(options.model || process.env.ANTHROPIC_MODEL || 'claude-sonnet-4-20250514').trim();
 
   const response = await fetch('https://api.anthropic.com/v1/messages', {
     method: 'POST',
@@ -389,7 +409,7 @@ async function callClaude(prompt, systemPrompt = "") {
       'anthropic-version': '2023-06-01'
     },
     body: JSON.stringify({
-      model: 'claude-sonnet-4-20250514',
+      model,
       max_tokens: 2048,
       system: systemPrompt,
       messages: [{ role: 'user', content: prompt }]
@@ -821,7 +841,7 @@ Return ONLY a valid JSON array (no markdown, no comments):
 }]`;
       const systemPrompt = `You are a senior technical interviewer generating a ${numQuestions}-question assessment. Return ONLY a valid JSON array, no markdown.`;
       try {
-        const response = await callAI(prompt, systemPrompt);
+        const response = await callAI(prompt, systemPrompt, { task: 'quiz' });
         let cleaned = response.replace(/```json|```/g, '').trim();
         const match = cleaned.match(/\[\s*\{.*\}\s*\]/s);
         if (match) cleaned = match[0];
@@ -1430,7 +1450,7 @@ Focus on:
   const systemPrompt = "You are TalentAI, an expert ATS and resume evaluator. Follow schema strictly and return only valid JSON object output.";
 
     try {
-      const analysis = await callAI(prompt, systemPrompt);
+      const analysis = await callAI(prompt, systemPrompt, { task: 'resume' });
       const parsed = parseJsonFromAI(analysis, 'object');
       const validated = normalizeResumeAnalysis(parsed, resumeText);
 
@@ -1929,7 +1949,7 @@ INSTRUCTIONS:
       const systemPrompt = "You are a top-tier technical career coach. Return ONLY valid JSON.";
       
       try {
-        const response = await callAI(prompt, systemPrompt);
+        const response = await callAI(prompt, systemPrompt, { task: 'career' });
         let cleaned = response.replace(/```json|```/g, '').trim();
         const match = cleaned.match(/\{[\s\S]*\}/);
         if (match) cleaned = match[0];
@@ -2146,7 +2166,7 @@ Return ONLY valid JSON:
 The first question should assess their motivation and background for this role.`;
 
     try {
-      const response = await callAI(prompt, systemPrompt);
+      const response = await callAI(prompt, systemPrompt, { task: 'interview' });
       const cleaned = response.replace(/```json|```/g, '').trim();
       const parsed = JSON.parse(cleaned);
       return res.json({ success: true, ...parsed });
@@ -2262,7 +2282,7 @@ Rules:
 - Output must be valid JSON only, no markdown.`;
 
     try {
-      const response = await callAI(prompt, systemPrompt);
+      const response = await callAI(prompt, systemPrompt, { task: 'interview' });
       const parsed = parseJsonFromAI(response, 'object');
       const criteria = parsed.criteriaScores || {};
       const clarity = clampScore(criteria.clarity, 0, 100, 0);
