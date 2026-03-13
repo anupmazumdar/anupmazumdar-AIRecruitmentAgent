@@ -374,11 +374,15 @@ async function saveQuizSettings() {
 
 app.use(async (req, res, next) => {
   try {
-    await ensureDataInitialized();
+    const initTimeoutMs = Math.max(1000, Number(process.env.DATA_INIT_TIMEOUT_MS || 4000));
+    await Promise.race([
+      ensureDataInitialized(),
+      new Promise((_, reject) => setTimeout(() => reject(new Error(`Data initialization timed out after ${initTimeoutMs}ms`)), initTimeoutMs))
+    ]);
     next();
   } catch (error) {
     console.error('Initialization error:', error);
-    res.status(500).json({ error: 'Server initialization failed' });
+    res.status(503).json({ error: 'Server initialization failed' });
   }
 });
 
@@ -483,7 +487,17 @@ async function writeAuthAuditLog(eventType, req, details = {}) {
   if (authAuditLogs.length > 5000) {
     authAuditLogs = authAuditLogs.slice(-5000);
   }
-  await saveAuthAuditLogs();
+
+  const auditPersistTimeoutMs = Math.max(500, Number(process.env.AUTH_AUDIT_SAVE_TIMEOUT_MS || 1200));
+  try {
+    await Promise.race([
+      saveAuthAuditLogs(),
+      new Promise((resolve) => setTimeout(resolve, auditPersistTimeoutMs))
+    ]);
+  } catch (error) {
+    console.error('Auth audit persistence warning:', error.message || error);
+  }
+
   return entry;
 }
 
