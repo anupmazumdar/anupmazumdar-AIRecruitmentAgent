@@ -94,6 +94,7 @@ const SUBSCRIPTION_PLANS = {
 export default function AIRecruitmentAgent() {
   const [userType, setUserType] = useState(null);
   const [selectedPlan, setSelectedPlan] = useState(null); // NEW: Track selected plan
+  const [authUserType, setAuthUserType] = useState(null);
   const [subscription, setSubscription] = useState(null);
   const [showSubscriptionModal, setShowSubscriptionModal] = useState(false);
   const [showAuthModal, setShowAuthModal] = useState(false);
@@ -126,6 +127,7 @@ export default function AIRecruitmentAgent() {
     localStorage.setItem('talentai_auth', JSON.stringify(authData));
     setUserType(userData.userType);
     setShowAuthModal(false);
+    setAuthUserType(null);
 
     // If they selected a plan before signing up, activate it
     if (selectedPlan && userData.userType === 'recruiter') {
@@ -144,6 +146,7 @@ export default function AIRecruitmentAgent() {
     setUserType(null);
     setSubscription(null);
     setSelectedPlan(null);
+    setAuthUserType(null);
   };
 
   return (
@@ -162,6 +165,7 @@ export default function AIRecruitmentAgent() {
             authState={authState}
             logout={logout}
             setSelectedPlan={setSelectedPlan}
+            setAuthUserType={setAuthUserType}
           />
         ) : userType === 'candidate' ? (
           <CandidatePortal
@@ -192,6 +196,7 @@ export default function AIRecruitmentAgent() {
           setShowAuthModal={setShowAuthModal}
           setAuthMode={setAuthMode}
           setSelectedPlan={setSelectedPlan}
+          setAuthUserType={setAuthUserType}
         />
       )}
 
@@ -202,6 +207,8 @@ export default function AIRecruitmentAgent() {
           setShowAuthModal={setShowAuthModal}
           login={login}
           selectedPlan={selectedPlan}
+          authUserType={authUserType}
+          setAuthUserType={setAuthUserType}
         />
       )}
 
@@ -211,18 +218,32 @@ export default function AIRecruitmentAgent() {
 }
 
 // ==================== AUTH MODAL (WITH SELECTED PLAN INFO) ====================
-function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPlan }) {
+function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPlan, authUserType, setAuthUserType }) {
   const [formData, setFormData] = useState({
     name: '',
     email: '',
     password: '',
     confirmPassword: '',
-    userType: selectedPlan ? 'recruiter' : 'candidate',
+    userType: selectedPlan || authUserType === 'recruiter' ? 'recruiter' : 'candidate',
     company: ''
   });
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (selectedPlan) {
+      setFormData(prev => ({ ...prev, userType: 'recruiter' }));
+      return;
+    }
+    if (authUserType === 'candidate' || authUserType === 'recruiter') {
+      setFormData(prev => ({
+        ...prev,
+        userType: authUserType,
+        ...(authUserType === 'candidate' ? { company: '' } : {})
+      }));
+    }
+  }, [selectedPlan, authUserType]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -237,6 +258,12 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
         if (formData.password.length < 8) {
           throw new Error('Password must be at least 8 characters');
         }
+        if (formData.userType === 'recruiter' && !formData.name.trim()) {
+          throw new Error('Recruiter name is required');
+        }
+        if (formData.userType === 'recruiter' && !formData.company.trim()) {
+          throw new Error('Company name is required');
+        }
       }
 
       const endpoint = authMode === 'login' ? '/api/auth/login' : '/api/auth/register';
@@ -246,9 +273,9 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
         body: JSON.stringify({
           email: formData.email,
           password: formData.password,
-          name: formData.name,
+          name: formData.userType === 'candidate' ? (formData.name || '') : formData.name,
           userType: formData.userType,
-          company: formData.company
+          company: formData.userType === 'recruiter' ? formData.company : ''
         })
       });
 
@@ -272,7 +299,9 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-3 md:p-4">
       <div className="bg-slate-900/95 rounded-2xl max-w-md w-full p-4 md:p-6 border border-slate-700">
         <h2 className="text-xl md:text-2xl font-bold mb-3 text-center">
-          {authMode === 'login' ? 'Welcome Back!' : 'Create Account'}
+          {authMode === 'login'
+            ? `${authUserType === 'superadmin' ? 'Admin' : authUserType === 'recruiter' ? 'Recruiter' : authUserType === 'candidate' ? 'Candidate' : ''} Sign In`.trim()
+            : `${authUserType === 'recruiter' ? 'Recruiter' : authUserType === 'candidate' ? 'Candidate' : ''} Create Account`.trim()}
         </h2>
 
         {/* Show selected plan info */}
@@ -303,18 +332,24 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
         <form onSubmit={handleSubmit} className="space-y-3">
           {authMode === 'register' && (
             <>
-              <div>
-                <input
-                  type="text"
-                  value={formData.name}
-                  onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-                  className="w-full px-4 py-2.5 bg-slate-800/50 rounded-lg border border-slate-600 focus:border-indigo-500 focus:outline-none"
-                  placeholder="Full Name"
-                  required
-                />
-              </div>
+              {formData.userType !== 'candidate' && (
+                <div>
+                  <input
+                    type="text"
+                    value={formData.name}
+                    onChange={(e) => setFormData({ ...formData, name: e.target.value })}
+                    className="w-full px-4 py-2.5 bg-slate-800/50 rounded-lg border border-slate-600 focus:border-indigo-500 focus:outline-none"
+                    placeholder="Recruiter Name"
+                    required
+                  />
+                </div>
+              )}
 
-              {!selectedPlan && (
+              {formData.userType === 'candidate' && (
+                <p className="text-xs text-slate-400">Name is optional for candidates at sign up. You can add or update it in your profile.</p>
+              )}
+
+              {!selectedPlan && !authUserType && (
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
@@ -420,7 +455,10 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
         </div>
 
         <button
-          onClick={() => setShowAuthModal(false)}
+          onClick={() => {
+            setShowAuthModal(false);
+            setAuthUserType(null);
+          }}
           className="mt-3 w-full min-h-[44px] py-2 bg-slate-800/50 rounded-lg hover:bg-slate-700/50 transition-all text-sm md:text-base"
         >
           Cancel
@@ -431,7 +469,7 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
 }
 
 // ==================== SUBSCRIPTION MODAL (UPDATED) ====================
-function SubscriptionModal({ setShowSubscriptionModal, setSubscription, setUserType, authState, setShowAuthModal, setAuthMode, setSelectedPlan }) {
+function SubscriptionModal({ setShowSubscriptionModal, setSubscription, setUserType, authState, setShowAuthModal, setAuthMode, setSelectedPlan, setAuthUserType }) {
   const [billingCycle, setBillingCycle] = useState('monthly');
 
   const handlePlanSelect = (planKey) => {
@@ -439,6 +477,7 @@ function SubscriptionModal({ setShowSubscriptionModal, setSubscription, setUserT
     setShowSubscriptionModal(false);
 
     if (!authState.isAuthenticated) {
+      setAuthUserType('recruiter');
       setAuthMode('register');
       setShowAuthModal(true);
     } else {

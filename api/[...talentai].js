@@ -627,9 +627,25 @@ function requireSuperAdmin(req, res, next) {
 app.post('/api/auth/register', async (req, res) => {
   try {
     const { name, email, password, userType, company } = req.body;
+    const normalizedUserType = String(userType || '').toLowerCase();
 
-    if (!name || !email || !password || !userType) {
+    if (!email || !password || !normalizedUserType) {
       return res.status(400).json({ error: 'Missing required fields' });
+    }
+
+    if (!['candidate', 'recruiter'].includes(normalizedUserType)) {
+      return res.status(400).json({ error: 'Invalid user type' });
+    }
+
+    const normalizedName = String(name || '').trim() || (normalizedUserType === 'candidate' ? email.split('@')[0] : '');
+    const normalizedCompany = String(company || '').trim();
+
+    if (normalizedUserType === 'recruiter' && !normalizedName) {
+      return res.status(400).json({ error: 'Recruiter name is required' });
+    }
+
+    if (normalizedUserType === 'recruiter' && !normalizedCompany) {
+      return res.status(400).json({ error: 'Company is required for recruiter accounts' });
     }
 
     if (password.length < 8) {
@@ -645,11 +661,11 @@ app.post('/api/auth/register', async (req, res) => {
 
     const user = {
       id: userId++,
-      name,
+      name: normalizedName,
       email: email.toLowerCase(),
       password: hashedPassword,
-      userType,
-      company: userType === 'recruiter' ? company : null,
+      userType: normalizedUserType,
+      company: normalizedUserType === 'recruiter' ? normalizedCompany : null,
       createdAt: new Date().toISOString()
     };
 
