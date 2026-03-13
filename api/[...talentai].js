@@ -7,6 +7,7 @@ const cors = require('cors');
 const multer = require('multer');
 const bcrypt = require('bcryptjs');
 const jwt = require('jsonwebtoken');
+const jwksClient = require('jwks-rsa');
 const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs').promises;
@@ -132,6 +133,39 @@ async function uploadFileToCloud(localPath, cloudPath) {
   }
 }
 
+async function getUploadedFileBuffer(file) {
+  if (!file) return Buffer.from([]);
+  if (file.buffer) return file.buffer;
+  if (file.path) return fs.readFile(file.path);
+  return Buffer.from([]);
+}
+
+async function uploadMultipartFileToCloud(file, cloudPath) {
+  if (!useGCS || !file) return null;
+
+  let tempFilePath = file.path || null;
+  let cleanupTempFile = false;
+
+  try {
+    if (!tempFilePath && file.buffer) {
+      tempFilePath = path.join(os.tmpdir(), `${Date.now()}-${Math.round(Math.random() * 1e9)}${path.extname(file.originalname || '')}`);
+      await fs.writeFile(tempFilePath, file.buffer);
+      cleanupTempFile = true;
+    }
+
+    if (!tempFilePath) return null;
+    return uploadFileToCloud(tempFilePath, cloudPath);
+  } finally {
+    if (cleanupTempFile && tempFilePath) {
+      try {
+        await fs.unlink(tempFilePath);
+      } catch (error) {
+        console.error('Failed to cleanup temporary upload file:', error.message);
+      }
+    }
+  }
+}
+
 // Helper function to extract text from various document formats
 // Accepts either a buffer directly (Vercel memory storage) or a file path (local disk)
 async function extractTextFromDocument(filePathOrBuffer, mimeType) {
@@ -189,6 +223,9 @@ app.use(morganMiddleware);
 // 5. Body parsers
 app.use(express.json({ limit: '10mb' }));
 app.use(express.urlencoded({ extended: true, limit: '10mb' }));
+if (!process.env.VERCEL) {
+  app.use('/uploads', express.static(path.resolve(process.cwd(), 'uploads')));
+}
 // 6. Input sanitization (NoSQL injection, XSS, HPP)
 sanitizeMiddleware.forEach((m) => app.use(m));
 // 7. Global rate limiter (100 / 15 min)
@@ -212,6 +249,8 @@ let subscriptions = [];
 let questionBank = []; // Admin-managed questions
 let upgradeResources = []; // Superadmin-managed YouTube/video resources by role
 let chatMessages = []; // Recruiter <-> superadmin messages with hash chain integrity
+let chatReadStates = []; // Per-user read checkpoints for unread counts
+let authAuditLogs = []; // Auth/session security audit events
 let quizSettings = {
   candidateDurationMinutes: 30,
   recruiterDurationMinutes: 30,
@@ -233,6 +272,8 @@ async function initializeData() {
   questionBank = await loadDataFromCloud('questionBank.json', []);
   upgradeResources = await loadDataFromCloud('upgradeResources.json', []);
   chatMessages = await loadDataFromCloud('chatMessages.json', []);
+  chatReadStates = await loadDataFromCloud('chatReadStates.json', []);
+  authAuditLogs = await loadDataFromCloud('authAuditLogs.json', []);
   quizSettings = await loadDataFromCloud('quizSettings.json', quizSettings);
 
   // Set IDs to max + 1
@@ -319,6 +360,14 @@ async function saveChatMessages() {
   await saveDataToCloud('chatMessages.json', chatMessages);
 }
 
+async function saveChatReadStates() {
+  await saveDataToCloud('chatReadStates.json', chatReadStates);
+}
+
+async function saveAuthAuditLogs() {
+  await saveDataToCloud('authAuditLogs.json', authAuditLogs.slice(-5000));
+}
+
 async function saveQuizSettings() {
   await saveDataToCloud('quizSettings.json', quizSettings);
 }
@@ -343,6 +392,100 @@ function resolveJwtSecret() {
 }
 
 const JWT_SECRET = resolveJwtSecret();
+const AUTH0_DOMAIN = String(process.env.AUTH0_DOMAIN || process.env.REACT_APP_AUTH0_DOMAIN || 'dev-shjk32vx4oscfrde.us.auth0.com').trim();
+const AUTH0_CLIENT_ID = String(process.env.AUTH0_CLIENT_ID || process.env.REACT_APP_AUTH0_CLIENT_ID || 'KHC4ncaBYv0W4NqgVSLD5vJI8SuqPHDk').trim();
+const AUTH0_ALLOWED_RECRUITER_DOMAINS = String(process.env.AUTH0_ALLOWED_RECRUITER_DOMAINS || '')
+  .split(',')
+  .map((item) => item.trim().toLowerCase())
+  .filter(Boolean);
+const auth0Issuer = AUTH0_DOMAIN ? `https://${AUTH0_DOMAIN}/` : '';
+const auth0JwksClient = AUTH0_DOMAIN
+  ? jwksClient({
+      jwksUri: `${auth0Issuer}.well-known/jwks.json`,
+      cache: true,
+      cacheMaxEntries: 10,
+      cacheMaxAge: 10 * 60 * 1000,
+      rateLimit: true,
+      jwksRequestsPerMinute: 10
+    })
+  : null;
+
+function getAuth0SigningKey(kid) {
+  if (!auth0JwksClient) {
+    return Promise.reject(new Error('Auth0 is not configured'));
+  }
+
+  return new Promise((resolve, reject) => {
+    auth0JwksClient.getSigningKey(kid, (error, key) => {
+      if (error) return reject(error);
+      const signingKey = key?.getPublicKey?.() || key?.publicKey || key?.rsaPublicKey;
+      if (!signingKey) return reject(new Error('Unable to resolve signing key'));
+      resolve(signingKey);
+    });
+  });
+}
+
+async function verifyAuth0IdToken(idToken) {
+  if (!AUTH0_DOMAIN || !AUTH0_CLIENT_ID) {
+    throw new Error('Auth0 domain/client id not configured');
+  }
+
+  const decoded = jwt.decode(idToken, { complete: true });
+  const kid = decoded?.header?.kid;
+  if (!kid) {
+    throw new Error('Invalid Auth0 token header');
+  }
+
+  const signingKey = await getAuth0SigningKey(kid);
+  return new Promise((resolve, reject) => {
+    jwt.verify(
+      idToken,
+      signingKey,
+      {
+        algorithms: ['RS256'],
+        issuer: auth0Issuer,
+        audience: AUTH0_CLIENT_ID
+      },
+      (error, payload) => {
+        if (error) return reject(error);
+        resolve(payload);
+      }
+    );
+  });
+}
+
+function getEmailDomain(email) {
+  const normalized = String(email || '').toLowerCase();
+  const parts = normalized.split('@');
+  return parts.length === 2 ? parts[1] : '';
+}
+
+function isRecruiterDomainAllowed(email) {
+  if (!AUTH0_ALLOWED_RECRUITER_DOMAINS.length) {
+    return false;
+  }
+
+  const domain = getEmailDomain(email);
+  return domain ? AUTH0_ALLOWED_RECRUITER_DOMAINS.includes(domain) : false;
+}
+
+async function writeAuthAuditLog(eventType, req, details = {}) {
+  const entry = {
+    id: `${Date.now()}-${Math.round(Math.random() * 1e9)}`,
+    eventType,
+    ip: req.headers['x-forwarded-for'] || req.ip || null,
+    userAgent: req.headers['user-agent'] || null,
+    timestamp: new Date().toISOString(),
+    ...details
+  };
+
+  authAuditLogs.push(entry);
+  if (authAuditLogs.length > 5000) {
+    authAuditLogs = authAuditLogs.slice(-5000);
+  }
+  await saveAuthAuditLogs();
+  return entry;
+}
 
 // File upload configuration
 // On Vercel: use memory storage (no disk write access and no persistent filesystem)
@@ -720,6 +863,100 @@ function getConversationMessages(conversationId) {
     .sort((a, b) => Number(a.blockIndex) - Number(b.blockIndex) || Number(a.id) - Number(b.id));
 }
 
+function getConversationReadState(conversationId, userId) {
+  return chatReadStates.find((item) => item.conversationId === conversationId && Number(item.userId) === Number(userId)) || null;
+}
+
+function getConversationLastReadBlockIndex(conversationId, userId) {
+  return Number(getConversationReadState(conversationId, userId)?.lastReadBlockIndex) || 0;
+}
+
+async function markConversationRead(conversationId, userId, lastReadBlockIndex) {
+  const nextIndex = Number(lastReadBlockIndex) || 0;
+  const existing = getConversationReadState(conversationId, userId);
+
+  if (existing) {
+    if (Number(existing.lastReadBlockIndex) >= nextIndex) {
+      return existing;
+    }
+
+    existing.lastReadBlockIndex = nextIndex;
+    existing.lastReadAt = new Date().toISOString();
+    await saveChatReadStates();
+    return existing;
+  }
+
+  const state = {
+    conversationId,
+    userId: Number(userId),
+    lastReadBlockIndex: nextIndex,
+    lastReadAt: new Date().toISOString()
+  };
+  chatReadStates.push(state);
+  await saveChatReadStates();
+  return state;
+}
+
+function sanitizeChatAttachment(attachment) {
+  if (!attachment) return null;
+
+  return {
+    kind: attachment.kind,
+    fileName: attachment.fileName,
+    mimeType: attachment.mimeType,
+    size: attachment.size,
+    storagePath: attachment.storagePath,
+    fileHash: attachment.fileHash,
+    url: attachment.url || (attachment.storagePath ? `/${String(attachment.storagePath).replace(/^\/+/, '')}` : null)
+  };
+}
+
+function buildChatAttachmentPreview(message) {
+  if (!message) return '';
+  if (message.text) return String(message.text).slice(0, 80);
+  if (message.attachment?.fileName) return `Attachment: ${message.attachment.fileName}`;
+  return 'Secure message';
+}
+
+async function buildChatAttachment(file, conversationId) {
+  if (!file) return null;
+
+  const buffer = await getUploadedFileBuffer(file);
+  const safeFileName = String(file.originalname || 'attachment')
+    .replace(/[^a-zA-Z0-9._-]/g, '_')
+    .slice(0, 120);
+  const storagePath = useGCS
+    ? `chat-attachments/${conversationId}/${Date.now()}-${safeFileName}`
+    : String(file.path || '').replace(/\\/g, '/').replace(/^\.?\//, '');
+  const attachment = {
+    kind: String(file.mimetype || '').startsWith('image/') ? 'image' : 'file',
+    fileName: safeFileName,
+    mimeType: file.mimetype || 'application/octet-stream',
+    size: Number(file.size) || buffer.length,
+    storagePath,
+    fileHash: crypto.createHash('sha256').update(buffer).digest('hex'),
+    url: null
+  };
+
+  try {
+    if (useGCS) {
+      attachment.url = await uploadMultipartFileToCloud(file, storagePath);
+    } else if (storagePath) {
+      attachment.url = `/${storagePath}`;
+    }
+  } finally {
+    if (useGCS && file.path) {
+      try {
+        await fs.unlink(file.path);
+      } catch (error) {
+        console.error('Failed to cleanup uploaded attachment file:', error.message);
+      }
+    }
+  }
+
+  return attachment;
+}
+
 function buildChatHashPayload(message) {
   return JSON.stringify({
     id: message.id,
@@ -731,6 +968,14 @@ function buildChatHashPayload(message) {
     receiverId: message.receiverId,
     receiverType: message.receiverType,
     text: message.text,
+    attachment: message.attachment ? {
+      kind: message.attachment.kind,
+      fileName: message.attachment.fileName,
+      mimeType: message.attachment.mimeType,
+      size: message.attachment.size,
+      storagePath: message.attachment.storagePath,
+      fileHash: message.attachment.fileHash
+    } : null,
     createdAt: message.createdAt
   });
 }
@@ -778,6 +1023,7 @@ function sanitizeChatMessage(message) {
     receiverId: message.receiverId,
     receiverType: message.receiverType,
     text: message.text,
+    attachment: sanitizeChatAttachment(message.attachment),
     createdAt: message.createdAt
   };
 }
@@ -800,7 +1046,7 @@ function validateChatParticipants(currentUser, peerUser) {
   return { valid: true };
 }
 
-function createChatMessage(sender, receiver, text) {
+function createChatMessage(sender, receiver, text, attachment = null) {
   const conversationId = buildChatConversationId(sender, receiver);
   const existingMessages = getConversationMessages(conversationId);
   const previousHash = existingMessages.length ? existingMessages[existingMessages.length - 1].hash : 'GENESIS';
@@ -814,6 +1060,7 @@ function createChatMessage(sender, receiver, text) {
     receiverId: receiver.id,
     receiverType: receiver.userType,
     text: String(text || '').trim(),
+    attachment: attachment ? sanitizeChatAttachment(attachment) : null,
     createdAt: new Date().toISOString()
   };
   message.hash = computeChatHash(message);
@@ -930,6 +1177,187 @@ app.post('/api/auth/login', async (req, res) => {
   } catch (error) {
     console.error('Login error:', error);
     res.status(500).json({ error: 'Internal server error' });
+  }
+});
+
+// Auth0 ID token exchange: validates Auth0 identity and issues existing TalentAI JWT tokens.
+app.post('/api/auth/auth0/session', async (req, res) => {
+  try {
+    const idToken = String(req.body?.idToken || '').trim();
+    const requestedUserType = String(req.body?.userType || '').trim().toLowerCase();
+    const requestedCompany = String(req.body?.company || '').trim();
+
+    if (!idToken) {
+      await writeAuthAuditLog('auth0_session_denied', req, {
+        reason: 'missing_id_token'
+      });
+      return res.status(400).json({ error: 'idToken is required' });
+    }
+
+    if (requestedUserType && !['candidate', 'recruiter'].includes(requestedUserType)) {
+      await writeAuthAuditLog('auth0_session_denied', req, {
+        reason: 'invalid_user_type',
+        requestedUserType
+      });
+      return res.status(400).json({ error: 'Invalid userType' });
+    }
+
+    const auth0Payload = await verifyAuth0IdToken(idToken);
+    const email = String(auth0Payload?.email || '').trim().toLowerCase();
+    const auth0Sub = String(auth0Payload?.sub || '').trim();
+    const name = String(auth0Payload?.name || auth0Payload?.nickname || email.split('@')[0] || '').trim();
+
+    if (!email || !auth0Sub) {
+      await writeAuthAuditLog('auth0_session_denied', req, {
+        reason: 'missing_identity_claims',
+        email,
+        auth0Sub
+      });
+      return res.status(400).json({ error: 'Auth0 token does not contain required identity claims' });
+    }
+
+    let user = users.find((entry) => entry.auth0Sub === auth0Sub || String(entry.email || '').toLowerCase() === email);
+    const isFirstTimeAuth0User = !user;
+
+    if (isFirstTimeAuth0User) {
+      if (!requestedUserType) {
+        await writeAuthAuditLog('auth0_session_denied', req, {
+          reason: 'missing_first_time_role',
+          email,
+          auth0Sub
+        });
+        return res.status(400).json({ error: 'Role selection is required for first-time Auth0 sign in' });
+      }
+
+      const userType = requestedUserType;
+      if (userType === 'recruiter' && !requestedCompany) {
+        await writeAuthAuditLog('auth0_session_denied', req, {
+          reason: 'missing_recruiter_company',
+          email,
+          auth0Sub,
+          requestedUserType
+        });
+        return res.status(400).json({ error: 'Company is required for new recruiter accounts' });
+      }
+
+      if (userType === 'recruiter' && !isRecruiterDomainAllowed(email)) {
+        await writeAuthAuditLog('auth0_session_denied', req, {
+          reason: 'recruiter_domain_not_allowed',
+          email,
+          auth0Sub,
+          requestedUserType,
+          emailDomain: getEmailDomain(email),
+          allowedDomains: AUTH0_ALLOWED_RECRUITER_DOMAINS
+        });
+        return res.status(403).json({ error: 'Recruiter accounts are restricted to approved company domains' });
+      }
+
+      const randomPassword = crypto.randomBytes(32).toString('hex');
+      const hashedPassword = await bcrypt.hash(randomPassword, 10);
+
+      user = {
+        id: userId++,
+        name: name || email.split('@')[0],
+        email,
+        password: hashedPassword,
+        userType,
+        canAccessPlatform: true,
+        company: userType === 'recruiter' ? requestedCompany : null,
+        authProvider: 'auth0',
+        auth0Sub,
+        emailVerified: auth0Payload?.email_verified !== false,
+        createdAt: new Date().toISOString(),
+        lastAuth0LoginAt: new Date().toISOString()
+      };
+
+      users.push(user);
+      await saveUsers();
+
+      await writeAuthAuditLog('auth0_user_created', req, {
+        email,
+        auth0Sub,
+        userId: user.id,
+        userType: user.userType,
+        company: user.company || null,
+        isFirstTimeAuth0User: true
+      });
+    } else {
+      let changed = false;
+      if (user.auth0Sub !== auth0Sub) {
+        user.auth0Sub = auth0Sub;
+        changed = true;
+      }
+      if (name && user.name !== name) {
+        user.name = name;
+        changed = true;
+      }
+      if (user.authProvider !== 'auth0') {
+        user.authProvider = 'auth0';
+        changed = true;
+      }
+      if (typeof auth0Payload?.email_verified === 'boolean' && user.emailVerified !== auth0Payload.email_verified) {
+        user.emailVerified = auth0Payload.email_verified;
+        changed = true;
+      }
+      user.lastAuth0LoginAt = new Date().toISOString();
+      changed = true;
+
+      if (changed) {
+        await saveUsers();
+      }
+
+      await writeAuthAuditLog('auth0_user_login', req, {
+        email,
+        auth0Sub,
+        userId: user.id,
+        userType: user.userType,
+        company: user.company || null,
+        isFirstTimeAuth0User: false
+      });
+    }
+
+    if (!hasPlatformAccess(user)) {
+      await writeAuthAuditLog('auth0_session_denied', req, {
+        reason: 'platform_access_revoked',
+        email,
+        auth0Sub,
+        userId: user.id,
+        userType: user.userType
+      });
+      return res.status(403).json({ error: 'Access revoked by admin' });
+    }
+
+    const token = jwt.sign(
+      { userId: user.id, email: user.email, userType: user.userType },
+      JWT_SECRET,
+      { expiresIn: '7d' }
+    );
+
+    const refreshToken = issueRefreshToken({ userId: user.id, email: user.email, userType: user.userType });
+    const { password: _, ...userWithoutPassword } = user;
+
+    await writeAuthAuditLog('auth0_session_issued', req, {
+      email,
+      auth0Sub,
+      userId: user.id,
+      userType: user.userType,
+      company: user.company || null,
+      isFirstTimeAuth0User
+    });
+
+    return res.json({
+      success: true,
+      user: userWithoutPassword,
+      token,
+      refreshToken
+    });
+  } catch (error) {
+    console.error('Auth0 session exchange error:', error.message);
+    await writeAuthAuditLog('auth0_session_denied', req, {
+      reason: 'invalid_auth0_token',
+      details: error.message
+    });
+    return res.status(401).json({ error: 'Invalid Auth0 token' });
   }
 });
 
@@ -1126,14 +1554,44 @@ app.get('/api/chat/contacts', authenticateToken, (req, res) => {
   if (currentUser.userType === 'recruiter') {
     const superadmins = users
       .filter((user) => user.userType === 'superadmin')
-      .map((user) => sanitizeManagedUser(user));
+      .map((user) => {
+        const conversationId = buildChatConversationId(currentUser, user);
+        const conversationMessages = getConversationMessages(conversationId);
+        const lastMessage = conversationMessages[conversationMessages.length - 1] || null;
+        const unreadCount = conversationMessages.filter((message) => Number(message.receiverId) === Number(currentUser.id) && Number(message.blockIndex) > getConversationLastReadBlockIndex(conversationId, currentUser.id)).length;
+
+        return {
+          ...sanitizeManagedUser(user),
+          conversationId,
+          unreadCount,
+          lastMessageAt: lastMessage?.createdAt || null,
+          lastMessagePreview: buildChatAttachmentPreview(lastMessage),
+          lastMessageHasAttachment: Boolean(lastMessage?.attachment)
+        };
+      })
+      .sort((a, b) => String(b.lastMessageAt || '').localeCompare(String(a.lastMessageAt || '')) || String(a.name || '').localeCompare(String(b.name || '')));
     return res.json({ success: true, contacts: superadmins });
   }
 
   if (currentUser.userType === 'superadmin') {
     const recruiters = users
       .filter((user) => user.userType === 'recruiter' && hasPlatformAccess(user))
-      .map((user) => sanitizeManagedUser(user));
+      .map((user) => {
+        const conversationId = buildChatConversationId(currentUser, user);
+        const conversationMessages = getConversationMessages(conversationId);
+        const lastMessage = conversationMessages[conversationMessages.length - 1] || null;
+        const unreadCount = conversationMessages.filter((message) => Number(message.receiverId) === Number(currentUser.id) && Number(message.blockIndex) > getConversationLastReadBlockIndex(conversationId, currentUser.id)).length;
+
+        return {
+          ...sanitizeManagedUser(user),
+          conversationId,
+          unreadCount,
+          lastMessageAt: lastMessage?.createdAt || null,
+          lastMessagePreview: buildChatAttachmentPreview(lastMessage),
+          lastMessageHasAttachment: Boolean(lastMessage?.attachment)
+        };
+      })
+      .sort((a, b) => String(b.lastMessageAt || '').localeCompare(String(a.lastMessageAt || '')) || String(a.name || '').localeCompare(String(b.name || '')));
     return res.json({ success: true, contacts: recruiters });
   }
 
@@ -1151,19 +1609,32 @@ app.get('/api/chat/messages/:peerId', authenticateToken, (req, res) => {
   }
 
   const conversationId = buildChatConversationId(currentUser, peerUser);
-  const messages = getConversationMessages(conversationId).map(sanitizeChatMessage);
-  const integrity = verifyConversationIntegrity(messages);
+  const conversationMessages = getConversationMessages(conversationId);
+  const messages = conversationMessages.map(sanitizeChatMessage);
+  const integrity = verifyConversationIntegrity(conversationMessages);
 
-  return res.json({
-    success: true,
-    conversationId,
-    messages,
-    integrity,
-    peer: sanitizeManagedUser(peerUser)
+  const finalize = async () => {
+    const lastBlockIndex = conversationMessages.length ? conversationMessages[conversationMessages.length - 1].blockIndex : 0;
+    if (lastBlockIndex > 0) {
+      await markConversationRead(conversationId, currentUser.id, lastBlockIndex);
+    }
+
+    return res.json({
+      success: true,
+      conversationId,
+      messages,
+      integrity,
+      peer: sanitizeManagedUser(peerUser)
+    });
+  };
+
+  return finalize().catch((error) => {
+    console.error('Chat read-state update error:', error);
+    return res.status(500).json({ error: 'Failed to load messages' });
   });
 });
 
-app.post('/api/chat/messages', authenticateToken, async (req, res) => {
+app.post('/api/chat/messages', authenticateToken, upload.single('attachment'), async (req, res) => {
   try {
     const currentUser = getCurrentUserFromRequest(req);
     const peerId = parseInt(req.body?.peerId);
@@ -1175,11 +1646,13 @@ app.post('/api/chat/messages', authenticateToken, async (req, res) => {
       return res.status(validation.status).json({ error: validation.error });
     }
 
-    if (!text) {
-      return res.status(400).json({ error: 'Message text is required' });
+    if (!text && !req.file) {
+      return res.status(400).json({ error: 'Message text or an attachment is required' });
     }
 
-    const message = createChatMessage(currentUser, peerUser, text);
+    const conversationId = buildChatConversationId(currentUser, peerUser);
+    const attachment = await buildChatAttachment(req.file, conversationId);
+    const message = createChatMessage(currentUser, peerUser, text, attachment);
     chatMessages.push(message);
     await saveChatMessages();
 
@@ -1383,6 +1856,19 @@ app.get('/api/superadmin/stats', authenticateToken, requireSuperAdmin, (req, res
   res.json({
     success: true,
     stats: { recruiterCount, activeRecruiters, candidateCount, activeCandidates, avgScore }
+  });
+});
+
+// GET recent Auth0 audit logs (superadmin only)
+app.get('/api/superadmin/auth-audit-logs', authenticateToken, requireSuperAdmin, (req, res) => {
+  const parsedLimit = Number.parseInt(req.query?.limit, 10);
+  const limit = Number.isFinite(parsedLimit) && parsedLimit > 0 ? Math.min(parsedLimit, 500) : 100;
+  const logs = authAuditLogs.slice(-limit).reverse();
+
+  return res.json({
+    success: true,
+    count: logs.length,
+    logs
   });
 });
 
@@ -2896,6 +3382,49 @@ function buildUpgradeSuggestionsFallback(role, candidateData = {}) {
   };
 }
 
+function buildUpgradeSuggestionsCacheKey(role, candidateData = {}) {
+  return JSON.stringify({
+    role: normalizeRoleKey(role),
+    resumeScore: Number(candidateData.resumeScore) || 0,
+    quizScore: Number(candidateData.quizScore) || 0,
+    interviewScore: Number(candidateData.interviewScore) || 0,
+    videoInterviewScore: Number(candidateData.videoInterviewScore) || 0,
+    uploadVideoScore: Number(candidateData.uploadVideoScore) || 0
+  });
+}
+
+function findCandidateForUpgradePlan(req, candidateData = {}, role = '') {
+  const requestedId = Number(candidateData.id || candidateData.candidateId);
+  if (Number.isFinite(requestedId) && requestedId > 0) {
+    const exactCandidate = candidates.find((candidate) => candidate.id === requestedId);
+    if (exactCandidate) return exactCandidate;
+  }
+
+  const email = String(candidateData.email || req.user?.email || '').trim().toLowerCase();
+  if (!email) return null;
+
+  return candidates
+    .filter((candidate) => String(candidate.email || '').trim().toLowerCase() === email)
+    .filter((candidate) => !role || !candidate.position || String(candidate.position).trim().toLowerCase() === String(role).trim().toLowerCase())
+    .sort((a, b) => String(b.createdAt || '').localeCompare(String(a.createdAt || '')))[0] || null;
+}
+
+async function persistUpgradePlan(candidateRecord, role, payload, source, cacheKey) {
+  if (!candidateRecord) return null;
+
+  candidateRecord.upgradeSkillsPlan = {
+    role: normalizeRoleKey(role),
+    weakAreas: Array.isArray(payload?.weakAreas) ? payload.weakAreas : [],
+    suggestions: Array.isArray(payload?.suggestions) ? payload.suggestions : [],
+    source,
+    cacheKey,
+    generatedAt: new Date().toISOString()
+  };
+
+  await saveCandidates();
+  return candidateRecord.upgradeSkillsPlan;
+}
+
 app.post('/api/upgrade-skills/suggestions', authenticateToken, async (req, res) => {
   try {
     if (!['candidate', 'recruiter', 'superadmin'].includes(req.user?.userType)) {
@@ -2904,11 +3433,27 @@ app.post('/api/upgrade-skills/suggestions', authenticateToken, async (req, res) 
 
     const role = normalizeRoleKey(req.body?.position || req.body?.targetRole, 'General');
     const candidateData = req.body?.candidateData || {};
+    const forceRefresh = req.body?.forceRefresh === true || String(req.body?.forceRefresh || '').toLowerCase() === 'true';
+    const cacheKey = buildUpgradeSuggestionsCacheKey(role, candidateData);
+    const candidateRecord = findCandidateForUpgradePlan(req, candidateData, role);
+    const storedPlan = candidateRecord?.upgradeSkillsPlan;
+
+    if (!forceRefresh && storedPlan?.cacheKey === cacheKey && Array.isArray(storedPlan?.suggestions) && storedPlan.suggestions.length > 0) {
+      return res.json({
+        success: true,
+        weakAreas: storedPlan.weakAreas || [],
+        suggestions: storedPlan.suggestions,
+        source: 'stored',
+        generatedAt: storedPlan.generatedAt || null
+      });
+    }
+
     const fallback = buildUpgradeSuggestionsFallback(role, candidateData);
     const hasApiKey = process.env.OPENROUTER_API_KEY || process.env.GOOGLE_GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
 
     if (!hasApiKey) {
-      return res.json({ success: true, ...fallback, source: 'fallback' });
+      const stored = await persistUpgradePlan(candidateRecord, role, fallback, 'fallback', cacheKey);
+      return res.json({ success: true, ...fallback, source: 'fallback', generatedAt: stored?.generatedAt || null });
     }
 
     const prompt = `Suggest learning resources for a ${role} candidate.
@@ -2948,18 +3493,25 @@ Rules:
         : [];
 
       if (suggestions.length > 0) {
+        const payload = {
+          weakAreas: Array.isArray(parsed?.weakAreas) ? parsed.weakAreas.map((item) => String(item || '').trim()).filter(Boolean) : fallback.weakAreas,
+          suggestions
+        };
+        const stored = await persistUpgradePlan(candidateRecord, role, payload, 'ai', cacheKey);
         return res.json({
           success: true,
-          weakAreas: Array.isArray(parsed?.weakAreas) ? parsed.weakAreas.map((item) => String(item || '').trim()).filter(Boolean) : fallback.weakAreas,
-          suggestions,
-          source: 'ai'
+          weakAreas: payload.weakAreas,
+          suggestions: payload.suggestions,
+          source: 'ai',
+          generatedAt: stored?.generatedAt || null
         });
       }
     } catch (aiError) {
       console.error('Upgrade skills AI suggestion error:', aiError.message);
     }
 
-    return res.json({ success: true, ...fallback, source: 'fallback' });
+    const stored = await persistUpgradePlan(candidateRecord, role, fallback, 'fallback', cacheKey);
+    return res.json({ success: true, ...fallback, source: 'fallback', generatedAt: stored?.generatedAt || null });
   } catch (error) {
     console.error('Upgrade skills endpoint error:', error);
     return res.status(500).json({ error: 'Failed to generate upgrade skill suggestions' });

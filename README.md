@@ -36,7 +36,7 @@ Sole Creator: Anup Mazumdar | MCA Student | UEM Jaipur (2025-2027)
 - Upgrade Skills Roadmap: Superadmin-curated YouTube videos plus AI-suggested websites, blogs, articles, and courses generated after results to help candidates upskill by role and gap area.
 - Recruiter Dashboard: Real-time analytics, candidate rankings, and pipeline management.
 - Per-Recruiter Candidate Visibility: Superadmin can restrict which candidates each recruiter can view.
-- Secure Recruiter Messaging: Recruiters and superadmin can exchange near real-time text messages with blockchain-style tamper-evident message integrity.
+- Secure Recruiter Messaging: Recruiters and superadmin can exchange near real-time messages with unread badges, attachment support, history filters, search, and blockchain-style tamper-evident message integrity.
 - Superadmin Panel: Full platform control — manage recruiters, candidates, question bank, and access policies.
 - Question Bank Management: Admins and recruiters can update and refresh quiz questions; no arbitrary add/delete.
 - Enterprise Security: JWT authentication, bcrypt encryption, and GCP storage.
@@ -150,6 +150,10 @@ GOOGLE_GEMINI_API_KEY=your_gemini_key
 OPENROUTER_API_KEY=your_openrouter_key
 GOOGLE_CLOUD_PROJECT_ID=your_gcp_project_id
 GOOGLE_CLOUD_BUCKET_NAME=your_bucket_name
+AUTH0_DOMAIN=dev-shjk32vx4oscfrde.us.auth0.com
+AUTH0_CLIENT_ID=KHC4ncaBYv0W4NqgVSLD5vJI8SuqPHDk
+# Comma-separated corporate domains allowed to create recruiter accounts through Auth0
+AUTH0_ALLOWED_RECRUITER_DOMAINS=yourcompany.com,partnercompany.com
 # Optional for local key file auth only (not needed on Vercel)
 GOOGLE_APPLICATION_CREDENTIALS=path_to_service_account.json
 PORT=5000
@@ -241,6 +245,8 @@ After viewing their results (Stage 8), candidates unlock the **Upgrade Skills** 
 1. **Superadmin-Curated YouTube Videos** — The superadmin can add YouTube video links per job role/domain from the admin panel. Candidates see these curated videos relevant to their applied role.
 2. **AI-Suggested Resources** — AI analyses the candidate's assessment scores and gap areas, then recommends tailored websites, blogs, articles, documentation, and courses per skill category and job role.
 
+Generated Stage 9 roadmaps are now cached per candidate based on their latest assessment-score snapshot, so candidates reopen the same saved plan instantly until they explicitly refresh it.
+
 ### Superadmin: Adding YouTube Resource Links
 
 The superadmin can manage video resources from the admin panel under the **Resources** tab:
@@ -249,6 +255,7 @@ The superadmin can manage video resources from the admin panel under the **Resou
 - Edit or remove existing links at any time.
 - Links are shown only to candidates who applied for the matching role.
 - No limit on the number of videos per role.
+- Filter resources by role and search by title, description, or URL directly inside the panel.
 
 ### AI-Suggested Resources by Job Role
 
@@ -385,6 +392,27 @@ Shortlist Threshold: 68+ weighted score
 ---
 
 ## Recent Updates
+
+### v2.5 — Auth0 Onboarding Hardening + Audit Logs
+
+- Enforced explicit role selection for first-time Auth0 sign in before TalentAI session creation.
+- Restricted first-time recruiter creation through Auth0 to approved email domains via `AUTH0_ALLOWED_RECRUITER_DOMAINS`.
+- Added persisted Auth0 auth-audit events (success, deny reasons, token failures) and superadmin retrieval endpoint `GET /api/superadmin/auth-audit-logs`.
+
+### v2.4 — Auth0 Session Exchange Bridge
+
+- Added backend Auth0 ID token verification using Auth0 JWKS (`/api/auth/auth0/session`).
+- Added frontend "Continue into TalentAI" action to exchange Auth0 login for existing TalentAI JWT/refresh tokens.
+- Preserved current role-based app flows (candidate, recruiter, superadmin) while enabling SSO-style session handoff.
+
+### v2.3 — Secure Chat UX + Persisted Stage 9 Plans
+
+- Added unread message badges for both recruiter and superadmin chat tabs.
+- Added conversation search, message search, and history filters (today, 7 days, 30 days, attachments, images, files, mine, peer).
+- Added file and image attachments to secure chat while preserving the same SHA-256 hash-chain integrity model.
+- Added YouTube thumbnail previews in Stage 9 and in the superadmin resource manager.
+- Added role filters and search inside the superadmin Resources tab.
+- Persisted Upgrade Skills AI suggestions per candidate and reused the saved roadmap until a refresh is requested.
 
 ### v2.2 — Blockchain-Secured Recruiter Messaging
 

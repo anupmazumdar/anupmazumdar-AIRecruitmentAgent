@@ -3,7 +3,8 @@
 // FIX: Pricing always visible, better flow
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Upload, CheckCircle, XCircle, User, Briefcase, MessageSquare, Award, FileText, Users, TrendingUp, Crown, Zap, Sparkles, Check, X, Mail, Lock, Eye, EyeOff, LogOut, Video, VideoOff } from 'lucide-react';
+import { useAuth0 } from '@auth0/auth0-react';
+import { Upload, CheckCircle, XCircle, User, Briefcase, MessageSquare, Award, FileText, Users, TrendingUp, Crown, Zap, Sparkles, Check, X, Mail, Lock, Eye, EyeOff, LogOut, Video, VideoOff, Search, Paperclip, Image as ImageIcon, Clock3 } from 'lucide-react';
 import Home from './pages/Home';
 import SupportChatbot from './components/SupportChatbot';
 
@@ -29,6 +30,63 @@ async function parseApiJson(response) {
   }
 
   return data;
+}
+
+function extractYouTubeVideoId(url) {
+  const value = String(url || '').trim();
+  if (!value) return '';
+
+  const shortMatch = value.match(/youtu\.be\/([^?&/]+)/i);
+  if (shortMatch?.[1]) return shortMatch[1];
+
+  const longMatch = value.match(/[?&]v=([^?&/]+)/i);
+  if (longMatch?.[1]) return longMatch[1];
+
+  const embedMatch = value.match(/youtube\.com\/embed\/([^?&/]+)/i);
+  return embedMatch?.[1] || '';
+}
+
+function buildYouTubeThumbnailUrl(url) {
+  const videoId = extractYouTubeVideoId(url);
+  return videoId ? `https://img.youtube.com/vi/${videoId}/hqdefault.jpg` : '';
+}
+
+function buildYouTubeEmbedUrl(url) {
+  const videoId = extractYouTubeVideoId(url);
+  return videoId ? `https://www.youtube.com/embed/${videoId}` : '';
+}
+
+function formatFileSize(size) {
+  const value = Number(size) || 0;
+  if (value >= 1024 * 1024) return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+  if (value >= 1024) return `${Math.round(value / 1024)} KB`;
+  return `${value} B`;
+}
+
+function matchesChatHistoryFilter(message, filterValue, currentUserId) {
+  const createdAt = new Date(message.createdAt || 0).getTime();
+  const now = Date.now();
+
+  switch (filterValue) {
+    case 'today':
+      return now - createdAt <= 24 * 60 * 60 * 1000;
+    case '7d':
+      return now - createdAt <= 7 * 24 * 60 * 60 * 1000;
+    case '30d':
+      return now - createdAt <= 30 * 24 * 60 * 60 * 1000;
+    case 'attachments':
+      return Boolean(message.attachment);
+    case 'images':
+      return message.attachment?.kind === 'image';
+    case 'files':
+      return Boolean(message.attachment) && message.attachment?.kind !== 'image';
+    case 'mine':
+      return Number(message.senderId) === Number(currentUserId);
+    case 'peer':
+      return Number(message.senderId) !== Number(currentUserId);
+    default:
+      return true;
+  }
 }
 
 // ==================== SUBSCRIPTION PLANS ====================
@@ -219,6 +277,16 @@ export default function AIRecruitmentAgent() {
 
 // ==================== AUTH MODAL (WITH SELECTED PLAN INFO) ====================
 function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPlan, authUserType, setAuthUserType }) {
+  const {
+    isLoading: isAuth0Loading,
+    isAuthenticated: isAuth0Authenticated,
+    error: auth0Error,
+    loginWithRedirect,
+    logout: auth0Logout,
+    getIdTokenClaims,
+    user: auth0User
+  } = useAuth0();
+
   const [formData, setFormData] = useState({
     name: '',
     email: '',
@@ -230,13 +298,16 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
+  const [auth0RoleExplicitlySelected, setAuth0RoleExplicitlySelected] = useState(Boolean(selectedPlan || authUserType === 'candidate' || authUserType === 'recruiter'));
 
   useEffect(() => {
     if (selectedPlan) {
+      setAuth0RoleExplicitlySelected(true);
       setFormData(prev => ({ ...prev, userType: 'recruiter' }));
       return;
     }
     if (authUserType === 'candidate' || authUserType === 'recruiter') {
+      setAuth0RoleExplicitlySelected(true);
       setFormData(prev => ({
         ...prev,
         userType: authUserType,
@@ -244,6 +315,15 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
       }));
     }
   }, [selectedPlan, authUserType]);
+
+  useEffect(() => {
+    if (!isAuth0Authenticated || !auth0User) return;
+    setFormData((prev) => ({
+      ...prev,
+      email: prev.email || auth0User.email || '',
+      name: prev.name || auth0User.name || ''
+    }));
+  }, [auth0User, isAuth0Authenticated]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -295,6 +375,52 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
     }
   };
 
+  const handleAuth0SessionContinue = async () => {
+    setError('');
+    setLoading(true);
+    try {
+      if (!auth0RoleExplicitlySelected) {
+        throw new Error('Please select Candidate or Recruiter before continuing with Auth0.');
+      }
+
+      if (formData.userType === 'recruiter' && !formData.company.trim()) {
+        throw new Error('Company name is required for recruiter Auth0 sign in.');
+      }
+
+      const claims = await getIdTokenClaims();
+      const rawIdToken = claims?.__raw;
+
+      if (!rawIdToken) {
+        throw new Error('Unable to read Auth0 ID token. Please login again.');
+      }
+
+      const response = await fetch(`${API_URL}/api/auth/auth0/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          idToken: rawIdToken,
+          userType: auth0RoleExplicitlySelected ? formData.userType : '',
+          company: formData.userType === 'recruiter' ? formData.company : ''
+        })
+      });
+
+      const data = await parseApiJson(response);
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to create TalentAI session from Auth0 login');
+      }
+
+      login({
+        ...data.user,
+        token: data.token,
+        type: data.user.userType
+      });
+    } catch (err) {
+      setError(err.message || 'Auth0 session setup failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-3 md:p-4">
       <div className="bg-slate-900/95 rounded-2xl max-w-md w-full p-4 md:p-6 border border-slate-700">
@@ -317,9 +443,9 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
           </div>
         )}
 
-        {error && (
+        {(error || auth0Error) && (
           <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
-            {error}
+            {error || auth0Error?.message}
           </div>
         )}
 
@@ -328,6 +454,94 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
             Admin access uses the regular sign-in form. Log in with a superadmin account to open the admin dashboard.
           </div>
         )}
+
+        <div className="mb-4 space-y-2">
+          {!isAuth0Authenticated ? (
+            <>
+              <button
+                type="button"
+                onClick={() => loginWithRedirect()}
+                disabled={isAuth0Loading}
+                className="w-full min-h-[44px] py-2.5 rounded-lg font-semibold text-sm md:text-base bg-cyan-700 hover:bg-cyan-600 transition-all disabled:opacity-60"
+              >
+                {isAuth0Loading ? 'Connecting...' : 'Continue with Auth0'}
+              </button>
+              <button
+                type="button"
+                onClick={() => loginWithRedirect({ authorizationParams: { screen_hint: 'signup' } })}
+                disabled={isAuth0Loading}
+                className="w-full min-h-[44px] py-2.5 rounded-lg font-semibold text-sm md:text-base bg-slate-800 border border-slate-600 hover:bg-slate-700 transition-all disabled:opacity-60"
+              >
+                Sign up with Auth0
+              </button>
+            </>
+          ) : (
+            <div className="p-3 bg-cyan-600/10 border border-cyan-500/30 rounded-lg text-xs text-cyan-200">
+              <p>Auth0 session detected for {auth0User?.email || 'current user'}.</p>
+              <p className="mt-1 text-cyan-300/90">Create your TalentAI API session directly from this Auth0 login, or logout this Auth0 session.</p>
+              {!selectedPlan && !authUserType && (
+                <div className="mt-3 grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormData((prev) => ({ ...prev, userType: 'candidate', company: '' }));
+                      setAuth0RoleExplicitlySelected(true);
+                    }}
+                    className={`p-2 rounded-lg border transition-all text-xs ${formData.userType === 'candidate' && auth0RoleExplicitlySelected
+                      ? 'bg-indigo-600 border-indigo-500 text-white'
+                      : 'bg-slate-800/60 border-slate-600 text-slate-100'
+                      }`}
+                  >
+                    Candidate
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setFormData((prev) => ({ ...prev, userType: 'recruiter' }));
+                      setAuth0RoleExplicitlySelected(true);
+                    }}
+                    className={`p-2 rounded-lg border transition-all text-xs ${formData.userType === 'recruiter' && auth0RoleExplicitlySelected
+                      ? 'bg-purple-600 border-purple-500 text-white'
+                      : 'bg-slate-800/60 border-slate-600 text-slate-100'
+                      }`}
+                  >
+                    Recruiter
+                  </button>
+                </div>
+              )}
+              {formData.userType === 'recruiter' && (
+                <input
+                  type="text"
+                  value={formData.company}
+                  onChange={(e) => setFormData({ ...formData, company: e.target.value })}
+                  className="mt-3 w-full px-3 py-2 bg-slate-900/70 rounded-lg border border-slate-600 focus:border-indigo-500 focus:outline-none text-xs"
+                  placeholder="Company Name"
+                />
+              )}
+              <button
+                type="button"
+                onClick={handleAuth0SessionContinue}
+                disabled={loading}
+                className="mt-2 min-h-[36px] rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-semibold hover:bg-emerald-600 disabled:opacity-60"
+              >
+                {loading ? 'Connecting...' : 'Continue into TalentAI'}
+              </button>
+              <button
+                type="button"
+                onClick={() => auth0Logout({ logoutParams: { returnTo: process.env.REACT_APP_AUTH0_LOGOUT_RETURN_TO || process.env.REACT_APP_AUTH0_REDIRECT_URI || 'https://anupmazumdar-ai-recruitment-agent.vercel.app/' } })}
+                className="mt-2 min-h-[36px] rounded-md bg-cyan-700 px-3 py-1.5 text-xs font-semibold hover:bg-cyan-600"
+              >
+                Logout Auth0 Session
+              </button>
+            </div>
+          )}
+        </div>
+
+        <div className="mb-4 flex items-center gap-3 text-xs text-slate-500">
+          <span className="h-px flex-1 bg-slate-700" />
+          <span>or use TalentAI account</span>
+          <span className="h-px flex-1 bg-slate-700" />
+        </div>
 
         <form onSubmit={handleSubmit} className="space-y-3">
           {authMode === 'register' && (
@@ -353,7 +567,10 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
                 <div className="grid grid-cols-2 gap-2">
                   <button
                     type="button"
-                    onClick={() => setFormData({ ...formData, userType: 'candidate' })}
+                    onClick={() => {
+                      setFormData({ ...formData, userType: 'candidate', company: '' });
+                      setAuth0RoleExplicitlySelected(true);
+                    }}
                     className={`p-2.5 rounded-lg border transition-all text-sm ${formData.userType === 'candidate'
                       ? 'bg-indigo-600 border-indigo-500'
                       : 'bg-slate-800/50 border-slate-600'
@@ -364,7 +581,10 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
                   </button>
                   <button
                     type="button"
-                    onClick={() => setFormData({ ...formData, userType: 'recruiter' })}
+                    onClick={() => {
+                      setFormData({ ...formData, userType: 'recruiter' });
+                      setAuth0RoleExplicitlySelected(true);
+                    }}
                     className={`p-2.5 rounded-lg border transition-all text-sm ${formData.userType === 'recruiter'
                       ? 'bg-purple-600 border-purple-500'
                       : 'bg-slate-800/50 border-slate-600'
@@ -2903,6 +3123,7 @@ function UpgradeSkillsStage({ candidateData, authState, setStage }) {
   const [weakAreas, setWeakAreas] = useState([]);
   const [loading, setLoading] = useState(true);
   const [source, setSource] = useState('fallback');
+  const [generatedAt, setGeneratedAt] = useState(null);
 
   const role = candidateData.position || candidateData.careerGuidance?.role || 'General';
 
@@ -2913,7 +3134,7 @@ function UpgradeSkillsStage({ candidateData, authState, setStage }) {
     return acc;
   }, {});
 
-  const fetchUpgradeSkills = useCallback(async () => {
+  const fetchUpgradeSkills = useCallback(async (forceRefresh = false) => {
     setLoading(true);
     try {
       const headers = { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authState?.token}` };
@@ -2922,7 +3143,7 @@ function UpgradeSkillsStage({ candidateData, authState, setStage }) {
         fetch(`${API_URL}/api/upgrade-skills/suggestions`, {
           method: 'POST',
           headers,
-          body: JSON.stringify({ position: role, candidateData })
+          body: JSON.stringify({ position: role, candidateData, forceRefresh })
         })
       ]);
 
@@ -2936,6 +3157,7 @@ function UpgradeSkillsStage({ candidateData, authState, setStage }) {
         setSuggestions(suggestionsData.suggestions || []);
         setWeakAreas(suggestionsData.weakAreas || []);
         setSource(suggestionsData.source || 'fallback');
+        setGeneratedAt(suggestionsData.generatedAt || null);
       }
     } catch (error) {
       console.error('Upgrade skills fetch failed:', error);
@@ -3002,6 +3224,16 @@ function UpgradeSkillsStage({ candidateData, authState, setStage }) {
               <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
                 {adminResources.map((resource) => (
                   <div key={resource.id} className="rounded-xl border border-slate-700 bg-slate-800/40 p-4 flex flex-col gap-3">
+                    {buildYouTubeThumbnailUrl(resource.url) && (
+                      <a href={resource.url} target="_blank" rel="noreferrer" className="block overflow-hidden rounded-xl border border-red-500/20 bg-slate-950/40">
+                        <img
+                          src={buildYouTubeThumbnailUrl(resource.url)}
+                          alt={resource.title}
+                          className="h-44 w-full object-cover transition-transform duration-300 hover:scale-[1.03]"
+                          loading="lazy"
+                        />
+                      </a>
+                    )}
                     <div>
                       <p className="text-xs uppercase tracking-wide text-red-300 mb-1">{resource.role}</p>
                       <h4 className="font-semibold text-white">{resource.title}</h4>
@@ -3025,10 +3257,10 @@ function UpgradeSkillsStage({ candidateData, authState, setStage }) {
             <div className="flex items-center justify-between gap-3 mb-4">
               <div>
                 <h3 className="text-lg font-bold text-indigo-300">🧠 AI-Suggested Learning Resources</h3>
-                <p className="text-xs md:text-sm text-slate-400 mt-1">Source: {source === 'ai' ? 'live AI suggestions' : 'local fallback suggestions'}.</p>
+                <p className="text-xs md:text-sm text-slate-400 mt-1">Source: {source === 'ai' ? 'live AI suggestions' : source === 'stored' ? 'saved candidate roadmap' : 'local fallback suggestions'}{generatedAt ? ` · updated ${new Date(generatedAt).toLocaleString()}` : ''}.</p>
               </div>
               <button
-                onClick={fetchUpgradeSkills}
+                onClick={() => fetchUpgradeSkills(true)}
                 className="min-h-[44px] px-4 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm font-semibold transition-all"
               >
                 Refresh Suggestions
@@ -3090,6 +3322,44 @@ function ScoreCard({ title, score, icon: Icon }) {
   );
 }
 
+function ChatUnreadBadge({ authState }) {
+  const [unreadCount, setUnreadCount] = useState(0);
+
+  useEffect(() => {
+    if (!authState?.token) return undefined;
+
+    let isMounted = true;
+    const headers = { Authorization: `Bearer ${authState.token}` };
+
+    const fetchUnreadCount = async () => {
+      try {
+        const res = await fetch(`${API_URL}/api/chat/contacts`, { headers });
+        const data = await parseApiJson(res);
+        if (!isMounted || !data.success) return;
+        const totalUnread = (data.contacts || []).reduce((sum, contact) => sum + (Number(contact.unreadCount) || 0), 0);
+        setUnreadCount(totalUnread);
+      } catch (error) {
+        console.error('Unread badge fetch failed:', error);
+      }
+    };
+
+    fetchUnreadCount();
+    const interval = setInterval(fetchUnreadCount, 5000);
+    return () => {
+      isMounted = false;
+      clearInterval(interval);
+    };
+  }, [authState?.token]);
+
+  if (!unreadCount) return null;
+
+  return (
+    <span className="inline-flex min-w-[22px] items-center justify-center rounded-full bg-rose-500 px-2 py-0.5 text-[11px] font-bold text-white">
+      {unreadCount > 99 ? '99+' : unreadCount}
+    </span>
+  );
+}
+
 function BlockchainChatPanel({ authState, fixedPeerId = null, title, subtitle }) {
   const [contacts, setContacts] = useState([]);
   const [selectedPeerId, setSelectedPeerId] = useState(fixedPeerId);
@@ -3100,17 +3370,22 @@ function BlockchainChatPanel({ authState, fixedPeerId = null, title, subtitle })
   const [sending, setSending] = useState(false);
   const [integrity, setIntegrity] = useState(null);
   const [peer, setPeer] = useState(null);
+  const [contactSearch, setContactSearch] = useState('');
+  const [messageSearch, setMessageSearch] = useState('');
+  const [historyFilter, setHistoryFilter] = useState('all');
+  const [attachmentFile, setAttachmentFile] = useState(null);
   const listRef = useRef(null);
+  const fileInputRef = useRef(null);
 
-  const headers = useMemo(
-    () => ({ 'Content-Type': 'application/json', 'Authorization': `Bearer ${authState?.token}` }),
+  const authHeaders = useMemo(
+    () => ({ Authorization: `Bearer ${authState?.token}` }),
     [authState?.token]
   );
 
   const fetchContacts = useCallback(async () => {
     setLoadingContacts(true);
     try {
-      const res = await fetch(`${API_URL}/api/chat/contacts`, { headers });
+      const res = await fetch(`${API_URL}/api/chat/contacts`, { headers: authHeaders });
       const data = await parseApiJson(res);
       if (data.success) {
         const nextContacts = data.contacts || [];
@@ -3126,28 +3401,34 @@ function BlockchainChatPanel({ authState, fixedPeerId = null, title, subtitle })
     } finally {
       setLoadingContacts(false);
     }
-  }, [fixedPeerId, headers]);
+  }, [authHeaders, fixedPeerId]);
 
   const fetchMessages = useCallback(async () => {
     if (!selectedPeerId) return;
     setLoadingMessages(true);
     try {
-      const res = await fetch(`${API_URL}/api/chat/messages/${selectedPeerId}`, { headers });
+      const res = await fetch(`${API_URL}/api/chat/messages/${selectedPeerId}`, { headers: authHeaders });
       const data = await parseApiJson(res);
       if (data.success) {
         setMessages(data.messages || []);
         setIntegrity(data.integrity || null);
         setPeer(data.peer || null);
+        fetchContacts();
       }
     } catch (error) {
       console.error('Failed to load messages:', error);
     } finally {
       setLoadingMessages(false);
     }
-  }, [headers, selectedPeerId]);
+  }, [authHeaders, fetchContacts, selectedPeerId]);
 
   useEffect(() => {
     fetchContacts();
+  }, [fetchContacts]);
+
+  useEffect(() => {
+    const interval = setInterval(fetchContacts, 5000);
+    return () => clearInterval(interval);
   }, [fetchContacts]);
 
   useEffect(() => {
@@ -3163,21 +3444,42 @@ function BlockchainChatPanel({ authState, fixedPeerId = null, title, subtitle })
     }
   }, [messages]);
 
+  const handleAttachmentChange = (event) => {
+    const nextFile = event.target.files?.[0] || null;
+    setAttachmentFile(nextFile);
+  };
+
   const handleSend = async () => {
     const text = draft.trim();
-    if (!text || !selectedPeerId || sending) return;
+    if ((!text && !attachmentFile) || !selectedPeerId || sending) return;
     setSending(true);
     try {
-      const res = await fetch(`${API_URL}/api/chat/messages`, {
-        method: 'POST',
-        headers,
-        body: JSON.stringify({ peerId: selectedPeerId, text })
-      });
+      const request = attachmentFile
+        ? (() => {
+            const formData = new FormData();
+            formData.append('peerId', String(selectedPeerId));
+            formData.append('text', text);
+            formData.append('attachment', attachmentFile);
+            return {
+              method: 'POST',
+              headers: authHeaders,
+              body: formData
+            };
+          })()
+        : {
+            method: 'POST',
+            headers: { ...authHeaders, 'Content-Type': 'application/json' },
+            body: JSON.stringify({ peerId: selectedPeerId, text })
+          };
+      const res = await fetch(`${API_URL}/api/chat/messages`, request);
       const data = await parseApiJson(res);
       if (!res.ok || !data.success) throw new Error(data.error || 'Failed to send message');
       setDraft('');
+      setAttachmentFile(null);
+      if (fileInputRef.current) fileInputRef.current.value = '';
       setIntegrity(data.integrity || null);
       setMessages((prev) => [...prev, data.message]);
+      fetchContacts();
     } catch (error) {
       window.alert(error.message || 'Failed to send message');
     } finally {
@@ -3187,6 +3489,15 @@ function BlockchainChatPanel({ authState, fixedPeerId = null, title, subtitle })
 
   const selectedPeer = peer || contacts.find((item) => item.id === selectedPeerId) || null;
   const hasMultipleContacts = !fixedPeerId && contacts.length > 1;
+  const filteredContacts = contacts.filter((contact) => {
+    const haystack = [contact.name, contact.email, contact.company, contact.lastMessagePreview].join(' ').toLowerCase();
+    return haystack.includes(contactSearch.trim().toLowerCase());
+  });
+  const visibleMessages = messages.filter((message) => {
+    const query = messageSearch.trim().toLowerCase();
+    const haystack = [message.text, message.attachment?.fileName].join(' ').toLowerCase();
+    return (!query || haystack.includes(query)) && matchesChatHistoryFilter(message, historyFilter, authState?.user?.id);
+  });
 
   return (
     <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
@@ -3195,22 +3506,41 @@ function BlockchainChatPanel({ authState, fixedPeerId = null, title, subtitle })
           <div className="p-4 border-b border-slate-700">
             <h3 className="font-semibold text-white">Recruiter Conversations</h3>
             <p className="text-xs text-slate-400 mt-1">Select a recruiter to start a secure chat.</p>
+            <div className="mt-3 relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+              <input
+                value={contactSearch}
+                onChange={(e) => setContactSearch(e.target.value)}
+                placeholder="Search conversations..."
+                className="w-full rounded-xl border border-slate-600 bg-slate-800/60 py-2 pl-9 pr-3 text-sm focus:border-indigo-500 focus:outline-none"
+              />
+            </div>
           </div>
           {loadingContacts ? (
             <div className="p-8 text-center"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-500 mx-auto" /></div>
           ) : (
             <div className="divide-y divide-slate-700/40">
-              {contacts.map((contact) => (
+              {filteredContacts.map((contact) => (
                 <button
                   key={contact.id}
                   onClick={() => setSelectedPeerId(contact.id)}
                   className={`w-full text-left px-4 py-3 transition-all ${selectedPeerId === contact.id ? 'bg-indigo-900/30 border-l-2 border-indigo-500' : 'hover:bg-slate-800/40'}`}
                 >
-                  <p className="font-semibold text-sm text-white">{contact.name || contact.email}</p>
-                  <p className="text-xs text-slate-400 truncate">{contact.email}</p>
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="min-w-0">
+                      <p className="font-semibold text-sm text-white truncate">{contact.name || contact.email}</p>
+                      <p className="text-xs text-slate-400 truncate">{contact.email}</p>
+                    </div>
+                    {Boolean(contact.unreadCount) && (
+                      <span className="rounded-full bg-rose-500 px-2 py-0.5 text-[11px] font-bold text-white">{contact.unreadCount}</span>
+                    )}
+                  </div>
                   {contact.company && <p className="text-xs text-slate-500 truncate">🏢 {contact.company}</p>}
+                  {contact.lastMessagePreview && <p className="mt-1 text-xs text-slate-500 truncate">{contact.lastMessagePreview}</p>}
+                  {contact.lastMessageAt && <p className="mt-1 text-[11px] text-slate-500">{new Date(contact.lastMessageAt).toLocaleString()}</p>}
                 </button>
               ))}
+              {filteredContacts.length === 0 && <div className="px-4 py-8 text-center text-sm text-slate-500">No conversations match your search.</div>}
             </div>
           )}
         </div>
@@ -3235,8 +3565,41 @@ function BlockchainChatPanel({ authState, fixedPeerId = null, title, subtitle })
         ) : (
           <>
             <div className="px-4 py-3 border-b border-slate-700 bg-slate-800/30">
-              <p className="font-semibold text-sm text-white">{selectedPeer?.name || selectedPeer?.email || 'Conversation'}</p>
-              <p className="text-xs text-slate-400">{selectedPeer?.email || 'Secure recruiter ↔ superadmin channel'}</p>
+              <div className="flex flex-col gap-3 lg:flex-row lg:items-center lg:justify-between">
+                <div>
+                  <p className="font-semibold text-sm text-white">{selectedPeer?.name || selectedPeer?.email || 'Conversation'}</p>
+                  <p className="text-xs text-slate-400">{selectedPeer?.email || 'Secure recruiter ↔ superadmin channel'}</p>
+                </div>
+                <div className="flex flex-col gap-2 sm:flex-row">
+                  <div className="relative">
+                    <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                    <input
+                      value={messageSearch}
+                      onChange={(e) => setMessageSearch(e.target.value)}
+                      placeholder="Search messages or file names..."
+                      className="min-w-[220px] rounded-xl border border-slate-600 bg-slate-900/60 py-2 pl-9 pr-3 text-sm focus:border-indigo-500 focus:outline-none"
+                    />
+                  </div>
+                  <div className="relative">
+                    <Clock3 size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+                    <select
+                      value={historyFilter}
+                      onChange={(e) => setHistoryFilter(e.target.value)}
+                      className="min-h-[40px] rounded-xl border border-slate-600 bg-slate-900/60 py-2 pl-9 pr-8 text-sm focus:border-indigo-500 focus:outline-none"
+                    >
+                      <option value="all">All history</option>
+                      <option value="today">Today</option>
+                      <option value="7d">Last 7 days</option>
+                      <option value="30d">Last 30 days</option>
+                      <option value="attachments">Attachments</option>
+                      <option value="images">Images</option>
+                      <option value="files">Files only</option>
+                      <option value="mine">My messages</option>
+                      <option value="peer">Peer messages</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
             </div>
 
             <div ref={listRef} className="h-[420px] overflow-y-auto px-4 py-4 space-y-3 bg-slate-950/20">
@@ -3247,16 +3610,39 @@ function BlockchainChatPanel({ authState, fixedPeerId = null, title, subtitle })
                   <p className="text-4xl mb-3">🔗</p>
                   <p>No messages yet. Send the first blockchain-secured message.</p>
                 </div>
+              ) : visibleMessages.length === 0 ? (
+                <div className="text-center py-12 text-slate-500">
+                  <p className="text-4xl mb-3">🔎</p>
+                  <p>No conversation entries match the current search/filter.</p>
+                </div>
               ) : (
-                messages.map((message) => {
+                visibleMessages.map((message) => {
                   const isMine = message.senderId === authState?.user?.id;
                   return (
                     <div key={message.id} className={`flex ${isMine ? 'justify-end' : 'justify-start'}`}>
                       <div className={`max-w-[85%] rounded-2xl px-4 py-3 border ${isMine ? 'bg-indigo-600/25 border-indigo-500/30' : 'bg-slate-800/70 border-slate-700'}`}>
-                        <p className="text-sm text-slate-100 whitespace-pre-wrap">{message.text}</p>
+                        {message.text && <p className="text-sm text-slate-100 whitespace-pre-wrap">{message.text}</p>}
+                        {message.attachment && (
+                          <div className={`mt-3 overflow-hidden rounded-xl border ${isMine ? 'border-indigo-400/20 bg-indigo-950/20' : 'border-slate-600 bg-slate-900/50'}`}>
+                            {message.attachment.kind === 'image' && message.attachment.url ? (
+                              <a href={message.attachment.url} target="_blank" rel="noreferrer" className="block">
+                                <img src={message.attachment.url} alt={message.attachment.fileName} className="max-h-64 w-full object-cover" loading="lazy" />
+                              </a>
+                            ) : (
+                              <a href={message.attachment.url} target="_blank" rel="noreferrer" className="flex items-center gap-3 px-3 py-3 text-sm text-slate-100 hover:bg-white/5">
+                                <FileText size={18} className="text-indigo-300" />
+                                <div className="min-w-0">
+                                  <p className="truncate font-semibold">{message.attachment.fileName}</p>
+                                  <p className="text-xs text-slate-400">{formatFileSize(message.attachment.size)}</p>
+                                </div>
+                              </a>
+                            )}
+                          </div>
+                        )}
                         <div className="mt-2 flex flex-wrap items-center gap-2 text-[11px] text-slate-400">
                           <span>{new Date(message.createdAt).toLocaleString()}</span>
                           <span>Block #{message.blockIndex}</span>
+                          {message.attachment && <span>{message.attachment.kind === 'image' ? 'Image attachment' : 'File attachment'}</span>}
                           <span className="truncate max-w-[180px]">Hash {String(message.hash).slice(0, 12)}...</span>
                         </div>
                       </div>
@@ -3267,6 +3653,18 @@ function BlockchainChatPanel({ authState, fixedPeerId = null, title, subtitle })
             </div>
 
             <div className="p-4 border-t border-slate-700 bg-slate-900/80">
+              {attachmentFile && (
+                <div className="mb-3 flex items-center justify-between gap-3 rounded-xl border border-slate-700 bg-slate-800/50 px-4 py-3 text-sm">
+                  <div className="flex min-w-0 items-center gap-3">
+                    {String(attachmentFile.type || '').startsWith('image/') ? <ImageIcon size={18} className="text-cyan-300" /> : <FileText size={18} className="text-indigo-300" />}
+                    <div className="min-w-0">
+                      <p className="truncate font-semibold text-white">{attachmentFile.name}</p>
+                      <p className="text-xs text-slate-400">{formatFileSize(attachmentFile.size)}</p>
+                    </div>
+                  </div>
+                  <button onClick={() => { setAttachmentFile(null); if (fileInputRef.current) fileInputRef.current.value = ''; }} className="rounded-lg bg-slate-700 px-3 py-1 text-xs font-semibold hover:bg-slate-600">Remove</button>
+                </div>
+              )}
               <div className="flex flex-col gap-3 sm:flex-row">
                 <textarea
                   rows={2}
@@ -3281,13 +3679,20 @@ function BlockchainChatPanel({ authState, fixedPeerId = null, title, subtitle })
                   className="flex-1 px-4 py-3 bg-slate-800/60 rounded-xl border border-slate-600 focus:border-indigo-500 focus:outline-none text-sm resize-none"
                   placeholder="Type a secure message..."
                 />
+                <div className="flex gap-3 sm:flex-col">
+                  <label className="inline-flex min-h-[44px] cursor-pointer items-center justify-center gap-2 rounded-xl border border-slate-600 bg-slate-800/60 px-4 py-3 text-sm font-semibold transition-all hover:bg-slate-700/60">
+                    <Paperclip size={16} />
+                    Attach
+                    <input ref={fileInputRef} type="file" accept="image/*,.pdf,.doc,.docx,.txt,.rtf" onChange={handleAttachmentChange} className="hidden" />
+                  </label>
                 <button
                   onClick={handleSend}
-                  disabled={sending || !draft.trim()}
+                  disabled={sending || (!draft.trim() && !attachmentFile)}
                   className="min-h-[44px] px-5 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl font-semibold text-sm transition-all hover:from-indigo-500 hover:to-purple-500 disabled:opacity-50"
                 >
                   {sending ? 'Sending...' : 'Send'}
                 </button>
+                </div>
               </div>
             </div>
           </>
@@ -3478,7 +3883,12 @@ function SuperAdminDashboard({ authState, logout }) {
             <button key={tab} onClick={() => setActiveTab(tab)}
               className={`min-h-[44px] px-5 py-2 rounded-xl font-semibold text-sm md:text-base capitalize transition-all ${
                 activeTab === tab ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-800/50 text-slate-400 hover:bg-slate-700/50'
-              }`}>{tab}</button>
+              }`}>
+              <span className="inline-flex items-center gap-2 capitalize">
+                {tab}
+                {tab === 'chat' && <ChatUnreadBadge authState={authState} />}
+              </span>
+            </button>
           ))}
           <button onClick={fetchAll} className="min-h-[44px] px-4 py-2 bg-slate-800/50 rounded-xl text-sm md:text-base text-slate-400 hover:bg-slate-700/50 transition-all md:ml-auto">↻ Refresh</button>
         </div>
@@ -3755,6 +4165,8 @@ function SuperAdminResourcePanel({ authState }) {
   const [saving, setSaving] = useState(false);
   const [deletingId, setDeletingId] = useState(null);
   const [notice, setNotice] = useState(null);
+  const [resourceSearch, setResourceSearch] = useState('');
+  const [roleFilter, setRoleFilter] = useState('All Roles');
 
   const headers = useMemo(
     () => ({ 'Content-Type': 'application/json', 'Authorization': `Bearer ${authState?.token}` }),
@@ -3780,6 +4192,15 @@ function SuperAdminResourcePanel({ authState }) {
   }, [headers]);
 
   useEffect(() => { fetchResources(); }, [fetchResources]);
+
+  const filteredResources = useMemo(() => {
+    return resources.filter((resource) => {
+      const matchesRole = roleFilter === 'All Roles' || resource.role === roleFilter;
+      const haystack = [resource.role, resource.title, resource.description, resource.url].join(' ').toLowerCase();
+      const matchesSearch = haystack.includes(resourceSearch.trim().toLowerCase());
+      return matchesRole && matchesSearch;
+    });
+  }, [resources, resourceSearch, roleFilter]);
 
   const resetForm = () => {
     setForm(emptyForm);
@@ -3916,28 +4337,58 @@ function SuperAdminResourcePanel({ authState }) {
         </div>
 
         <div className="lg:col-span-2 bg-slate-800/40 rounded-2xl border border-slate-700 p-4 md:p-5">
-          <div className="flex items-center justify-between gap-3 mb-4">
-            <h3 className="font-semibold text-white">Existing YouTube Resources</h3>
-            <span className="text-xs px-3 py-1 rounded-full bg-slate-900/70 border border-slate-600 text-slate-300">{resources.length} total</span>
+          <div className="flex flex-col gap-3 mb-4 lg:flex-row lg:items-center lg:justify-between">
+            <div>
+              <h3 className="font-semibold text-white">Existing YouTube Resources</h3>
+              <p className="mt-1 text-xs text-slate-400">Filter by role or search by title, description, and URL.</p>
+            </div>
+            <span className="text-xs px-3 py-1 rounded-full bg-slate-900/70 border border-slate-600 text-slate-300">{filteredResources.length} shown · {resources.length} total</span>
+          </div>
+
+          <div className="mb-4 grid grid-cols-1 gap-3 md:grid-cols-[minmax(0,1fr),220px]">
+            <div className="relative">
+              <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-slate-500" />
+              <input
+                value={resourceSearch}
+                onChange={(e) => setResourceSearch(e.target.value)}
+                placeholder="Search resources..."
+                className="w-full rounded-xl border border-slate-600 bg-slate-900/60 py-2.5 pl-9 pr-3 text-sm focus:border-red-500 focus:outline-none"
+              />
+            </div>
+            <select
+              value={roleFilter}
+              onChange={(e) => setRoleFilter(e.target.value)}
+              className="rounded-xl border border-slate-600 bg-slate-900/60 px-3 py-2.5 text-sm focus:border-red-500 focus:outline-none"
+            >
+              <option value="All Roles">All Roles</option>
+              {ROLE_OPTIONS.map((role) => <option key={role} value={role}>{role}</option>)}
+            </select>
           </div>
 
           {loading ? (
             <div className="p-10 text-center"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-red-500 mx-auto" /></div>
-          ) : resources.length === 0 ? (
+          ) : filteredResources.length === 0 ? (
             <div className="rounded-xl border border-dashed border-slate-600 bg-slate-900/40 p-8 text-center text-slate-400">
-              No resources added yet.
+              No resources match the current filters.
             </div>
           ) : (
             <div className="space-y-3 max-h-[700px] overflow-y-auto pr-1">
-              {resources.map((resource) => (
+              {filteredResources.map((resource) => (
                 <div key={resource.id} className="rounded-xl border border-slate-700 bg-slate-900/40 p-4 flex flex-col gap-3 md:flex-row md:items-start md:justify-between">
-                  <div className="min-w-0">
-                    <p className="text-xs uppercase tracking-wide text-red-300 mb-1">{resource.role}</p>
-                    <h4 className="font-semibold text-white break-words">{resource.title}</h4>
-                    <a href={resource.url} target="_blank" rel="noreferrer" className="text-sm text-indigo-300 hover:text-indigo-200 underline underline-offset-2 break-all">
-                      {resource.url}
-                    </a>
-                    {resource.description && <p className="text-sm text-slate-400 mt-2">{resource.description}</p>}
+                  <div className="flex min-w-0 flex-1 gap-4">
+                    {buildYouTubeThumbnailUrl(resource.url) && (
+                      <a href={resource.url} target="_blank" rel="noreferrer" className="hidden w-44 flex-shrink-0 overflow-hidden rounded-xl border border-red-500/20 bg-slate-950/40 md:block">
+                        <img src={buildYouTubeThumbnailUrl(resource.url)} alt={resource.title} className="h-24 w-full object-cover" loading="lazy" />
+                      </a>
+                    )}
+                    <div className="min-w-0">
+                      <p className="text-xs uppercase tracking-wide text-red-300 mb-1">{resource.role}</p>
+                      <h4 className="font-semibold text-white break-words">{resource.title}</h4>
+                      <a href={resource.url} target="_blank" rel="noreferrer" className="text-sm text-indigo-300 hover:text-indigo-200 underline underline-offset-2 break-all">
+                        {resource.url}
+                      </a>
+                      {resource.description && <p className="text-sm text-slate-400 mt-2">{resource.description}</p>}
+                    </div>
                   </div>
                   <div className="flex gap-2 md:flex-shrink-0">
                     <button onClick={() => handleEdit(resource)} className="min-h-[44px] px-4 py-2 rounded-lg bg-slate-700 hover:bg-slate-600 text-sm font-semibold transition-all">Edit</button>
@@ -4056,7 +4507,10 @@ function RecruiterDashboard({ setUserType, subscription, setShowSubscriptionModa
             }`}
           >
             <MessageSquare size={16} />
-            Secure Chat
+            <span className="inline-flex items-center gap-2">
+              Secure Chat
+              <ChatUnreadBadge authState={authState} />
+            </span>
           </button>
         </div>
 

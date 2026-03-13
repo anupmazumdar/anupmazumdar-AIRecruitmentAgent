@@ -116,6 +116,33 @@ frontend/
 - Do not commit `.env` files.
 - Frontend should use `REACT_APP_API_URL` to target the backend.
 
+## Auth0 React SDK Setup
+
+This project now includes the official Auth0 React SDK (`@auth0/auth0-react@2.x`) and wraps the app with `Auth0Provider` in [src/index.js](src/index.js).
+
+Configured Auth0 app:
+
+- Domain: `dev-shjk32vx4oscfrde.us.auth0.com`
+- Client ID: `KHC4ncaBYv0W4NqgVSLD5vJI8SuqPHDk`
+- Redirect URI: `https://anupmazumdar-ai-recruitment-agent.vercel.app/`
+- Logout return URI: `https://anupmazumdar-ai-recruitment-agent.vercel.app/`
+
+Required frontend env vars:
+
+```env
+REACT_APP_AUTH0_DOMAIN=dev-shjk32vx4oscfrde.us.auth0.com
+REACT_APP_AUTH0_CLIENT_ID=KHC4ncaBYv0W4NqgVSLD5vJI8SuqPHDk
+REACT_APP_AUTH0_REDIRECT_URI=https://anupmazumdar-ai-recruitment-agent.vercel.app/
+REACT_APP_AUTH0_LOGOUT_RETURN_TO=https://anupmazumdar-ai-recruitment-agent.vercel.app/
+```
+
+Important: your Auth0 application is currently configured only for the Vercel origin above. Running this app on a different origin (for example `http://localhost:3000`) will cause Auth0 callback/logout/web-origin mismatch errors unless you add that origin in the Auth0 application settings.
+
+Auth0 handoff behavior in this app:
+
+- First-time Auth0 users must explicitly choose Candidate or Recruiter before creating a TalentAI API session.
+- Recruiter onboarding through Auth0 also requires a company name, and backend approval depends on server-side `AUTH0_ALLOWED_RECRUITER_DOMAINS` configuration.
+
 ## Troubleshooting
 
 ### Frontend does not start
