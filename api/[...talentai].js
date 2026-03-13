@@ -2456,51 +2456,74 @@ const CAREER_COACH_ROLE_SKILLS = {
 
 const CAREER_COACH_EXPERIENCE_LEVELS = ['fresher', 'junior', 'mid', 'senior'];
 
-const CAREER_COACH_RESOURCES = {
-  'Software Engineer': {
-    fresher: [
-      { title: 'NeetCode Roadmap', url: 'https://neetcode.io/roadmap', why: 'Build interview-ready DSA fundamentals.' },
-      { title: 'Full Stack Open', url: 'https://fullstackopen.com/en/', why: 'Ship practical projects with modern web stack.' },
-      { title: 'System Design Primer', url: 'https://github.com/donnemartin/system-design-primer', why: 'Learn architecture basics early.' }
-    ],
-    junior: [
-      { title: 'Grokking System Design', url: 'https://www.educative.io/courses/grokking-the-system-design-interview', why: 'Strengthen design thinking for promotions.' },
-      { title: 'Clean Code Summary', url: 'https://github.com/ryanmcdermott/clean-code-javascript', why: 'Improve maintainability and readability.' },
-      { title: 'JavaScript Info', url: 'https://javascript.info/', why: 'Deepen language mastery for production work.' }
-    ],
-    mid: [
-      { title: 'Designing Data-Intensive Applications Notes', url: 'https://github.com/hemanth/reading-notes/blob/master/designing-data-intensive-applications.md', why: 'Level up distributed systems understanding.' },
-      { title: 'AWS Architecture Center', url: 'https://aws.amazon.com/architecture/', why: 'Adopt production-ready cloud patterns.' },
-      { title: 'Testing JavaScript', url: 'https://testingjavascript.com/', why: 'Raise quality with stronger testing strategy.' }
-    ],
-    senior: [
-      { title: 'Staff Engineer Path', url: 'https://staffeng.com/guides/staff-archetypes/', why: 'Grow leadership and technical strategy skills.' },
-      { title: 'Google SRE Book', url: 'https://sre.google/books/', why: 'Improve reliability and operational excellence.' },
-      { title: 'Architecture Katas', url: 'https://www.oreilly.com/library/view/fundamentals-of-software/9781098175498/', why: 'Practice architecture trade-off decisions.' }
-    ]
-  },
-  'Frontend Developer': {
-    fresher: [
-      { title: 'React Docs Learn', url: 'https://react.dev/learn', why: 'Build modern React fundamentals.' },
-      { title: 'Web.dev Learn CSS', url: 'https://web.dev/learn/css/', why: 'Master responsive UI and layout systems.' },
-      { title: 'Frontend Mentor', url: 'https://www.frontendmentor.io/', why: 'Create portfolio-ready UI projects.' }
-    ],
-    junior: [
-      { title: 'TypeScript Handbook', url: 'https://www.typescriptlang.org/docs/handbook/intro.html', why: 'Write safer production frontend code.' },
-      { title: 'Web.dev Performance', url: 'https://web.dev/explore/fast', why: 'Improve Core Web Vitals and UX.' },
-      { title: 'Testing Library Docs', url: 'https://testing-library.com/docs/react-testing-library/intro/', why: 'Increase confidence with component tests.' }
-    ],
-    mid: [
-      { title: 'Design Systems Handbook', url: 'https://www.designbetter.co/design-systems-handbook', why: 'Build scalable UI architecture.' },
-      { title: 'A11Y Project', url: 'https://www.a11yproject.com/', why: 'Advance accessibility and inclusive design.' },
-      { title: 'Kent C. Dodds Blog', url: 'https://kentcdodds.com/blog', why: 'Refine React architecture practices.' }
-    ],
-    senior: [
-      { title: 'Micro Frontends', url: 'https://micro-frontends.org/', why: 'Design frontend architecture at scale.' },
-      { title: 'Frontend Architecture for Design Systems', url: 'https://martinfowler.com/articles/design-system-architecture.html', why: 'Lead cross-team frontend consistency.' },
-      { title: 'Chrome Aurora', url: 'https://developer.chrome.com/blog/tags/aurora', why: 'Adopt high-performance framework patterns.' }
-    ]
-  }
+const CAREER_COACH_ROLE_RESOURCES = {
+  'Software Engineer': [
+    { title: 'NeetCode Roadmap', url: 'https://neetcode.io/roadmap', why: 'Build interview-ready data structures and algorithms depth.' },
+    { title: 'System Design Primer', url: 'https://github.com/donnemartin/system-design-primer', why: 'Grow architecture fundamentals for scalable systems.' },
+    { title: 'Clean Code JavaScript', url: 'https://github.com/ryanmcdermott/clean-code-javascript', why: 'Improve code quality and maintainability habits.' }
+  ],
+  'Frontend Developer': [
+    { title: 'React Learn', url: 'https://react.dev/learn', why: 'Master component architecture and modern React workflows.' },
+    { title: 'web.dev CSS', url: 'https://web.dev/learn/css/', why: 'Strengthen responsive layout and visual implementation.' },
+    { title: 'Frontend Mentor', url: 'https://www.frontendmentor.io/', why: 'Build portfolio-quality UI projects with real constraints.' }
+  ],
+  'Backend Developer': [
+    { title: 'Node.js Learn', url: 'https://nodejs.org/en/learn/getting-started/introduction-to-nodejs', why: 'Build strong backend runtime and API fundamentals.' },
+    { title: 'PostgreSQL Tutorial', url: 'https://www.postgresqltutorial.com/', why: 'Design robust relational schemas and SQL workflows.' },
+    { title: 'Auth0 Guides', url: 'https://auth0.com/docs', why: 'Improve authentication and authorization implementation quality.' }
+  ],
+  'Full Stack Developer': [
+    { title: 'Full Stack Open', url: 'https://fullstackopen.com/en/', why: 'Build complete frontend-backend product experience.' },
+    { title: 'Docker Getting Started', url: 'https://docs.docker.com/get-started/', why: 'Ship and run full-stack apps in reliable environments.' },
+    { title: 'GitHub Actions Docs', url: 'https://docs.github.com/en/actions', why: 'Automate testing and deployment pipelines end to end.' }
+  ],
+  'Data Scientist': [
+    { title: 'Kaggle Learn', url: 'https://www.kaggle.com/learn', why: 'Build practical model-building and analysis workflow skills.' },
+    { title: 'Scikit-learn Tutorials', url: 'https://scikit-learn.org/stable/tutorial/index.html', why: 'Strengthen model training and evaluation rigor.' },
+    { title: 'Mode SQL Tutorial', url: 'https://mode.com/sql-tutorial/', why: 'Improve data extraction and analytics query fluency.' }
+  ],
+  'Machine Learning Engineer': [
+    { title: 'PyTorch Tutorials', url: 'https://pytorch.org/tutorials/', why: 'Advance model development and experimentation capability.' },
+    { title: 'Hugging Face NLP Course', url: 'https://huggingface.co/learn/nlp-course/chapter1/1', why: 'Build transformer and LLM engineering competence.' },
+    { title: 'MLflow Docs', url: 'https://mlflow.org/docs/latest/index.html', why: 'Adopt model tracking and MLOps best practices.' }
+  ],
+  'DevOps Engineer': [
+    { title: 'Kubernetes Basics', url: 'https://kubernetes.io/docs/tutorials/kubernetes-basics/', why: 'Strengthen cluster operations and orchestration skills.' },
+    { title: 'Terraform Tutorials', url: 'https://developer.hashicorp.com/terraform/tutorials', why: 'Improve infrastructure-as-code reliability and repeatability.' },
+    { title: 'Grafana Tutorials', url: 'https://grafana.com/tutorials/', why: 'Build practical observability and monitoring workflows.' }
+  ],
+  'Product Manager': [
+    { title: 'Atlassian Agile Coach', url: 'https://www.atlassian.com/agile', why: 'Improve execution velocity with agile delivery frameworks.' },
+    { title: 'NNGroup UX Research', url: 'https://www.nngroup.com/articles/', why: 'Sharpen user research and product discovery quality.' },
+    { title: 'ProductPlan Guides', url: 'https://www.productplan.com/learn/', why: 'Build stronger roadmap and prioritization strategy.' }
+  ],
+  'UI/UX Designer': [
+    { title: 'Figma Learn', url: 'https://help.figma.com/hc/en-us/categories/360002051613-Getting-started', why: 'Improve prototyping and design system execution.' },
+    { title: 'A11Y Project', url: 'https://www.a11yproject.com/', why: 'Design more inclusive and accessible user experiences.' },
+    { title: 'Usability.gov', url: 'https://www.usability.gov/how-to-and-tools/methods/usability-testing.html', why: 'Run better usability testing and iterate with evidence.' }
+  ],
+  'Android Developer': [
+    { title: 'Android Developers Kotlin', url: 'https://developer.android.com/kotlin', why: 'Solidify modern Android development foundations.' },
+    { title: 'Jetpack Compose Pathway', url: 'https://developer.android.com/courses/pathways/compose', why: 'Build modern declarative UI implementation skills.' },
+    { title: 'Android Architecture Guide', url: 'https://developer.android.com/topic/architecture', why: 'Design maintainable app architecture with best practices.' }
+  ],
+  'iOS Developer': [
+    { title: 'Swift Book', url: 'https://docs.swift.org/swift-book/', why: 'Strengthen modern Swift language mastery.' },
+    { title: 'Apple SwiftUI Tutorials', url: 'https://developer.apple.com/tutorials/swiftui/', why: 'Build production-ready declarative iOS interfaces.' },
+    { title: 'TestFlight Guide', url: 'https://developer.apple.com/testflight/', why: 'Improve release quality through structured beta testing.' }
+  ],
+  'QA Engineer': [
+    { title: 'Selenium Documentation', url: 'https://www.selenium.dev/documentation/', why: 'Improve browser automation depth and reliability.' },
+    { title: 'Postman Learning Center', url: 'https://learning.postman.com/docs/getting-started/introduction/', why: 'Build stronger API validation and workflow testing.' },
+    { title: 'JMeter Getting Started', url: 'https://jmeter.apache.org/usermanual/get-started.html', why: 'Develop practical load and performance testing skills.' }
+  ]
+};
+
+const CAREER_COACH_LEVEL_RESOURCES = {
+  fresher: { title: 'roadmap.sh', url: 'https://roadmap.sh/', why: 'Use a structured beginner roadmap and track progress weekly.' },
+  junior: { title: 'LinkedIn Learning', url: 'https://www.linkedin.com/learning/', why: 'Close practical skill gaps with guided, job-focused modules.' },
+  mid: { title: 'System Design Interview Hub', url: 'https://www.educative.io/path/system-design', why: 'Move from implementation depth to architecture decision-making.' },
+  senior: { title: 'Staff Engineer Path', url: 'https://staffeng.com/guides/', why: 'Grow technical leadership, influence, and strategic execution.' }
 };
 
 function normalizeCareerCoachExperienceLevel(value) {
@@ -2509,9 +2532,19 @@ function normalizeCareerCoachExperienceLevel(value) {
 }
 
 function getCareerCoachResources(role = '', experienceLevel = 'fresher') {
-  const roleResources = CAREER_COACH_RESOURCES[role] || CAREER_COACH_RESOURCES['Software Engineer'];
+  const roleResources = CAREER_COACH_ROLE_RESOURCES[role] || CAREER_COACH_ROLE_RESOURCES['Software Engineer'];
   const level = normalizeCareerCoachExperienceLevel(experienceLevel);
-  const selected = roleResources[level] || roleResources.fresher || [];
+  const levelResource = CAREER_COACH_LEVEL_RESOURCES[level] || CAREER_COACH_LEVEL_RESOURCES.fresher;
+
+  const selected = [
+    ...(roleResources.slice(0, 2)),
+    {
+      title: `${levelResource.title} (${level})`,
+      url: levelResource.url,
+      why: levelResource.why
+    }
+  ];
+
   return selected.slice(0, 3);
 }
 
