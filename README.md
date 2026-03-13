@@ -32,7 +32,8 @@ Sole Creator: Anup Mazumdar | MCA Student | UEM Jaipur (2025-2027)
 - Technical Quiz: Auto-graded quizzes with configurable durations and semantic similarity scoring.
 - Candidate Scoring: Weighted multi-criteria scoring with detailed insights.
 - Video Assessment: Live video recording, introduction upload, and AI-powered video grading.
-- Career Coach: AI-powered career coaching panel unlocked after completing the assessment pipeline.
+- Career Coach: AI-powered career coaching panel available from Stage 2 onwards.
+- Upgrade Skills Roadmap: Personalised learning roadmap with curated resource links generated after results, helping candidates upskill based on their assessment gaps.
 - Recruiter Dashboard: Real-time analytics, candidate rankings, and pipeline management.
 - Per-Recruiter Candidate Visibility: Superadmin can restrict which candidates each recruiter can view.
 - Superadmin Panel: Full platform control — manage recruiters, candidates, question bank, and access policies.
@@ -42,20 +43,20 @@ Sole Creator: Anup Mazumdar | MCA Student | UEM Jaipur (2025-2027)
 
 ---
 
-## 8-Stage Assessment Pipeline
+## 9-Stage Assessment Pipeline
 
 ```text
-Stage 1          Stage 2          Stage 3          Stage 4
+Stage 1          Stage 2          Stage 3          Stage 4          Stage 5
+┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────┐
+│ Profile │────▶│ Career  │────▶│ Resume  │────▶│  Video  │────▶│Technical│
+│ Creation│     │  Coach  │     │ Upload  │     │  Intro  │     │  Quiz   │
+└─────────┘     └─────────┘     └─────────┘     └─────────┘     └─────────┘
+                                                                       │
+                                                                       ▼
+Stage 9          Stage 8          Stage 7          Stage 6
 ┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────┐
-│ Profile │────▶│ Career  │────▶│ Resume  │────▶│  Video  │
-│ Creation│     │  Coach  │     │ Upload  │     │  Intro  │
-└─────────┘     └─────────┘     └─────────┘     └─────────┘
-                                                      │
-                                                      ▼
-Stage 8          Stage 7          Stage 6          Stage 5
-┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────┐
-│ Results │◀────│  Live   │◀────│   AI    │◀────│Technical│
-│Analytics│     │  Video  │     │Interview│     │  Quiz   │
+│ Upgrade │◀────│ Results │◀────│  Live   │◀────│   AI    │
+│  Skills │     │Analytics│     │  Video  │     │Interview│
 └─────────┘     └─────────┘     └─────────┘     └─────────┘
 ```
 
@@ -69,6 +70,7 @@ Stage 8          Stage 7          Stage 6          Stage 5
 | 6. AI Interview | AI conducts structured interview | Claude Sonnet / GPT-4o fallback |
 | 7. Live Video Recording | Final video assessment with AI scoring | GCP Storage + GPT-4o |
 | 8. Results & Analytics | Scores, rankings, and detailed feedback | Multi-model |
+| 9. Upgrade Skills | AI-generated personalised learning roadmap with curated resource links based on assessment gaps | Claude Sonnet |
 
 ---
 
@@ -201,7 +203,7 @@ TalentAI has a three-tier access model: **Candidate → Recruiter → Superadmin
 
 | Role | Capabilities |
 | --- | --- |
-| Candidate | Complete the 8-stage pipeline, access Career Coach (Stage 2), view own results |
+| Candidate | Complete the 9-stage pipeline, access Career Coach (Stage 2), view results, unlock Upgrade Skills roadmap |
 | Recruiter | View allowed candidates, manage question bank (update/refresh), run AI grading |
 | Superadmin | All recruiter capabilities + full platform control (see below) |
 
@@ -226,6 +228,69 @@ TalentAI has a three-tier access model: **Candidate → Recruiter → Superadmin
 ### Career Coach
 
 After a candidate completes all 8 assessment stages, the **Career Coach** panel (Stage 2) also remains accessible for ongoing guidance. It is powered by the same OpenRouter AI engine and provides personalised improvement guidance, skill gap analysis, and next-step recommendations based on the candidate's actual assessment results.
+
+---
+
+## Upgrade Skills & Learning Roadmap
+
+After viewing their results (Stage 8), candidates unlock a personalised **Upgrade Skills** roadmap (Stage 9). This is a separate, dedicated section — not embedded inside the results dashboard — that gives every candidate a clear path to improvement.
+
+### What the Roadmap Covers
+
+The AI analyses the candidate's actual scores across all assessment stages and generates a targeted upskilling plan with direct resource links:
+
+#### Data Structures & Algorithms
+| Resource | Type | Link |
+| --- | --- | --- |
+| LeetCode | Practice problems | https://leetcode.com |
+| NeetCode.io | Structured DSA roadmap + video solutions | https://neetcode.io |
+| GeeksforGeeks | Tutorials and interview prep | https://www.geeksforgeeks.org |
+| CS50 (Harvard) | Free foundational CS course | https://cs50.harvard.edu |
+
+#### Web Development
+| Resource | Type | Link |
+| --- | --- | --- |
+| The Odin Project | Full-stack curriculum (free) | https://www.theodinproject.com |
+| MDN Web Docs | Reference and guides | https://developer.mozilla.org |
+| freeCodeCamp | Hands-on web dev certifications | https://www.freecodecamp.org |
+| full stack open | Modern web dev with React & Node | https://fullstackopen.com |
+
+#### System Design
+| Resource | Type | Link |
+| --- | --- | --- |
+| ByteByteGo | System design concepts and diagrams | https://bytebytego.com |
+| Grokking System Design | Interview-focused system design | https://www.designgurus.io |
+| System Design Primer | GitHub open-source guide | https://github.com/donnemartin/system-design-primer |
+
+#### Machine Learning & AI
+| Resource | Type | Link |
+| --- | --- | --- |
+| fast.ai | Practical deep learning (free) | https://www.fast.ai |
+| Coursera — Andrew Ng ML | Foundational ML course | https://www.coursera.org/specializations/machine-learning-introduction |
+| Kaggle Learn | Hands-on ML micro-courses | https://www.kaggle.com/learn |
+| Hugging Face | NLP and transformer models | https://huggingface.co/learn |
+
+#### Cloud & DevOps
+| Resource | Type | Link |
+| --- | --- | --- |
+| Google Cloud Skills Boost | GCP training and certifications | https://cloudskillsboost.google |
+| AWS Skill Builder | AWS free training | https://skillbuilder.aws |
+| Microsoft Learn | Azure learning paths | https://learn.microsoft.com |
+| KodeKloud | DevOps and Kubernetes labs | https://kodekloud.com |
+
+#### Core Computer Science
+| Resource | Type | Link |
+| --- | --- | --- |
+| MIT OpenCourseWare | University-level CS courses (free) | https://ocw.mit.edu |
+| Teach Yourself CS | Curated self-study curriculum | https://teachyourselfcs.com |
+| Roadmap.sh | Developer roadmaps by role | https://roadmap.sh |
+
+### How It Works
+
+1. After Stage 8 (Results & Analytics), the candidate's gap areas are identified from their scores.
+2. The AI generates a prioritised skill list and maps each gap to relevant resources.
+3. The roadmap is presented as an interactive checklist — candidates can mark topics as in-progress or complete.
+4. Resources are filtered by the candidate's target role (e.g., backend engineer, data scientist, full-stack developer).
 
 ---
 
@@ -289,6 +354,14 @@ Shortlist Threshold: 68+ weighted score
 ---
 
 ## Recent Updates
+
+### v2.1 — Upgrade Skills Roadmap (Stage 9)
+- New final stage: personalised AI-generated learning roadmap unlocked after results.
+- Curated resources across DSA, web dev, system design, ML/AI, cloud, and core CS.
+- Roadmap is separate from the results dashboard — dedicated upskilling section.
+- Interactive checklist: candidates track progress per topic.
+- Resources filtered by candidate's target role and assessment gap areas.
+- Pipeline updated from 8-stage to 9-stage.
 
 ### v2.0 — Superadmin Access Control & Candidate Visibility
 - Superadmin can now remove any recruiter or candidate account (with cascade cleanup of related views and subscriptions).
