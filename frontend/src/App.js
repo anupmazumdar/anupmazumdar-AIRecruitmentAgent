@@ -3,7 +3,7 @@
 // FIX: Pricing always visible, better flow
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
-import { Upload, CheckCircle, XCircle, User, Briefcase, MessageSquare, Award, FileText, Users, TrendingUp, Crown, Zap, Sparkles, Check, X, Mail, Lock, Eye, EyeOff, LogOut, Video, VideoOff, DollarSign } from 'lucide-react';
+import { Upload, CheckCircle, XCircle, User, Briefcase, MessageSquare, Award, FileText, Users, TrendingUp, Crown, Zap, Sparkles, Check, X, Mail, Lock, Eye, EyeOff, LogOut, Video, VideoOff, DollarSign, Menu } from 'lucide-react';
 
 // ==================== BACKEND API URL ====================
 const API_URL = process.env.NODE_ENV === 'production' ? '' : (process.env.REACT_APP_API_URL || 'http://localhost:3001');
@@ -145,10 +145,10 @@ export default function AIRecruitmentAgent() {
   };
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-white">
+    <div className="min-h-screen overflow-x-hidden bg-gradient-to-br from-slate-950 via-slate-900 to-indigo-950 text-white text-sm md:text-base lg:text-lg">
       <div className="fixed inset-0 opacity-20">
-        <div className="absolute top-0 left-1/4 w-96 h-96 bg-indigo-500 rounded-full filter blur-3xl animate-pulse"></div>
-        <div className="absolute bottom-0 right-1/4 w-96 h-96 bg-purple-500 rounded-full filter blur-3xl animate-pulse" style={{ animationDelay: '1s' }}></div>
+        <div className="absolute top-0 left-1/4 h-48 w-48 rounded-full bg-indigo-500 blur-3xl animate-pulse md:h-72 md:w-72 lg:h-96 lg:w-96"></div>
+        <div className="absolute bottom-0 right-1/4 h-48 w-48 rounded-full bg-purple-500 blur-3xl animate-pulse md:h-72 md:w-72 lg:h-96 lg:w-96" style={{ animationDelay: '1s' }}></div>
       </div>
 
       <div className="relative z-10">
@@ -430,6 +430,7 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
 // ==================== HOME PAGE (WITH PRICING VISIBLE) ====================
 function HomePage({ setUserType, setShowSubscriptionModal, setShowAuthModal, setAuthMode, authState, logout, setSelectedPlan }) {
   const [showPricing, setShowPricing] = useState(false);
+  const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
 
   const handleCandidateClick = () => {
     if (!authState.isAuthenticated) {
@@ -459,14 +460,25 @@ function HomePage({ setUserType, setShowSubscriptionModal, setShowAuthModal, set
   };
 
   return (
-    <div className="min-h-screen flex items-center justify-center px-4">
-      <div className="absolute top-6 right-6 flex gap-3">
+    <div className="min-h-screen px-4 py-4 md:flex md:items-center md:justify-center">
+      <div className="absolute right-4 top-4 z-30 md:right-6 md:top-6">
+        <button
+          onClick={() => setMobileMenuOpen((prev) => !prev)}
+          className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg border border-slate-600 bg-slate-800/70 p-2 text-slate-100 md:hidden"
+          aria-label="Toggle navigation menu"
+        >
+          {mobileMenuOpen ? <X size={20} /> : <Menu size={20} />}
+        </button>
+      </div>
+
+      <div className={`absolute right-4 top-16 z-20 w-[calc(100%-2rem)] max-w-xs rounded-xl border border-slate-700 bg-slate-900/95 p-3 shadow-2xl md:static md:w-auto md:max-w-none md:border-0 md:bg-transparent md:p-0 md:shadow-none ${mobileMenuOpen ? 'block' : 'hidden md:block'}`}>
+        <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
         {authState.isAuthenticated ? (
-          <div className="flex items-center gap-3">
-            <span className="text-slate-300 text-sm">Hi, {authState.user.name}!</span>
+          <div className="flex flex-col gap-2 md:flex-row md:items-center md:gap-3">
+            <span className="text-sm text-slate-300 md:text-base">Hi, {authState.user.name}!</span>
             <button
               onClick={logout}
-              className="px-4 py-2 bg-slate-800/50 rounded-lg hover:bg-slate-700/50 transition-all flex items-center gap-2 text-sm"
+              className="flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-slate-800/50 px-4 py-2 text-sm transition-all hover:bg-slate-700/50 md:text-base"
             >
               <LogOut size={16} />
               Logout
@@ -478,8 +490,9 @@ function HomePage({ setUserType, setShowSubscriptionModal, setShowAuthModal, set
               onClick={() => {
                 setAuthMode('login');
                 setShowAuthModal(true);
+                setMobileMenuOpen(false);
               }}
-              className="px-5 py-2 bg-orange-600/90 rounded-lg hover:bg-orange-500 transition-all text-sm"
+              className="min-h-[44px] rounded-lg bg-orange-600/90 px-5 py-2 text-sm transition-all hover:bg-orange-500 md:text-base"
             >
               Admin Login
             </button>
@@ -487,8 +500,9 @@ function HomePage({ setUserType, setShowSubscriptionModal, setShowAuthModal, set
               onClick={() => {
                 setAuthMode('login');
                 setShowAuthModal(true);
+                setMobileMenuOpen(false);
               }}
-              className="px-5 py-2 bg-slate-800/50 rounded-lg hover:bg-slate-700/50 transition-all text-sm"
+              className="min-h-[44px] rounded-lg bg-slate-800/50 px-5 py-2 text-sm transition-all hover:bg-slate-700/50 md:text-base"
             >
               Sign In
             </button>
@@ -496,64 +510,66 @@ function HomePage({ setUserType, setShowSubscriptionModal, setShowAuthModal, set
               onClick={() => {
                 setAuthMode('register');
                 setShowAuthModal(true);
+                setMobileMenuOpen(false);
               }}
-              className="px-5 py-2 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg hover:from-indigo-500 hover:to-purple-500 transition-all text-sm"
+              className="min-h-[44px] rounded-lg bg-gradient-to-r from-indigo-600 to-purple-600 px-5 py-2 text-sm transition-all hover:from-indigo-500 hover:to-purple-500 md:text-base"
             >
               Sign Up
             </button>
           </>
         )}
+        </div>
       </div>
 
       {!showPricing ? (
-        <div className="max-w-6xl w-full">
-          <div className="text-center mb-12">
-            <h1 className="text-6xl font-bold mb-4 bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-transparent">
+        <div className="mx-auto mt-20 w-full max-w-6xl md:mt-0">
+          <div className="mb-8 text-center md:mb-12">
+            <h1 className="mb-3 bg-gradient-to-r from-indigo-400 via-purple-400 to-pink-400 bg-clip-text text-4xl font-bold text-transparent sm:text-5xl md:mb-4 md:text-6xl">
               TalentAI
             </h1>
-            <p className="text-xl text-slate-300">
+            <p className="text-sm text-slate-300 md:text-base lg:text-xl">
               AI-Powered Recruitment Made Simple
             </p>
           </div>
 
-          <div className="grid md:grid-cols-2 gap-6 max-w-4xl mx-auto mb-8">
+          <div className="mx-auto mb-8 grid w-full max-w-4xl grid-cols-1 gap-4 md:grid-cols-2 md:gap-6">
             <div
               onClick={handleCandidateClick}
-              className="group cursor-pointer bg-gradient-to-br from-indigo-900/50 to-purple-900/50 backdrop-blur-xl p-8 rounded-2xl border border-indigo-500/30 hover:border-indigo-400 transition-all duration-500 hover:scale-105"
+              className="group cursor-pointer rounded-2xl border border-indigo-500/30 bg-gradient-to-br from-indigo-900/50 to-purple-900/50 p-5 backdrop-blur-xl transition-all duration-500 hover:border-indigo-400 md:p-8 md:hover:scale-105"
             >
-              <div className="flex justify-center mb-4">
-                <div className="p-5 bg-indigo-500/20 rounded-xl">
-                  <User size={48} className="text-indigo-400" />
+              <div className="mb-3 flex justify-center md:mb-4">
+                <div className="rounded-xl bg-indigo-500/20 p-4 md:p-5">
+                  <User size={40} className="text-indigo-400 md:h-12 md:w-12" />
                 </div>
               </div>
-              <h2 className="text-2xl font-bold text-center mb-3">
+              <h2 className="mb-2 text-center text-xl font-bold md:mb-3 md:text-2xl">
                 I'm a Candidate
               </h2>
-              <p className="text-slate-300 text-center text-sm">
+              <p className="text-center text-sm text-slate-300 md:text-base">
                 Upload resume, take AI assessments, complete interviews
               </p>
-              <div className="mt-4 text-center">
-                <span className="text-green-400 text-sm font-semibold">100% FREE</span>
+              <div className="mt-3 text-center md:mt-4">
+                <span className="text-sm font-semibold text-green-400 md:text-base">100% FREE</span>
               </div>
             </div>
 
             <div
               onClick={handleRecruiterClick}
-              className="group cursor-pointer bg-gradient-to-br from-purple-900/50 to-pink-900/50 backdrop-blur-xl p-8 rounded-2xl border border-purple-500/30 hover:border-purple-400 transition-all duration-500 hover:scale-105"
+              className="group cursor-pointer rounded-2xl border border-purple-500/30 bg-gradient-to-br from-purple-900/50 to-pink-900/50 p-5 backdrop-blur-xl transition-all duration-500 hover:border-purple-400 md:p-8 md:hover:scale-105"
             >
-              <div className="flex justify-center mb-4">
-                <div className="p-5 bg-purple-500/20 rounded-xl">
-                  <Briefcase size={48} className="text-purple-400" />
+              <div className="mb-3 flex justify-center md:mb-4">
+                <div className="rounded-xl bg-purple-500/20 p-4 md:p-5">
+                  <Briefcase size={40} className="text-purple-400 md:h-12 md:w-12" />
                 </div>
               </div>
-              <h2 className="text-2xl font-bold text-center mb-3">
+              <h2 className="mb-2 text-center text-xl font-bold md:mb-3 md:text-2xl">
                 I'm a Recruiter
               </h2>
-              <p className="text-slate-300 text-center text-sm">
+              <p className="text-center text-sm text-slate-300 md:text-base">
                 Review AI-scored candidates, access analytics
               </p>
-              <div className="mt-4 text-center">
-                <span className="text-purple-400 text-sm font-semibold">From $29/month</span>
+              <div className="mt-3 text-center md:mt-4">
+                <span className="text-sm font-semibold text-purple-400 md:text-base">From $29/month</span>
               </div>
             </div>
           </div>
@@ -561,7 +577,7 @@ function HomePage({ setUserType, setShowSubscriptionModal, setShowAuthModal, set
           <div className="text-center">
             <button
               onClick={() => setShowPricing(true)}
-              className="px-6 py-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-lg font-semibold hover:from-purple-500 hover:to-pink-500 transition-all text-sm inline-flex items-center gap-2"
+              className="inline-flex min-h-[44px] items-center gap-2 rounded-lg bg-gradient-to-r from-purple-600 to-pink-600 px-6 py-3 text-sm font-semibold transition-all hover:from-purple-500 hover:to-pink-500 md:text-base"
             >
               <DollarSign size={18} />
               View All Pricing Plans
@@ -580,17 +596,17 @@ function PricingView({ handlePlanSelect, setShowPricing }) {
   const [billingCycle, setBillingCycle] = useState('monthly');
 
   return (
-    <div className="max-w-6xl w-full py-12">
+    <div className="w-full max-w-6xl py-8 md:py-12">
       <button
         onClick={() => setShowPricing(false)}
-        className="mb-8 px-4 py-2 bg-slate-800/50 rounded-lg hover:bg-slate-700/50 transition-all text-sm"
+        className="mb-6 min-h-[44px] rounded-lg bg-slate-800/50 px-4 py-2 text-sm transition-all hover:bg-slate-700/50 md:mb-8 md:text-base"
       >
         ← Back to Home
       </button>
 
       <div className="text-center mb-8">
-        <h2 className="text-4xl font-bold mb-3">Choose Your Plan</h2>
-        <p className="text-slate-300 text-lg mb-6">Select the perfect plan for your recruitment needs</p>
+        <h2 className="mb-3 text-2xl font-bold md:text-4xl">Choose Your Plan</h2>
+        <p className="mb-6 text-sm text-slate-300 md:text-base lg:text-lg">Select the perfect plan for your recruitment needs</p>
 
         <div className="flex items-center justify-center gap-3">
           <span className={billingCycle === 'monthly' ? 'text-white font-semibold' : 'text-slate-400'}>Monthly</span>
@@ -607,7 +623,7 @@ function PricingView({ handlePlanSelect, setShowPricing }) {
         </div>
       </div>
 
-      <div className="grid md:grid-cols-3 gap-6 mb-8">
+      <div className="mb-8 grid grid-cols-1 gap-4 md:grid-cols-2 md:gap-6 lg:grid-cols-3">
         {Object.entries(SUBSCRIPTION_PLANS).map(([key, plan]) => {
           const Icon = plan.icon;
           const price = billingCycle === 'yearly' ? Math.round(plan.price * 12 * 0.8) : plan.price;
@@ -615,7 +631,7 @@ function PricingView({ handlePlanSelect, setShowPricing }) {
           return (
             <div
               key={key}
-              className={`bg-slate-800/50 rounded-2xl p-6 border-2 transition-all ${plan.popular ? 'border-purple-500 ring-4 ring-purple-500/20 scale-105' : 'border-slate-700 hover:border-slate-600'
+              className={`bg-slate-800/50 rounded-2xl p-5 md:p-6 border-2 transition-all ${plan.popular ? 'border-purple-500 ring-4 ring-purple-500/20 md:scale-105' : 'border-slate-700 hover:border-slate-600'
                 }`}
             >
               {plan.popular && (
@@ -628,10 +644,10 @@ function PricingView({ handlePlanSelect, setShowPricing }) {
 
               <div className="text-center mb-6">
                 <Icon size={40} className="mx-auto mb-3 text-purple-400" />
-                <h3 className="text-2xl font-bold mb-2">{plan.name}</h3>
+                <h3 className="mb-2 text-xl font-bold md:text-2xl">{plan.name}</h3>
                 <div className="flex items-baseline justify-center gap-1 mb-2">
-                  <span className="text-4xl font-bold">${price}</span>
-                  <span className="text-slate-400">/{billingCycle === 'yearly' ? 'year' : 'month'}</span>
+                  <span className="text-3xl font-bold md:text-4xl">${price}</span>
+                  <span className="text-sm text-slate-400 md:text-base">/{billingCycle === 'yearly' ? 'year' : 'month'}</span>
                 </div>
                 {billingCycle === 'yearly' && (
                   <p className="text-sm text-green-400">Save ${Math.round(plan.price * 12 * 0.2)}/year</p>
@@ -651,7 +667,7 @@ function PricingView({ handlePlanSelect, setShowPricing }) {
 
               <button
                 onClick={() => handlePlanSelect(key)}
-                className={`w-full py-3 rounded-xl font-semibold transition-all ${plan.popular
+                className={`w-full min-h-[44px] py-3 rounded-xl font-semibold text-sm md:text-base transition-all ${plan.popular
                   ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500'
                   : 'bg-slate-700 hover:bg-slate-600'
                   }`}
@@ -663,8 +679,8 @@ function PricingView({ handlePlanSelect, setShowPricing }) {
         })}
       </div>
 
-      <div className="bg-slate-800/30 rounded-xl p-6 border border-slate-700">
-        <div className="grid md:grid-cols-3 gap-6 text-center">
+      <div className="bg-slate-800/30 rounded-xl p-4 md:p-6 border border-slate-700">
+        <div className="grid grid-cols-1 gap-4 text-center md:grid-cols-3 md:gap-6">
           <div>
             <div className="text-3xl font-bold text-purple-400 mb-2">14-Day</div>
             <div className="text-slate-400">Money-Back Guarantee</div>
@@ -857,13 +873,13 @@ function CandidatePortal({ setUserType, subscription, authState, logout }) {
   const currentStageIndex = stages.findIndex(s => s.id === stage);
 
   return (
-    <div className="min-h-screen py-6 px-4">
+    <div className="min-h-screen px-4 py-4 md:py-6">
       <div className="max-w-5xl mx-auto mb-6">
-        <div className="flex justify-between items-center">
-          <h1 className="text-3xl font-bold">Candidate Portal</h1>
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+          <h1 className="text-2xl font-bold md:text-3xl">Candidate Portal</h1>
           <button
             onClick={logout}
-            className="px-4 py-2 bg-slate-800/50 rounded-lg hover:bg-slate-700/50 transition-all flex items-center gap-2 text-sm"
+            className="flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-slate-800/50 px-4 py-2 text-sm transition-all hover:bg-slate-700/50 md:w-auto md:text-base"
           >
             <LogOut size={16} />
             Logout
@@ -872,8 +888,8 @@ function CandidatePortal({ setUserType, subscription, authState, logout }) {
       </div>
 
       {/* Progress Bar */}
-      <div className="max-w-5xl mx-auto mb-8">
-        <div className="flex justify-between items-center">
+      <div className="max-w-5xl mx-auto mb-8 overflow-x-auto">
+        <div className="flex min-w-[700px] items-center justify-between">
           {stages.map((s, idx) => {
             const Icon = s.icon;
             const isCompleted = idx < currentStageIndex;
@@ -899,7 +915,7 @@ function CandidatePortal({ setUserType, subscription, authState, logout }) {
         </div>
       </div>
 
-      <div className="max-w-3xl mx-auto">
+      <div className="max-w-3xl mx-auto w-full">
         {stage === 'profile' && <ProfileStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} />}
         {stage === 'resume' && <ResumeUploadStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} />}
         {stage === 'uploadVideo' && <UploadVideoStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} />}
@@ -2672,26 +2688,26 @@ function SuperAdminDashboard({ authState, logout }) {
   ] : [];
 
   return (
-    <div className="min-h-screen py-6 px-4">
+    <div className="min-h-screen px-4 py-4 md:py-6">
       {/* Header */}
-      <div className="max-w-7xl mx-auto mb-6 flex justify-between items-center">
+      <div className="mx-auto mb-6 flex max-w-7xl flex-col gap-3 md:flex-row md:items-center md:justify-between">
         <div>
-          <h1 className="text-3xl font-black bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-transparent">Super Admin</h1>
-          <p className="text-slate-400 text-sm mt-0.5">Manage recruiters & platform access</p>
+          <h1 className="bg-gradient-to-r from-indigo-400 to-purple-400 bg-clip-text text-2xl font-black text-transparent md:text-3xl">Super Admin</h1>
+          <p className="mt-0.5 text-sm text-slate-400 md:text-base">Manage recruiters & platform access</p>
         </div>
-        <button onClick={logout} className="px-4 py-2 bg-slate-800/50 rounded-xl hover:bg-slate-700/50 transition-all flex items-center gap-2 text-sm border border-slate-700">
+        <button onClick={logout} className="flex min-h-[44px] items-center justify-center gap-2 rounded-xl border border-slate-700 bg-slate-800/50 px-4 py-2 text-sm transition-all hover:bg-slate-700/50 md:text-base">
           <LogOut size={14} /> Logout
         </button>
       </div>
 
       {/* Stats row */}
       {stats && (
-        <div className="max-w-7xl mx-auto grid grid-cols-4 gap-4 mb-6">
+        <div className="mx-auto mb-6 grid max-w-7xl grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
           {statCards.map((s, i) => (
             <div key={i} className={`bg-gradient-to-br ${s.color} rounded-2xl p-5 relative overflow-hidden`}>
               <div className="absolute top-3 right-4 text-3xl opacity-40">{s.icon}</div>
-              <p className="text-white/70 text-xs uppercase tracking-widest mb-1">{s.label}</p>
-              <p className="text-white text-3xl font-black">{s.value}</p>
+              <p className="mb-1 text-xs uppercase tracking-widest text-white/70 md:text-sm">{s.label}</p>
+              <p className="text-2xl font-black text-white md:text-3xl">{s.value}</p>
             </div>
           ))}
         </div>
@@ -2699,24 +2715,24 @@ function SuperAdminDashboard({ authState, logout }) {
 
       {/* Tabs */}
       <div className="max-w-7xl mx-auto">
-        <div className="flex gap-2 mb-5">
+        <div className="mb-5 flex flex-wrap gap-2">
           {['recruiters', 'candidates'].map(tab => (
             <button key={tab} onClick={() => setActiveTab(tab)}
-              className={`px-5 py-2 rounded-xl font-semibold text-sm capitalize transition-all ${
+              className={`min-h-[44px] px-5 py-2 rounded-xl font-semibold text-sm md:text-base capitalize transition-all ${
                 activeTab === tab ? 'bg-indigo-600 text-white shadow-md' : 'bg-slate-800/50 text-slate-400 hover:bg-slate-700/50'
               }`}>{tab}</button>
           ))}
-          <button onClick={fetchAll} className="ml-auto px-4 py-2 bg-slate-800/50 rounded-xl text-sm text-slate-400 hover:bg-slate-700/50 transition-all">↻ Refresh</button>
+          <button onClick={fetchAll} className="min-h-[44px] px-4 py-2 bg-slate-800/50 rounded-xl text-sm md:text-base text-slate-400 hover:bg-slate-700/50 transition-all md:ml-auto">↻ Refresh</button>
         </div>
 
         {activeTab === 'recruiters' && (
-          <div className="grid grid-cols-3 gap-5">
+          <div className="grid grid-cols-1 gap-5 xl:grid-cols-3">
             {/* Recruiter list */}
-            <div className="col-span-2 bg-slate-900/60 backdrop-blur-xl rounded-2xl border border-slate-700 overflow-hidden">
+            <div className="bg-slate-900/60 backdrop-blur-xl rounded-2xl border border-slate-700 overflow-hidden xl:col-span-2">
               <div className="p-4 border-b border-slate-700 flex gap-3">
                 <input value={search} onChange={e => setSearch(e.target.value)}
                   placeholder="Search recruiters by name, email, company..."
-                  className="flex-1 px-4 py-2 bg-slate-800/60 rounded-xl border border-slate-600 focus:border-indigo-500 focus:outline-none text-sm" />
+                  className="flex-1 px-4 py-2.5 bg-slate-800/60 rounded-xl border border-slate-600 focus:border-indigo-500 focus:outline-none text-sm md:text-base" />
               </div>
               {loading ? (
                 <div className="p-12 text-center"><div className="animate-spin rounded-full h-10 w-10 border-b-2 border-indigo-500 mx-auto" /></div>
@@ -2730,7 +2746,7 @@ function SuperAdminDashboard({ authState, logout }) {
                   {filtered.map(r => (
                     <div key={r.id}
                       onClick={() => setSelectedRecruiter(r)}
-                      className={`p-4 flex items-center gap-4 cursor-pointer hover:bg-slate-800/40 transition-all ${
+                      className={`p-4 flex flex-col items-start gap-3 md:flex-row md:items-center md:gap-4 cursor-pointer hover:bg-slate-800/40 transition-all ${
                         selectedRecruiter?.id === r.id ? 'bg-indigo-900/20 border-l-2 border-indigo-500' : ''
                       }`}>
                       <div className="w-10 h-10 rounded-full bg-gradient-to-br from-indigo-600 to-purple-600 flex items-center justify-center text-sm font-bold flex-shrink-0">
@@ -2741,14 +2757,14 @@ function SuperAdminDashboard({ authState, logout }) {
                         <p className="text-xs text-slate-400 truncate">{r.email}</p>
                         {r.company && <p className="text-xs text-slate-500 truncate">🏢 {r.company}</p>}
                       </div>
-                      <div className="flex items-center gap-3 flex-shrink-0">
+                      <div className="flex w-full flex-wrap items-center gap-2 md:w-auto md:gap-3 md:flex-shrink-0">
                         <span className={`px-2.5 py-1 rounded-full text-xs font-bold ${
                           r.canViewCandidates ? 'bg-green-900/50 text-green-400 border border-green-700/40' : 'bg-red-900/50 text-red-400 border border-red-700/40'
                         }`}>{r.canViewCandidates ? '● Active' : '● Revoked'}</span>
                         <button
                           onClick={e => { e.stopPropagation(); toggleAccess(r); }}
                           disabled={saving === r.id}
-                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                          className={`min-h-[44px] px-3 py-1.5 rounded-lg text-xs md:text-sm font-semibold transition-all ${
                             r.canViewCandidates
                               ? 'bg-red-900/30 hover:bg-red-900/50 text-red-300 border border-red-700/30'
                               : 'bg-green-900/30 hover:bg-green-900/50 text-green-300 border border-green-700/30'
@@ -2908,33 +2924,33 @@ function RecruiterDashboard({ setUserType, subscription, setShowSubscriptionModa
   };
 
   return (
-    <div className="min-h-screen py-6 px-4">
+    <div className="min-h-screen px-4 py-4 md:py-6">
       <div className="max-w-7xl mx-auto">
         {/* Header */}
-        <div className="flex justify-between items-center mb-6">
+        <div className="mb-6 flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <h1 className="text-3xl font-bold">🏢 Recruiter Dashboard</h1>
-            {authState.user && <p className="text-slate-400 mt-1">Welcome back, {authState.user.name}</p>}
+            <h1 className="text-2xl font-bold md:text-3xl">🏢 Recruiter Dashboard</h1>
+            {authState.user && <p className="mt-1 text-sm text-slate-400 md:text-base">Welcome back, {authState.user.name}</p>}
           </div>
-          <div className="flex gap-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:gap-3">
             {subscription && (
-              <div className="px-4 py-2 bg-purple-600/20 border border-purple-500/30 rounded-lg flex items-center gap-2">
+              <div className="flex min-h-[44px] items-center gap-2 rounded-lg border border-purple-500/30 bg-purple-600/20 px-4 py-2">
                 <Crown size={18} className="text-yellow-400" />
-                <span className="text-sm font-semibold">{SUBSCRIPTION_PLANS[subscription.plan]?.name} Plan</span>
+                <span className="text-sm font-semibold md:text-base">{SUBSCRIPTION_PLANS[subscription.plan]?.name} Plan</span>
               </div>
             )}
-            <button onClick={logout} className="px-4 py-2 bg-slate-800/50 rounded-lg hover:bg-slate-700/50 transition-all flex items-center gap-2 text-sm">
+            <button onClick={logout} className="flex min-h-[44px] items-center justify-center gap-2 rounded-lg bg-slate-800/50 px-4 py-2 text-sm transition-all hover:bg-slate-700/50 md:text-base">
               <LogOut size={16} /> Logout
             </button>
           </div>
         </div>
 
         {/* Tab Navigation */}
-        <div className="flex gap-2 mb-8 bg-slate-900/50 p-1.5 rounded-xl border border-slate-700 w-fit">
+        <div className="mb-8 flex w-full flex-wrap gap-2 rounded-xl border border-slate-700 bg-slate-900/50 p-1.5 md:w-fit">
           <button
             id="tab-candidates"
             onClick={() => setActiveTab('candidates')}
-            className={`px-5 py-2.5 rounded-lg font-semibold text-sm transition-all flex items-center gap-2 ${
+            className={`min-h-[44px] px-5 py-2.5 rounded-lg font-semibold text-sm md:text-base transition-all flex items-center gap-2 ${
               activeTab === 'candidates'
                 ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-lg'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
@@ -2946,7 +2962,7 @@ function RecruiterDashboard({ setUserType, subscription, setShowSubscriptionModa
           <button
             id="tab-admin"
             onClick={() => setActiveTab('admin')}
-            className={`px-5 py-2.5 rounded-lg font-semibold text-sm transition-all flex items-center gap-2 ${
+            className={`min-h-[44px] px-5 py-2.5 rounded-lg font-semibold text-sm md:text-base transition-all flex items-center gap-2 ${
               activeTab === 'admin'
                 ? 'bg-gradient-to-r from-orange-600 to-red-600 text-white shadow-lg'
                 : 'text-slate-400 hover:text-white hover:bg-slate-800/50'
@@ -2962,7 +2978,7 @@ function RecruiterDashboard({ setUserType, subscription, setShowSubscriptionModa
         ) : (
           <>
             {/* Stats */}
-            <div className="grid grid-cols-2 md:grid-cols-4 gap-4 mb-8">
+            <div className="mb-8 grid grid-cols-1 gap-3 sm:grid-cols-2 lg:grid-cols-4">
               {[
                 { label: 'Total Candidates', value: stats.total, icon: Users, color: 'from-indigo-900/50 to-indigo-800/50 border-indigo-500/30', iconColor: 'text-indigo-400' },
                 { label: 'Shortlisted', value: stats.shortlisted, icon: CheckCircle, color: 'from-green-900/50 to-green-800/50 border-green-500/30', iconColor: 'text-green-400' },
@@ -2971,8 +2987,8 @@ function RecruiterDashboard({ setUserType, subscription, setShowSubscriptionModa
               ].map((stat, i) => (
                 <div key={i} className={`bg-gradient-to-br ${stat.color} rounded-xl p-5 border`}>
                   <stat.icon className={`${stat.iconColor} mb-2`} size={28} />
-                  <p className="text-3xl font-bold">{stat.value}</p>
-                  <p className="text-slate-300 text-sm">{stat.label}</p>
+                  <p className="text-2xl font-bold md:text-3xl">{stat.value}</p>
+                  <p className="text-sm text-slate-300 md:text-base">{stat.label}</p>
                 </div>
               ))}
             </div>
@@ -2983,12 +2999,12 @@ function RecruiterDashboard({ setUserType, subscription, setShowSubscriptionModa
                 <input
                   type="text" placeholder="Search by name or position..."
                   value={search} onChange={e => setSearch(e.target.value)}
-                  className="flex-1 bg-slate-800/50 border border-slate-600 rounded-lg px-4 py-2.5 text-sm focus:outline-none focus:border-purple-500"
+                  className="flex-1 bg-slate-800/50 border border-slate-600 rounded-lg px-4 py-2.5 text-sm md:text-base focus:outline-none focus:border-purple-500"
                 />
                 <div className="flex gap-2 flex-wrap">
                   {['all', 'shortlisted', 'hired', 'review', 'rejected'].map(f => (
                     <button key={f} onClick={() => setFilter(f)}
-                      className={`px-4 py-2 rounded-lg text-sm font-medium transition-all ${filter === f ? 'bg-purple-600 text-white' : 'bg-slate-800/50 hover:bg-slate-700/50 text-slate-400'
+                      className={`min-h-[44px] px-4 py-2 rounded-lg text-sm md:text-base font-medium transition-all ${filter === f ? 'bg-purple-600 text-white' : 'bg-slate-800/50 hover:bg-slate-700/50 text-slate-400'
                         }`}>
                       {f.charAt(0).toUpperCase() + f.slice(1)}
                     </button>
@@ -3026,12 +3042,12 @@ function RecruiterDashboard({ setUserType, subscription, setShowSubscriptionModa
                   {filtered.map(c => (
                     <div key={c.id}>
                       <div
-                        className="bg-slate-800/40 hover:bg-slate-800/70 border border-slate-700/50 hover:border-slate-600 rounded-xl px-4 py-3 cursor-pointer transition-all"
+                        className="cursor-pointer rounded-xl border border-slate-700/50 bg-slate-800/40 px-4 py-3 transition-all hover:border-slate-600 hover:bg-slate-800/70"
                         onClick={() => setExpandedId(expandedId === c.id ? null : c.id)}
                       >
-                        <div className="grid grid-cols-12 gap-3 items-center">
+                        <div className="grid grid-cols-1 gap-2 md:grid-cols-12 md:items-center md:gap-3">
                           {/* Avatar + Name */}
-                          <div className="col-span-3 flex items-center gap-3">
+                          <div className="col-span-1 flex items-center gap-3 md:col-span-3">
                             <div className="w-9 h-9 rounded-full bg-gradient-to-br from-purple-600 to-indigo-600 flex items-center justify-center text-sm font-bold flex-shrink-0">
                               {c.name.charAt(0)}
                             </div>
@@ -3040,31 +3056,31 @@ function RecruiterDashboard({ setUserType, subscription, setShowSubscriptionModa
                               <p className="text-slate-500 text-xs">{c.email}</p>
                             </div>
                           </div>
-                          <div className="col-span-2 text-slate-300 text-sm">{c.position}</div>
-                          <div className="col-span-1 text-center">
+                          <div className="col-span-1 text-sm text-slate-300 md:col-span-2 md:text-base">{c.position}</div>
+                          <div className="col-span-1 text-left md:col-span-1 md:text-center">
                             <span className={`text-sm font-bold ${c.resumeScore >= 85 ? 'text-green-400' : c.resumeScore >= 70 ? 'text-yellow-400' : 'text-red-400'}`}>{c.resumeScore}</span>
                           </div>
-                          <div className="col-span-1 text-center">
+                          <div className="col-span-1 text-left md:col-span-1 md:text-center">
                             <span className={`text-sm font-bold ${c.quizScore >= 85 ? 'text-green-400' : c.quizScore >= 70 ? 'text-yellow-400' : 'text-red-400'}`}>{c.quizScore}</span>
                           </div>
-                          <div className="col-span-1 text-center">
+                          <div className="col-span-1 text-left md:col-span-1 md:text-center">
                             <span className={`text-sm font-bold ${c.interviewScore >= 85 ? 'text-green-400' : c.interviewScore >= 70 ? 'text-yellow-400' : 'text-red-400'}`}>{c.interviewScore}</span>
                           </div>
-                          <div className="col-span-1 text-center">
+                          <div className="col-span-1 text-left md:col-span-1 md:text-center">
                             <span className={`text-sm font-bold ${c.videoInterviewScore >= 85 ? 'text-green-400' : c.videoInterviewScore >= 70 ? 'text-yellow-400' : 'text-red-400'}`}>{c.videoInterviewScore}</span>
                           </div>
-                          <div className="col-span-1 text-center">
+                          <div className="col-span-1 text-left md:col-span-1 md:text-center">
                             <div className={`inline-flex items-center justify-center w-10 h-10 rounded-full text-sm font-bold ${c.totalScore >= 85 ? 'bg-green-900/40 text-green-400' : c.totalScore >= 70 ? 'bg-yellow-900/40 text-yellow-400' : 'bg-red-900/40 text-red-400'
                               }`}>{c.totalScore}</div>
                           </div>
-                          <div className="col-span-2 flex justify-center">{statusBadge(c.status)}</div>
+                          <div className="col-span-1 flex justify-start md:col-span-2 md:justify-center">{statusBadge(c.status)}</div>
                         </div>
                       </div>
 
                       {/* Expanded Row */}
                       {expandedId === c.id && (
-                        <div className="bg-slate-800/20 border border-slate-700/50 border-t-0 rounded-b-xl px-6 py-4">
-                          <div className="grid grid-cols-5 gap-3">
+                        <div className="rounded-b-xl border border-slate-700/50 border-t-0 bg-slate-800/20 px-4 py-4 md:px-6">
+                          <div className="grid grid-cols-2 gap-3 md:grid-cols-5">
                             {[['Resume', c.resumeScore], ['Video Upload', c.uploadVideoScore], ['Quiz', c.quizScore], ['Interview', c.interviewScore], ['Live Video', c.videoInterviewScore]].map(([label, score]) => (
                               <div key={label} className="bg-slate-900/50 rounded-lg p-3 text-center">
                                 <p className="text-slate-500 text-xs mb-1">{label}</p>
