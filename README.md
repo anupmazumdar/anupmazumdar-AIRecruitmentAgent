@@ -42,7 +42,7 @@ Sole Creator: Anup Mazumdar | MCA Student | UEM Jaipur (2025-2027)
 
 ---
 
-## 7-Stage Assessment Pipeline
+## 8-Stage Assessment Pipeline
 
 ```text
 Stage 1          Stage 2          Stage 3          Stage 4
@@ -52,22 +52,23 @@ Stage 1          Stage 2          Stage 3          Stage 4
 └─────────┘     └─────────┘     └─────────┘     └─────────┘
                                                       │
                                                       ▼
-Stage 7          Stage 6          Stage 5
-┌─────────┐     ┌─────────┐     ┌─────────┐
-│ Results │◀────│  Live   │◀────│   AI    │
-│Analytics│     │  Video  │     │Interview│
-└─────────┘     └─────────┘     └─────────┘
+Stage 8          Stage 7          Stage 6          Stage 5
+┌─────────┐     ┌─────────┐     ┌─────────┐     ┌─────────┐
+│ Career  │◀────│ Results │◀────│  Live   │◀────│   AI    │
+│  Coach  │     │Analytics│     │  Video  │     │Interview│
+└─────────┘     └─────────┘     └─────────┘     └─────────┘
 ```
 
 | Stage | Description | AI Model |
 | --- | --- | --- |
 | 1. Profile Creation | Candidate registers and fills profile | - |
 | 2. Resume Upload | AI parses and scores resume | Gemini Pro / Llama fallback |
-| 3. Video Introduction | Candidate records intro video | GCP Storage |
-| 4. Technical Quiz | Domain-specific auto-graded quiz | GPT-4o Mini |
+| 3. Video Introduction | Candidate records intro video; AI-graded for communication quality | GCP Storage + GPT-4o |
+| 4. Technical Quiz | Domain-specific auto-graded quiz with configurable time limits | GPT-4o Mini |
 | 5. AI Interview | AI conducts structured interview | Claude Sonnet / GPT-4o fallback |
-| 6. Live Video Recording | Final video assessment | GCP Storage |
-| 7. Results & Analytics | Scores, rankings, feedback | Multi-model |
+| 6. Live Video Recording | Final video assessment with AI scoring | GCP Storage + GPT-4o |
+| 7. Results & Analytics | Scores, rankings, and detailed feedback | Multi-model |
+| 8. Career Coach | AI-powered personalised guidance, skill gap analysis, next-step recommendations | Claude Sonnet |
 
 ---
 
