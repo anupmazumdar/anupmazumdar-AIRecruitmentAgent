@@ -266,9 +266,9 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
   };
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4">
-      <div className="bg-slate-900/95 rounded-2xl max-w-md w-full p-6 border border-slate-700">
-        <h2 className="text-2xl font-bold mb-3 text-center">
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-3 md:p-4">
+      <div className="bg-slate-900/95 rounded-2xl max-w-md w-full p-4 md:p-6 border border-slate-700">
+        <h2 className="text-xl md:text-2xl font-bold mb-3 text-center">
           {authMode === 'login' ? 'Welcome Back!' : 'Create Account'}
         </h2>
 
@@ -398,7 +398,7 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
           <button
             type="submit"
             disabled={loading}
-            className="w-full py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg font-semibold hover:from-indigo-500 hover:to-purple-500 transition-all disabled:opacity-50"
+            className="w-full min-h-[44px] py-2.5 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg font-semibold text-sm md:text-base hover:from-indigo-500 hover:to-purple-500 transition-all disabled:opacity-50"
           >
             {loading ? 'Please wait...' : authMode === 'login' ? 'Sign In' : selectedPlan ? `Sign Up & Subscribe to ${SUBSCRIPTION_PLANS[selectedPlan].name}` : 'Sign Up'}
           </button>
@@ -418,7 +418,7 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
 
         <button
           onClick={() => setShowAuthModal(false)}
-          className="mt-3 w-full py-2 bg-slate-800/50 rounded-lg hover:bg-slate-700/50 transition-all text-sm"
+          className="mt-3 w-full min-h-[44px] py-2 bg-slate-800/50 rounded-lg hover:bg-slate-700/50 transition-all text-sm md:text-base"
         >
           Cancel
         </button>
@@ -740,11 +740,11 @@ function SubscriptionModal({ setShowSubscriptionModal, setSubscription, setUserT
   };
 
   return (
-    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-4 overflow-y-auto">
-      <div className="bg-slate-900/95 rounded-xl max-w-6xl w-full p-8 my-8 border border-slate-700">
+    <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-3 md:p-4 overflow-y-auto">
+      <div className="bg-slate-900/95 rounded-xl max-w-6xl w-full p-4 md:p-8 my-4 md:my-8 border border-slate-700">
         <div className="text-center mb-6">
-          <h2 className="text-3xl font-bold mb-3">Choose Your Plan</h2>
-          <p className="text-slate-300 mb-4">Select the perfect plan for your recruitment needs</p>
+          <h2 className="text-2xl md:text-3xl font-bold mb-3">Choose Your Plan</h2>
+          <p className="text-sm md:text-base text-slate-300 mb-4">Select the perfect plan for your recruitment needs</p>
 
           <div className="flex items-center justify-center gap-3">
             <span className={billingCycle === 'monthly' ? 'text-white text-sm font-semibold' : 'text-slate-400 text-sm'}>Monthly</span>
@@ -761,7 +761,7 @@ function SubscriptionModal({ setShowSubscriptionModal, setSubscription, setUserT
           </div>
         </div>
 
-        <div className="grid md:grid-cols-3 gap-5 mb-6">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4 md:gap-5 mb-6">
           {Object.entries(SUBSCRIPTION_PLANS).map(([key, plan]) => {
             const Icon = plan.icon;
             const price = billingCycle === 'yearly' ? Math.round(plan.price * 12 * 0.8) : plan.price;
@@ -810,7 +810,7 @@ function SubscriptionModal({ setShowSubscriptionModal, setSubscription, setUserT
 
                 <button
                   onClick={() => handlePlanSelect(key)}
-                  className={`w-full py-2.5 rounded-lg font-semibold text-sm transition-all ${plan.popular
+                  className={`w-full min-h-[44px] py-2.5 rounded-lg font-semibold text-sm md:text-base transition-all ${plan.popular
                     ? 'bg-gradient-to-r from-purple-600 to-pink-600 hover:from-purple-500 hover:to-pink-500'
                     : 'bg-slate-700 hover:bg-slate-600'
                     }`}
@@ -824,7 +824,7 @@ function SubscriptionModal({ setShowSubscriptionModal, setSubscription, setUserT
 
         <button
           onClick={() => setShowSubscriptionModal(false)}
-          className="w-full py-2 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg transition-all text-sm"
+          className="w-full min-h-[44px] py-2 bg-slate-800/50 hover:bg-slate-700/50 rounded-lg transition-all text-sm md:text-base"
         >
           Close
         </button>
@@ -971,8 +971,8 @@ function ProfileStage({ candidateData, setCandidateData, setStage }) {
   };
 
   return (
-    <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-8 border border-slate-700">
-      <h2 className="text-2xl font-bold mb-6">Tell us about yourself</h2>
+    <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-4 md:p-8 border border-slate-700">
+      <h2 className="text-xl md:text-2xl font-bold mb-6">Tell us about yourself</h2>
 
       <form onSubmit={handleSubmit} className="space-y-4">
         <div>
@@ -981,7 +981,7 @@ function ProfileStage({ candidateData, setCandidateData, setStage }) {
             type="text"
             value={formData.name}
             onChange={(e) => setFormData({ ...formData, name: e.target.value })}
-            className="w-full px-4 py-3 bg-slate-800/50 rounded-lg border border-slate-600 focus:border-indigo-500 focus:outline-none transition-all"
+            className="w-full px-4 py-3 text-sm md:text-base bg-slate-800/50 rounded-lg border border-slate-600 focus:border-indigo-500 focus:outline-none transition-all"
             placeholder="John Doe"
             required
           />
@@ -993,7 +993,7 @@ function ProfileStage({ candidateData, setCandidateData, setStage }) {
             type="email"
             value={formData.email}
             onChange={(e) => setFormData({ ...formData, email: e.target.value })}
-            className="w-full px-4 py-3 bg-slate-800/50 rounded-lg border border-slate-600 focus:border-indigo-500 focus:outline-none transition-all"
+            className="w-full px-4 py-3 text-sm md:text-base bg-slate-800/50 rounded-lg border border-slate-600 focus:border-indigo-500 focus:outline-none transition-all"
             placeholder="john@example.com"
             required
           />
@@ -1004,7 +1004,7 @@ function ProfileStage({ candidateData, setCandidateData, setStage }) {
           <select
             value={formData.position}
             onChange={(e) => setFormData({ ...formData, position: e.target.value })}
-            className="w-full px-4 py-3 bg-slate-800/50 rounded-lg border border-slate-600 focus:border-indigo-500 focus:outline-none transition-all"
+            className="w-full px-4 py-3 text-sm md:text-base bg-slate-800/50 rounded-lg border border-slate-600 focus:border-indigo-500 focus:outline-none transition-all"
             required
           >
             <option value="">Select position</option>
@@ -1032,7 +1032,7 @@ function ProfileStage({ candidateData, setCandidateData, setStage }) {
         <button
           type="submit"
           disabled={loading}
-          className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg font-semibold hover:from-indigo-500 hover:to-purple-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+          className="w-full min-h-[44px] py-3 text-sm md:text-base bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg font-semibold hover:from-indigo-500 hover:to-purple-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
         >
           {loading ? (
             <>
@@ -1121,8 +1121,8 @@ function ResumeUploadStage({ candidateData, setCandidateData, setStage }) {
   };
 
   return (
-    <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-8 border border-slate-700">
-      <h2 className="text-2xl font-bold mb-6">Upload Your Resume</h2>
+    <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-4 md:p-8 border border-slate-700">
+      <h2 className="text-xl md:text-2xl font-bold mb-6">Upload Your Resume</h2>
 
       {!analysis ? (
         <>
@@ -1138,7 +1138,7 @@ function ResumeUploadStage({ candidateData, setCandidateData, setStage }) {
             </div>
           </div>
 
-          <div className="border-2 border-dashed border-slate-600 rounded-xl p-8 text-center mb-6">
+          <div className="border-2 border-dashed border-slate-600 rounded-xl p-4 md:p-8 text-center mb-6">
             <Upload className="mx-auto mb-4 text-slate-400" size={48} />
             <p className="text-slate-300 mb-2">Drag and drop your resume here</p>
             <p className="text-slate-400 text-sm mb-4">or</p>
@@ -1151,7 +1151,7 @@ function ResumeUploadStage({ candidateData, setCandidateData, setStage }) {
             />
             <button
               onClick={() => fileInputRef.current.click()}
-              className="px-6 py-2 bg-indigo-600 rounded-lg hover:bg-indigo-500 transition-all"
+              className="min-h-[44px] px-6 py-2 text-sm md:text-base bg-indigo-600 rounded-lg hover:bg-indigo-500 transition-all"
             >
               Browse Files
             </button>
@@ -1161,11 +1161,11 @@ function ResumeUploadStage({ candidateData, setCandidateData, setStage }) {
           </div>
 
           {file && (
-            <div className="bg-slate-800/50 rounded-lg p-4 mb-4 flex items-center justify-between">
-              <div className="flex items-center gap-3">
+            <div className="bg-slate-800/50 rounded-lg p-4 mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+              <div className="flex items-center gap-3 min-w-0">
                 <FileText className="text-indigo-400" size={24} />
                 <div>
-                  <p className="font-semibold">{file.name}</p>
+                  <p className="font-semibold break-all">{file.name}</p>
                   <p className="text-slate-400 text-sm">{(file.size / 1024).toFixed(2)} KB</p>
                 </div>
               </div>
@@ -1184,11 +1184,11 @@ function ResumeUploadStage({ candidateData, setCandidateData, setStage }) {
             </div>
           )}
 
-          <div className="flex gap-3">
+          <div className="flex flex-col sm:flex-row gap-3">
             <button
               onClick={analyzeResume}
               disabled={!file || analyzing}
-              className="flex-1 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg font-semibold hover:from-indigo-500 hover:to-purple-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="flex-1 min-h-[44px] py-3 text-sm md:text-base bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg font-semibold hover:from-indigo-500 hover:to-purple-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {analyzing ? (
                 <>
@@ -1203,7 +1203,7 @@ function ResumeUploadStage({ candidateData, setCandidateData, setStage }) {
                 setCandidateData({ ...candidateData, resumeScore: 0 });
                 setStage('uploadVideo');
               }}
-              className="px-6 py-3 bg-slate-700 hover:bg-slate-600 rounded-lg font-semibold transition-all whitespace-nowrap"
+              className="min-h-[44px] px-6 py-3 text-sm md:text-base bg-slate-700 hover:bg-slate-600 rounded-lg font-semibold transition-all"
             >
               Save and Continue →
             </button>
@@ -1212,9 +1212,9 @@ function ResumeUploadStage({ candidateData, setCandidateData, setStage }) {
       ) : (
         <>
           <div className="bg-gradient-to-br from-green-900/30 to-green-800/30 border border-green-500/30 rounded-xl p-6 mb-6">
-            <div className="flex items-center justify-between mb-4">
-              <h3 className="text-xl font-semibold">Resume Analysis Complete</h3>
-              <div className="text-3xl font-bold text-green-400">{analysis.score}/100</div>
+            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-4">
+              <h3 className="text-lg md:text-xl font-semibold">Resume Analysis Complete</h3>
+              <div className="text-2xl md:text-3xl font-bold text-green-400">{analysis.score}/100</div>
             </div>
 
             <div className="space-y-4">
@@ -1275,7 +1275,7 @@ function ResumeUploadStage({ candidateData, setCandidateData, setStage }) {
 
           <button
             onClick={() => setStage('uploadVideo')}
-            className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg font-semibold hover:from-indigo-500 hover:to-purple-500 transition-all"
+            className="w-full min-h-[44px] py-3 text-sm md:text-base bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg font-semibold hover:from-indigo-500 hover:to-purple-500 transition-all"
           >
             Continue to Video Upload →
           </button>
@@ -1386,8 +1386,8 @@ function UploadVideoStage({ candidateData, setCandidateData, setStage }) {
   }, [preview]);
 
   return (
-    <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-8 border border-slate-700">
-      <h2 className="text-2xl font-bold mb-6">Upload Video Interview</h2>
+    <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-4 md:p-8 border border-slate-700">
+      <h2 className="text-xl md:text-2xl font-bold mb-6">Upload Video Interview</h2>
 
       {!analysis ? (
         <>
@@ -1407,7 +1407,7 @@ function UploadVideoStage({ candidateData, setCandidateData, setStage }) {
           </div>
 
           {!videoFile ? (
-            <div className="border-2 border-dashed border-slate-600 rounded-xl p-8 text-center mb-6">
+            <div className="border-2 border-dashed border-slate-600 rounded-xl p-4 md:p-8 text-center mb-6">
               <Video className="mx-auto mb-4 text-slate-400" size={48} />
               <p className="text-slate-300 mb-2">Upload your pre-recorded video interview</p>
               <p className="text-slate-400 text-sm mb-4">or</p>
@@ -1420,7 +1420,7 @@ function UploadVideoStage({ candidateData, setCandidateData, setStage }) {
               />
               <button
                 onClick={() => fileInputRef.current.click()}
-                className="px-6 py-2 bg-purple-600 rounded-lg hover:bg-purple-500 transition-all"
+                className="min-h-[44px] px-6 py-2 text-sm md:text-base bg-purple-600 rounded-lg hover:bg-purple-500 transition-all"
               >
                 Browse Files
               </button>
@@ -1439,11 +1439,11 @@ function UploadVideoStage({ candidateData, setCandidateData, setStage }) {
                 />
               </div>
 
-              <div className="bg-slate-800/50 rounded-lg p-4 mb-4 flex items-center justify-between">
-                <div className="flex items-center gap-3">
+              <div className="bg-slate-800/50 rounded-lg p-4 mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
+                <div className="flex items-center gap-3 min-w-0">
                   <Video className="text-purple-400" size={24} />
                   <div>
-                    <p className="font-semibold">{videoFile.name}</p>
+                    <p className="font-semibold break-all">{videoFile.name}</p>
                     <p className="text-slate-400 text-sm">{(videoFile.size / (1024 * 1024)).toFixed(2)} MB</p>
                   </div>
                 </div>
@@ -1466,11 +1466,11 @@ function UploadVideoStage({ candidateData, setCandidateData, setStage }) {
             </div>
           )}
 
-          <div className="flex gap-3">
+          <div className="flex flex-col sm:flex-row gap-3">
             <button
               onClick={analyzeVideo}
               disabled={!videoFile || analyzing}
-              className="flex-1 py-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-lg font-semibold hover:from-purple-500 hover:to-pink-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              className="flex-1 min-h-[44px] py-3 text-sm md:text-base bg-gradient-to-r from-purple-600 to-pink-600 rounded-lg font-semibold hover:from-purple-500 hover:to-pink-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
             >
               {analyzing ? (
                 <>
@@ -1485,7 +1485,7 @@ function UploadVideoStage({ candidateData, setCandidateData, setStage }) {
                 setCandidateData({ ...candidateData, uploadVideoScore: 0 });
                 setStage('quiz');
               }}
-              className="px-6 py-3 bg-slate-700 hover:bg-slate-600 rounded-lg font-semibold transition-all whitespace-nowrap"
+              className="min-h-[44px] px-6 py-3 text-sm md:text-base bg-slate-700 hover:bg-slate-600 rounded-lg font-semibold transition-all"
             >
               Save and Continue →
             </button>
@@ -1499,7 +1499,7 @@ function UploadVideoStage({ candidateData, setCandidateData, setStage }) {
               <div className="text-3xl font-bold text-purple-400">{analysis.score}/100</div>
             </div>
 
-            <div className="grid grid-cols-3 gap-3 mb-4">
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-4">
               <div className="bg-slate-800/50 rounded-lg p-3 text-center">
                 <p className="text-xs text-slate-400 mb-1">Body Language</p>
                 <p className="text-lg font-bold text-purple-300">{analysis.bodyLanguageScore}/25</p>
@@ -1537,7 +1537,7 @@ function UploadVideoStage({ candidateData, setCandidateData, setStage }) {
 
           <button
             onClick={() => setStage('quiz')}
-            className="w-full py-3 bg-gradient-to-r from-purple-600 to-pink-600 rounded-lg font-semibold hover:from-purple-500 hover:to-pink-500 transition-all"
+            className="w-full min-h-[44px] py-3 text-sm md:text-base bg-gradient-to-r from-purple-600 to-pink-600 rounded-lg font-semibold hover:from-purple-500 hover:to-pink-500 transition-all"
           >
             Continue to Technical Assessment →
           </button>
@@ -1727,12 +1727,12 @@ function TechnicalQuizStage({ candidateData, setCandidateData, setStage }) {
   const answered = Object.keys(answers).length;
 
   if (loading) return (
-    <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-10 border border-slate-700 text-center">
+    <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-6 md:p-10 border border-slate-700 text-center">
       <div className="w-16 h-16 rounded-full bg-gradient-to-br from-indigo-600 to-purple-600 flex items-center justify-center mx-auto mb-4 animate-pulse">
         <Sparkles size={28} />
       </div>
-      <h3 className="text-xl font-bold mb-2">AI is building your quiz...</h3>
-      <p className="text-slate-400 text-sm">Generating 30 personalized questions for <span className="text-indigo-400 font-semibold">{candidateData.position}</span></p>
+      <h3 className="text-lg md:text-xl font-bold mb-2">AI is building your quiz...</h3>
+      <p className="text-slate-400 text-sm md:text-base">Generating 30 personalized questions for <span className="text-indigo-400 font-semibold">{candidateData.position}</span></p>
       <p className="text-slate-500 text-xs mt-2">Powered by OpenRouter • This takes ~10 seconds</p>
     </div>
   );
@@ -1744,14 +1744,14 @@ function TechnicalQuizStage({ candidateData, setCandidateData, setStage }) {
       : score >= 60 ? { label: 'Good', color: 'text-yellow-400', bg: 'from-yellow-900/30 to-amber-900/30 border-yellow-600/30' }
       : { label: 'Needs Work', color: 'text-red-400', bg: 'from-red-900/30 to-pink-900/30 border-red-600/30' };
     return (
-      <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-6 border border-slate-700">
+      <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-4 md:p-6 border border-slate-700">
         <div className="text-center mb-6">
           <div className={`inline-block bg-gradient-to-br ${grade.bg} border rounded-2xl px-8 py-5 mb-3`}>
             <p className="text-xs text-slate-400 uppercase tracking-widest mb-1">Quiz Score</p>
-            <p className={`text-6xl font-black ${grade.color}`}>{score}</p>
+            <p className={`text-5xl md:text-6xl font-black ${grade.color}`}>{score}</p>
             <p className="text-slate-300 text-sm font-semibold mt-1">{grade.label} • {correct}/{questions.length} correct</p>
           </div>
-          <div className="flex justify-center gap-4 text-sm text-slate-400">
+          <div className="flex flex-wrap justify-center gap-2 md:gap-4 text-xs md:text-sm text-slate-400">
             <span>✅ {correct} correct</span>
             <span>❌ {questions.length - correct} wrong</span>
             <span>⚖️ weighted: {gradingMeta.weightedCorrect.toFixed(1)}/{gradingMeta.totalWeight.toFixed(1)}</span>
@@ -1761,13 +1761,13 @@ function TechnicalQuizStage({ candidateData, setCandidateData, setStage }) {
 
         {/* Compact review */}
         <div className="mb-4">
-          <div className="flex justify-between items-center mb-3">
+          <div className="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center mb-3">
             <h3 className="font-semibold text-slate-300 text-sm">Review — {reviewPage * REVIEW_PER_PAGE + 1}–{Math.min((reviewPage + 1) * REVIEW_PER_PAGE, questions.length)} of {questions.length}</h3>
             <div className="flex gap-2">
               <button disabled={reviewPage === 0} onClick={() => setReviewPage(p => p - 1)}
-                className="px-3 py-1 rounded-lg bg-slate-700 text-xs disabled:opacity-40 hover:bg-slate-600 transition-all">← Prev</button>
+                className="min-h-[44px] px-3 py-1 rounded-lg bg-slate-700 text-xs md:text-sm disabled:opacity-40 hover:bg-slate-600 transition-all">← Prev</button>
               <button disabled={(reviewPage + 1) * REVIEW_PER_PAGE >= questions.length} onClick={() => setReviewPage(p => p + 1)}
-                className="px-3 py-1 rounded-lg bg-slate-700 text-xs disabled:opacity-40 hover:bg-slate-600 transition-all">Next →</button>
+                className="min-h-[44px] px-3 py-1 rounded-lg bg-slate-700 text-xs md:text-sm disabled:opacity-40 hover:bg-slate-600 transition-all">Next →</button>
             </div>
           </div>
           <div className="space-y-2 max-h-64 overflow-y-auto pr-1">
@@ -1791,7 +1791,7 @@ function TechnicalQuizStage({ candidateData, setCandidateData, setStage }) {
         </div>
 
         <button onClick={() => setStage('interview')}
-          className="w-full py-3 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl font-semibold hover:from-indigo-500 hover:to-purple-500 transition-all shadow-lg shadow-indigo-900/30">
+          className="w-full min-h-[44px] py-3 text-sm md:text-base bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl font-semibold hover:from-indigo-500 hover:to-purple-500 transition-all shadow-lg shadow-indigo-900/30">
           Continue to AI Interview →
         </button>
       </div>
@@ -1802,7 +1802,7 @@ function TechnicalQuizStage({ candidateData, setCandidateData, setStage }) {
   if (!currentQ) return null;
 
   return (
-    <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-6 border border-slate-700">
+    <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-4 md:p-6 border border-slate-700">
       {/* Header */}
       <div className="flex justify-between items-center mb-4">
         <div>
@@ -2031,9 +2031,9 @@ function TextInterviewStage({ candidateData, setCandidateData, setStage, authSta
   return (
     <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-6 border border-slate-700">
       {/* Header */}
-      <div className="flex justify-between items-start mb-4">
+      <div className="flex flex-col gap-3 sm:flex-row sm:justify-between sm:items-start mb-4">
         <div>
-          <h2 className="text-xl font-bold flex items-center gap-2">
+          <h2 className="text-lg md:text-xl font-bold flex items-center gap-2">
             <span className="w-8 h-8 rounded-full bg-gradient-to-br from-indigo-500 to-purple-600 flex items-center justify-center text-sm font-bold">A</span>
             AI Interview — Alex
           </h2>
@@ -2059,7 +2059,7 @@ function TextInterviewStage({ candidateData, setCandidateData, setStage, authSta
       </div>
 
       {/* Chat window */}
-      <div className="bg-slate-800/30 rounded-xl p-3 mb-3 h-[340px] overflow-y-auto space-y-3">
+      <div className="bg-slate-800/30 rounded-xl p-3 mb-3 h-[300px] md:h-[340px] overflow-y-auto space-y-3">
         {messages.map((msg, idx) => (
           <div key={idx} className={`flex flex-col ${msg.role === 'user' ? 'items-end' : 'items-start'}`}>
             {msg.role === 'assistant' && (
@@ -2131,20 +2131,20 @@ function TextInterviewStage({ candidateData, setCandidateData, setStage, authSta
       </div>
 
       {/* Input */}
-      <div className="flex gap-2">
+      <div className="flex flex-col sm:flex-row gap-2">
         <textarea
           rows={2}
           value={currentInput}
           onChange={e => setCurrentInput(e.target.value)}
           onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); sendMessage(); } }}
           placeholder="Type your answer... (Enter to send)"
-          className="flex-1 px-4 py-2.5 bg-slate-800/60 rounded-xl border border-slate-600 focus:border-indigo-500 focus:outline-none transition-all resize-none text-sm placeholder-slate-500"
+          className="flex-1 px-4 py-2.5 bg-slate-800/60 rounded-xl border border-slate-600 focus:border-indigo-500 focus:outline-none transition-all resize-none text-sm md:text-base placeholder-slate-500"
           disabled={loading}
         />
         <button
           onClick={sendMessage}
           disabled={loading || !currentInput.trim()}
-          className="px-5 bg-gradient-to-br from-indigo-600 to-purple-600 rounded-xl font-semibold hover:from-indigo-500 hover:to-purple-500 transition-all disabled:opacity-40 flex items-center justify-center shadow-md shadow-indigo-900/30"
+          className="min-h-[44px] px-5 bg-gradient-to-br from-indigo-600 to-purple-600 rounded-xl font-semibold hover:from-indigo-500 hover:to-purple-500 transition-all disabled:opacity-40 flex items-center justify-center shadow-md shadow-indigo-900/30"
         >
           {loading
             ? <div className="animate-spin rounded-full h-5 w-5 border-2 border-white/30 border-t-white" />
@@ -2316,9 +2316,9 @@ function VideoInterviewStage({ candidateData, setCandidateData, setStage }) {
 
   if (analyzing) {
     return (
-      <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-8 border border-slate-700 text-center">
+      <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-6 md:p-8 border border-slate-700 text-center">
         <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-purple-500 mx-auto mb-6"></div>
-        <h2 className="text-2xl font-bold mb-4">Analyzing Your Video Interview</h2>
+        <h2 className="text-xl md:text-2xl font-bold mb-4">Analyzing Your Video Interview</h2>
         <p className="text-slate-300 mb-2">Our AI is evaluating:</p>
         <ul className="text-slate-400 text-sm space-y-1">
           <li>• Body language and presentation</li>
@@ -2333,9 +2333,9 @@ function VideoInterviewStage({ candidateData, setCandidateData, setStage }) {
 
   if (recorded) {
     return (
-      <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-8 border border-slate-700 text-center">
+      <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-6 md:p-8 border border-slate-700 text-center">
         <Video className="mx-auto mb-4 text-purple-400" size={64} />
-        <h2 className="text-2xl font-bold mb-4">Video Interview Complete!</h2>
+        <h2 className="text-xl md:text-2xl font-bold mb-4">Video Interview Complete!</h2>
         <p className="text-slate-300 mb-2">Your responses have been recorded and analyzed.</p>
         <div className="bg-gradient-to-r from-purple-600/20 to-pink-600/20 border border-purple-500/30 rounded-lg p-4 mb-6 inline-block">
           <p className="text-slate-400 text-sm mb-1">Video Score</p>
@@ -2343,7 +2343,7 @@ function VideoInterviewStage({ candidateData, setCandidateData, setStage }) {
         </div>
         <button
           onClick={() => setStage('results')}
-          className="px-8 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg font-semibold hover:from-indigo-500 hover:to-purple-500 transition-all"
+          className="min-h-[44px] px-8 py-3 text-sm md:text-base bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg font-semibold hover:from-indigo-500 hover:to-purple-500 transition-all"
         >
           View Final Results →
         </button>
@@ -2352,10 +2352,10 @@ function VideoInterviewStage({ candidateData, setCandidateData, setStage }) {
   }
 
   return (
-    <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-8 border border-slate-700">
-      <div className="flex justify-between items-center mb-6">
-        <h2 className="text-2xl font-bold">Video Interview</h2>
-        <span className="text-slate-400">Question {currentQuestion + 1} of {questions.length}</span>
+    <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-4 md:p-8 border border-slate-700">
+      <div className="flex flex-col gap-2 sm:flex-row sm:justify-between sm:items-center mb-6">
+        <h2 className="text-xl md:text-2xl font-bold">Video Interview</h2>
+        <span className="text-sm md:text-base text-slate-400">Question {currentQuestion + 1} of {questions.length}</span>
       </div>
 
       {/* Progress bar */}
@@ -2405,12 +2405,12 @@ function VideoInterviewStage({ candidateData, setCandidateData, setStage }) {
         </div>
       </div>
 
-      <div className="flex gap-3 mb-4">
+      <div className="flex flex-col sm:flex-row gap-3 mb-4">
         {!recording ? (
           <button
             onClick={startRecording}
             disabled={!stream}
-            className="flex-1 py-3 bg-gradient-to-r from-red-600 to-pink-600 rounded-lg font-semibold hover:from-red-500 hover:to-pink-500 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
+            className="flex-1 min-h-[44px] py-3 text-sm md:text-base bg-gradient-to-r from-red-600 to-pink-600 rounded-lg font-semibold hover:from-red-500 hover:to-pink-500 transition-all flex items-center justify-center gap-2 disabled:opacity-50 disabled:cursor-not-allowed"
           >
             <Video size={20} />
             Start Recording
@@ -2418,7 +2418,7 @@ function VideoInterviewStage({ candidateData, setCandidateData, setStage }) {
         ) : (
           <button
             onClick={stopRecording}
-            className="flex-1 py-3 bg-gradient-to-r from-slate-600 to-slate-700 rounded-lg font-semibold hover:from-slate-500 hover:to-slate-600 transition-all flex items-center justify-center gap-2"
+            className="flex-1 min-h-[44px] py-3 text-sm md:text-base bg-gradient-to-r from-slate-600 to-slate-700 rounded-lg font-semibold hover:from-slate-500 hover:to-slate-600 transition-all flex items-center justify-center gap-2"
           >
             <VideoOff size={20} />
             Stop Recording
@@ -2431,7 +2431,7 @@ function VideoInterviewStage({ candidateData, setCandidateData, setStage }) {
           setCandidateData({ ...candidateData, videoInterviewScore: 0 });
           setStage('results');
         }}
-        className="w-full py-2 bg-slate-700 hover:bg-slate-600 rounded-lg font-semibold transition-all text-sm mb-4"
+        className="w-full min-h-[44px] py-2 bg-slate-700 hover:bg-slate-600 rounded-lg font-semibold transition-all text-sm md:text-base mb-4"
       >
         Save and Continue to Results →
       </button>
@@ -2488,17 +2488,17 @@ function ResultsStage({ candidateData, authState }) {
   return (
     <div className="space-y-6">
       {/* Score Hero */}
-      <div className="bg-gradient-to-br from-indigo-900/50 to-purple-900/50 rounded-2xl p-8 border border-indigo-500/30 text-center">
-        <h2 className="text-3xl font-bold mb-6">Application Complete! 🎉</h2>
-        <div className={`inline-flex items-center justify-center w-36 h-36 rounded-full bg-gradient-to-br ${gradeColor} mb-4 shadow-2xl`}>
-          <span className="text-5xl font-bold">{totalScore}</span>
+      <div className="bg-gradient-to-br from-indigo-900/50 to-purple-900/50 rounded-2xl p-5 md:p-8 border border-indigo-500/30 text-center">
+        <h2 className="text-2xl md:text-3xl font-bold mb-6">Application Complete! 🎉</h2>
+        <div className={`inline-flex items-center justify-center h-28 w-28 md:h-36 md:w-36 rounded-full bg-gradient-to-br ${gradeColor} mb-4 shadow-2xl`}>
+          <span className="text-4xl md:text-5xl font-bold">{totalScore}</span>
         </div>
-        <p className="text-xl mb-1">Overall Score</p>
-        <p className="text-2xl font-bold">{gradeLabel}</p>
+        <p className="text-base md:text-xl mb-1">Overall Score</p>
+        <p className="text-xl md:text-2xl font-bold">{gradeLabel}</p>
       </div>
 
       {/* Score Breakdown */}
-      <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-3 md:gap-4">
         <ScoreCard title="Resume" score={candidateData.resumeScore} icon={FileText} />
         <ScoreCard title="Video Upload" score={candidateData.uploadVideoScore} icon={Upload} />
         <ScoreCard title="Quiz" score={candidateData.quizScore} icon={Award} />
@@ -2515,7 +2515,7 @@ function ResultsStage({ candidateData, authState }) {
       )}
 
       {advice && (
-        <div className="space-y-5">
+        <div className="space-y-4 md:space-y-5">
           {/* Strengths & Weaknesses */}
           <div className="grid grid-cols-1 md:grid-cols-2 gap-5">
             <div className="bg-green-900/20 border border-green-500/30 rounded-2xl p-6">
@@ -2541,7 +2541,7 @@ function ResultsStage({ candidateData, authState }) {
           </div>
 
           {/* Skills to Gain */}
-          <div className="bg-slate-900/50 border border-slate-700 rounded-2xl p-6">
+          <div className="bg-slate-900/50 border border-slate-700 rounded-2xl p-4 md:p-6">
             <h3 className="text-lg font-bold text-purple-400 mb-4">🚀 Skills to Learn for Your Next Role</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {advice.improvements?.map((item, i) => (
@@ -2563,7 +2563,7 @@ function ResultsStage({ candidateData, authState }) {
           </div>
 
           {/* Suitable Companies */}
-          <div className="bg-slate-900/50 border border-slate-700 rounded-2xl p-6">
+          <div className="bg-slate-900/50 border border-slate-700 rounded-2xl p-4 md:p-6">
             <h3 className="text-lg font-bold text-blue-400 mb-4">🏢 Companies Suitable for Your Profile</h3>
             <div className="grid grid-cols-1 md:grid-cols-3 gap-4">
               {advice.suitableCompanies?.map((co, i) => (
@@ -2594,7 +2594,7 @@ function ResultsStage({ candidateData, authState }) {
           </div>
 
           {/* Next Steps */}
-          <div className="bg-gradient-to-r from-indigo-900/50 to-purple-900/50 border border-indigo-500/30 rounded-2xl p-6">
+          <div className="bg-gradient-to-r from-indigo-900/50 to-purple-900/50 border border-indigo-500/30 rounded-2xl p-4 md:p-6">
             <h3 className="text-lg font-bold text-indigo-300 mb-3">🎯 Your Personalized Action Plan</h3>
             <p className="text-slate-300 leading-relaxed">{advice.nextSteps}</p>
           </div>
@@ -3243,10 +3243,10 @@ function AdminQuestionPanel({ authState }) {
   const displayedQuestions = filterPosition === 'all' ? questions : questions.filter(q => q.position === filterPosition);
 
   return (
-    <div className="space-y-6">
+    <div className="space-y-4 md:space-y-6">
       {/* Notification Toast */}
       {notification && (
-        <div className={`fixed top-6 right-6 z-50 px-5 py-3 rounded-xl shadow-2xl font-semibold text-sm flex items-center gap-2 transition-all ${
+        <div className={`fixed top-4 right-4 z-50 max-w-[calc(100%-2rem)] px-4 py-3 rounded-xl shadow-2xl font-semibold text-sm md:text-base flex items-center gap-2 transition-all ${
           notification.type === 'error' ? 'bg-red-600 text-white' : 'bg-green-600 text-white'
         }`}>
           {notification.type === 'error' ? <XCircle size={18} /> : <CheckCircle size={18} />}
@@ -3255,20 +3255,20 @@ function AdminQuestionPanel({ authState }) {
       )}
 
       {/* Header */}
-      <div className="bg-gradient-to-br from-orange-900/40 to-red-900/40 rounded-2xl p-6 border border-orange-500/30">
-        <div className="flex items-center justify-between">
+      <div className="bg-gradient-to-br from-orange-900/40 to-red-900/40 rounded-2xl p-4 md:p-6 border border-orange-500/30">
+        <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
           <div>
-            <h2 className="text-2xl font-bold flex items-center gap-2">
+            <h2 className="text-xl md:text-2xl font-bold flex items-center gap-2">
               ⚙️ Admin Question Bank
             </h2>
-            <p className="text-slate-300 text-sm mt-1">
+            <p className="text-slate-300 text-sm md:text-base mt-1">
               Create and manage assessment questions per job position. No API keys required — candidates will use these questions automatically.
             </p>
           </div>
           <button
             id="btn-add-question"
             onClick={() => { setEditingQuestion(null); setForm(emptyForm); setShowForm(true); }}
-            className="px-5 py-2.5 bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 rounded-xl font-semibold transition-all flex items-center gap-2 whitespace-nowrap shadow-lg"
+            className="min-h-[44px] px-5 py-2.5 text-sm md:text-base bg-gradient-to-r from-orange-600 to-red-600 hover:from-orange-500 hover:to-red-500 rounded-xl font-semibold transition-all flex items-center gap-2 whitespace-nowrap shadow-lg"
           >
             <Sparkles size={18} /> + Add Question
           </button>
