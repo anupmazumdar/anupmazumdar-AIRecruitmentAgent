@@ -757,10 +757,6 @@ function ProfileStage({ candidateData, setCandidateData, setStage }) {
           />
         </div>
 
-        <div className="rounded-lg border border-indigo-500/30 bg-indigo-900/20 p-3 text-sm text-indigo-200">
-          Position selection has moved to the <strong>AI Career Coach</strong> step so role matching is based on your skills and goals.
-        </div>
-
         {error && (
           <div className="p-3 bg-red-900/30 border border-red-500/50 rounded-lg text-red-300 text-sm">
             {error}
@@ -787,6 +783,7 @@ function ProfileStage({ candidateData, setCandidateData, setStage }) {
 // ==================== AI CAREER GUIDANCE STAGE ====================
 function CareerGuidanceStage({ candidateData, setCandidateData, setStage }) {
   const [targetRole, setTargetRole] = useState(candidateData.position || '');
+  const [targetCompany, setTargetCompany] = useState(candidateData.targetCompany || candidateData.careerGuidance?.targetCompany || '');
   const [experienceLevel, setExperienceLevel] = useState(candidateData.careerGuidance?.experienceLevel || 'fresher');
   const [skillsInput, setSkillsInput] = useState('');
   const [chatMessage, setChatMessage] = useState('');
@@ -795,7 +792,7 @@ function CareerGuidanceStage({ candidateData, setCandidateData, setStage }) {
   const [chatHistory, setChatHistory] = useState([
     {
       role: 'assistant',
-      text: 'Hi! I am your TalentAI career coach. Share your current skills and your target role. I will suggest a practical roadmap to reach that role.'
+      text: 'Hi! I am your TalentAI career coach. Share your target role, target company, and current skills. I will build a roadmap and show company eligibility.'
     }
   ]);
   const [guidance, setGuidance] = useState(candidateData.careerGuidance);
@@ -815,7 +812,7 @@ function CareerGuidanceStage({ candidateData, setCandidateData, setStage }) {
     'QA Engineer': ['Manual Testing', 'Automation Testing', 'Selenium', 'API Testing', 'Test Strategy']
   };
 
-  const buildGuidance = (role, skills, level) => {
+  const buildGuidance = (role, skills, level, company) => {
     const normalizedSkills = skills
       .map((s) => s.trim())
       .filter(Boolean)
@@ -844,13 +841,27 @@ function CareerGuidanceStage({ candidateData, setCandidateData, setStage }) {
       { title: 'GitHub Explore', url: 'https://github.com/explore', why: 'Study and build real projects with best-practice examples.' }
     ];
 
+    const companyName = String(company || '').trim();
+    const isEligible = proficiency >= 70 && missingSkills.length <= 2;
+
     return {
       role,
+      targetCompany: companyName,
       experienceLevel: level,
       skills,
       proficiency,
       matchingSkills,
       missingSkills,
+      companyEligibility: companyName
+        ? {
+          company: companyName,
+          eligible: isEligible,
+          reason: isEligible
+            ? `Your current profile aligns well for ${companyName}.`
+            : `You need to close key skill gaps before targeting ${companyName}.`,
+          requiredSkills: isEligible ? [] : missingSkills.slice(0, 5)
+        }
+        : null,
       roadmap,
       recommendations,
       resources: localResources
@@ -860,12 +871,12 @@ function CareerGuidanceStage({ candidateData, setCandidateData, setStage }) {
   const handleAnalyze = async () => {
     const skills = skillsInput.split(',').map((s) => s.trim()).filter(Boolean);
 
-    if (!targetRole || skills.length === 0) {
+    if (!targetRole || !targetCompany.trim() || skills.length === 0) {
       setChatHistory((prev) => [
         ...prev,
         {
           role: 'assistant',
-          text: 'Please select your target role and enter at least one skill to continue.'
+          text: 'Please select your target role, target company, and enter at least one skill to continue.'
         }
       ]);
       return;
@@ -876,7 +887,7 @@ function CareerGuidanceStage({ candidateData, setCandidateData, setStage }) {
       ...prev,
       {
         role: 'user',
-        text: `Target Role: ${targetRole}. My skills: ${skills.join(', ')}`
+        text: `Target Role: ${targetRole}. Target Company: ${targetCompany}. My skills: ${skills.join(', ')}`
       }
     ]);
 
@@ -887,6 +898,7 @@ function CareerGuidanceStage({ candidateData, setCandidateData, setStage }) {
         body: JSON.stringify({
           mode: 'analyze',
           targetRole,
+          targetCompany,
           experienceLevel,
           skills
         })
@@ -912,10 +924,11 @@ function CareerGuidanceStage({ candidateData, setCandidateData, setStage }) {
       setCandidateData({
         ...candidateData,
         position: targetRole,
+        targetCompany,
         careerGuidance: result
       });
     } catch (error) {
-      const fallbackResult = buildGuidance(targetRole, skills, experienceLevel);
+      const fallbackResult = buildGuidance(targetRole, skills, experienceLevel, targetCompany);
       setGuidance(fallbackResult);
       setChatHistory((prev) => [
         ...prev,
@@ -927,6 +940,7 @@ function CareerGuidanceStage({ candidateData, setCandidateData, setStage }) {
       setCandidateData({
         ...candidateData,
         position: targetRole,
+        targetCompany,
         careerGuidance: fallbackResult
       });
     } finally {
@@ -955,6 +969,7 @@ function CareerGuidanceStage({ candidateData, setCandidateData, setStage }) {
           mode: 'chat',
           message,
           targetRole,
+          targetCompany,
           experienceLevel,
           skills,
           guidance
@@ -1024,6 +1039,17 @@ function CareerGuidanceStage({ candidateData, setCandidateData, setStage }) {
             <option value="mid">Mid (2-5 years)</option>
             <option value="senior">Senior (5+ years)</option>
           </select>
+        </div>
+
+        <div>
+          <label className="block text-slate-300 mb-2">Target Company</label>
+          <input
+            type="text"
+            value={targetCompany}
+            onChange={(e) => setTargetCompany(e.target.value)}
+            className="w-full px-4 py-3 text-sm md:text-base bg-slate-800/50 rounded-lg border border-slate-600 focus:border-indigo-500 focus:outline-none"
+            placeholder="Google, Microsoft, Infosys, etc."
+          />
         </div>
 
         <div>
@@ -1139,6 +1165,30 @@ function CareerGuidanceStage({ candidateData, setCandidateData, setStage }) {
                   </li>
                 ))}
               </ul>
+            </div>
+          )}
+
+          {guidance.companyEligibility && (
+            <div className="mt-4 rounded-lg border border-slate-700 bg-slate-900/40 p-3">
+              <p className="text-sm text-slate-300 mb-1">Target company eligibility</p>
+              <p className={`font-semibold ${guidance.companyEligibility.eligible ? 'text-green-300' : 'text-red-300'}`}>
+                {guidance.companyEligibility.company}: {guidance.companyEligibility.eligible ? 'Eligible' : 'Not Eligible Yet'}
+              </p>
+              {guidance.companyEligibility.reason && (
+                <p className="text-xs text-slate-400 mt-1">{guidance.companyEligibility.reason}</p>
+              )}
+              {!guidance.companyEligibility.eligible && Array.isArray(guidance.companyEligibility.requiredSkills) && guidance.companyEligibility.requiredSkills.length > 0 && (
+                <div className="mt-2">
+                  <p className="text-xs text-slate-300 mb-1">Skills required for this company:</p>
+                  <div className="flex flex-wrap gap-2">
+                    {guidance.companyEligibility.requiredSkills.map((skill, idx) => (
+                      <span key={idx} className="text-xs px-2 py-1 rounded-full bg-red-500/20 text-red-200 border border-red-500/30">
+                        {skill}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
@@ -2629,6 +2679,8 @@ function VideoInterviewStage({ candidateData, setCandidateData, setStage }) {
 function ResultsStage({ candidateData, authState }) {
   const [advice, setAdvice] = useState(null);
   const [loadingAdvice, setLoadingAdvice] = useState(false);
+  const preferredCompany = candidateData.targetCompany || candidateData.careerGuidance?.targetCompany || '';
+  const companyEligibility = advice?.companyEligibility || candidateData.careerGuidance?.companyEligibility || null;
 
   const scoreRubric = {
     resumeScore: 0.25,
@@ -2650,7 +2702,7 @@ function ResultsStage({ candidateData, authState }) {
       const res = await fetch(`${API_URL}/api/career-advice`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authState?.token}` },
-        body: JSON.stringify({ candidateData, position: candidateData.position })
+        body: JSON.stringify({ candidateData, position: candidateData.position, targetCompany: preferredCompany })
       });
       const data = await parseApiJson(res);
       if (data.success) setAdvice(data.advice);
@@ -2773,6 +2825,38 @@ function ResultsStage({ candidateData, authState }) {
               ))}
             </div>
           </div>
+
+          {(preferredCompany || companyEligibility) && (
+            <div className="bg-slate-900/50 border border-slate-700 rounded-2xl p-4 md:p-6">
+              <h3 className="text-lg font-bold text-cyan-400 mb-4">🎯 Preferred Company Check</h3>
+              <div className="rounded-xl border border-slate-700 bg-slate-800/40 p-4">
+                <p className="text-sm text-slate-300 mb-1">Preferred company</p>
+                <p className="text-lg font-semibold text-white">{companyEligibility?.company || preferredCompany}</p>
+                {companyEligibility && (
+                  <>
+                    <p className={`mt-3 text-sm font-semibold ${companyEligibility.eligible ? 'text-green-300' : 'text-red-300'}`}>
+                      {companyEligibility.eligible ? 'Eligible to apply now' : 'Not eligible yet'}
+                    </p>
+                    {companyEligibility.reason && (
+                      <p className="mt-1 text-sm text-slate-400">{companyEligibility.reason}</p>
+                    )}
+                    {!companyEligibility.eligible && Array.isArray(companyEligibility.requiredSkills) && companyEligibility.requiredSkills.length > 0 && (
+                      <div className="mt-3">
+                        <p className="text-sm text-slate-300 mb-2">Skills required for this company:</p>
+                        <div className="flex flex-wrap gap-2">
+                          {companyEligibility.requiredSkills.map((skill, idx) => (
+                            <span key={idx} className="text-xs md:text-sm px-2.5 py-1 rounded-full bg-red-500/20 text-red-200 border border-red-500/30">
+                              {skill}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+          )}
 
           {/* Next Steps */}
           <div className="bg-gradient-to-r from-indigo-900/50 to-purple-900/50 border border-indigo-500/30 rounded-2xl p-4 md:p-6">

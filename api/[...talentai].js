@@ -1681,7 +1681,11 @@ async function transcribeVideoWithOpenAI(file) {
     const form = new FormData();
     form.append('file', blob, file.originalname || 'candidate-video.webm');
     form.append('model', process.env.OPENAI_TRANSCRIBE_MODEL || 'gpt-4o-mini-transcribe');
-    form.append('response_format', 'text');
+    form.append('response_format', 'verbose_json');
+    form.append('temperature', '0');
+    if (process.env.OPENAI_TRANSCRIBE_LANGUAGE) {
+      form.append('language', process.env.OPENAI_TRANSCRIBE_LANGUAGE);
+    }
 
     const response = await fetchWithTimeout('https://api.openai.com/v1/audio/transcriptions', {
       method: 'POST',
@@ -1691,15 +1695,70 @@ async function transcribeVideoWithOpenAI(file) {
       body: form
     }, Math.max(12000, AI_REQUEST_TIMEOUT_MS));
 
-    const text = await response.text();
+    const raw = await response.text();
     if (!response.ok) {
-      throw new Error(text || `OpenAI transcription failed (${response.status})`);
+      throw new Error(raw || `OpenAI transcription failed (${response.status})`);
     }
 
-    return String(text || '').trim();
+    try {
+      const parsed = JSON.parse(raw);
+      return normalizeSpeechTranscript(parsed?.text || '');
+    } catch {
+      return normalizeSpeechTranscript(raw);
+    }
   } catch (error) {
     console.error('Video transcription error:', error.message);
     return '';
+  }
+}
+
+function normalizeSpeechTranscript(transcript = '') {
+  return String(transcript || '')
+    .replace(/[\r\n\t]+/g, ' ')
+    .replace(/\s{2,}/g, ' ')
+    .replace(/\b(uh+|um+|erm+|hmm+)\b/gi, '')
+    .replace(/\s([,.!?;:])/g, '$1')
+    .trim();
+}
+
+function transcriptLooksNoisy(transcript = '') {
+  const text = String(transcript || '').trim();
+  if (!text) return true;
+
+  const words = text.split(/\s+/).filter(Boolean);
+  if (words.length < 20) return true;
+
+  const uniqueWords = new Set(words.map(w => w.toLowerCase()));
+  const uniqueRatio = uniqueWords.size / words.length;
+  return uniqueRatio < 0.28;
+}
+
+async function enhanceTranscriptForScoring(transcript = '', position = 'Candidate') {
+  const normalized = normalizeSpeechTranscript(transcript);
+  if (!normalized) return '';
+
+  const hasApiKey = process.env.OPENROUTER_API_KEY || process.env.GOOGLE_GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
+  if (!hasApiKey) return normalized;
+
+  const prompt = `Clean and reconstruct this noisy interview transcript for a ${position} role.
+
+Transcript:
+${normalized}
+
+Rules:
+- Preserve the candidate meaning and intent.
+- Fix obvious ASR errors, punctuation, and sentence boundaries.
+- Do not invent new claims, achievements, or technologies.
+- Output only cleaned plain text transcript.`;
+
+  const systemPrompt = 'You are an expert transcript cleaner. Return plain text only.';
+
+  try {
+    const cleaned = await callAI(prompt, systemPrompt, { task: 'interview' });
+    return normalizeSpeechTranscript(cleaned) || normalized;
+  } catch (error) {
+    console.error('Transcript enhancement error:', error.message);
+    return normalized;
   }
 }
 
@@ -1738,8 +1797,12 @@ function fallbackSpeechVideoAnalysis(transcript = '', position = 'Candidate') {
 }
 
 async function analyzeSpeechTranscriptWithAI(transcript = '', position = 'Candidate', analysisType = 'live') {
-  const safeTranscript = String(transcript || '').trim();
-  if (!safeTranscript) return fallbackSpeechVideoAnalysis('', position);
+  const initialTranscript = normalizeSpeechTranscript(transcript);
+  if (!initialTranscript) return fallbackSpeechVideoAnalysis('', position);
+
+  const safeTranscript = transcriptLooksNoisy(initialTranscript)
+    ? await enhanceTranscriptForScoring(initialTranscript, position)
+    : initialTranscript;
 
   const hasApiKey = process.env.OPENROUTER_API_KEY || process.env.GOOGLE_GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
   if (!hasApiKey) return fallbackSpeechVideoAnalysis(safeTranscript, position);
@@ -2790,7 +2853,29 @@ function parseCareerCoachSkills(rawSkills) {
     .slice(0, 30);
 }
 
-function buildCareerCoachFallback(role = '', skills = [], experienceLevel = 'fresher') {
+function assessCompanyEligibility(role = '', targetCompany = '', proficiency = 0, missingSkills = []) {
+  const company = String(targetCompany || '').trim();
+  if (!company) return null;
+
+  const score = clampScore(proficiency, 0, 100, 0);
+  const requiredSkills = Array.isArray(missingSkills)
+    ? missingSkills.map((s) => String(s || '').trim()).filter(Boolean).slice(0, 6)
+    : [];
+
+  const eligible = score >= 70 && requiredSkills.length <= 2;
+  const reason = eligible
+    ? `Profile is currently aligned for ${company} in ${role || 'this role'} based on readiness score and skill coverage.`
+    : `Profile needs stronger readiness for ${company}. Improve missing role-critical skills before applying.`;
+
+  return {
+    company,
+    eligible,
+    reason,
+    requiredSkills: eligible ? [] : requiredSkills
+  };
+}
+
+function buildCareerCoachFallback(role = '', skills = [], experienceLevel = 'fresher', targetCompany = '') {
   const expectedSkills = CAREER_COACH_ROLE_SKILLS[role] || ['Communication', 'Problem Solving', 'Domain Knowledge'];
   const normalized = skills.map(s => s.toLowerCase());
   const level = normalizeCareerCoachExperienceLevel(experienceLevel);
@@ -2813,14 +2898,17 @@ function buildCareerCoachFallback(role = '', skills = [], experienceLevel = 'fre
     : ['Strong baseline profile. Focus on advanced projects, interview storytelling, and consistency.'];
 
   const resources = getCareerCoachResources(role, level);
+  const companyEligibility = assessCompanyEligibility(role, targetCompany, proficiency, missingSkills);
 
   return {
     role,
+    targetCompany: String(targetCompany || '').trim(),
     experienceLevel: level,
     skills,
     proficiency: clampScore(proficiency, 0, 100, 0),
     matchingSkills,
     missingSkills,
+    companyEligibility,
     recommendations,
     roadmap,
     resources
@@ -2864,18 +2952,44 @@ function normalizeCareerCoachGuidance(parsed = {}, fallback = {}) {
 
   return {
     role: safeRole,
+    targetCompany: String(guidance.targetCompany || fallback.targetCompany || '').trim(),
     experienceLevel: normalizeCareerCoachExperienceLevel(guidance.experienceLevel || fallback.experienceLevel),
     skills: safeSkills,
     proficiency: clampScore(guidance.proficiency, 0, 100, fallback.proficiency || 0),
     matchingSkills,
     missingSkills,
+    companyEligibility: (() => {
+      const raw = guidance.companyEligibility;
+      if (raw && typeof raw === 'object' && !Array.isArray(raw)) {
+        const company = String(raw.company || guidance.targetCompany || fallback.targetCompany || '').trim();
+        if (!company) return null;
+        const eligible = Boolean(raw.eligible);
+        const requiredSkills = Array.isArray(raw.requiredSkills)
+          ? raw.requiredSkills.map(s => String(s || '').trim()).filter(Boolean).slice(0, 6)
+          : [];
+        return {
+          company,
+          eligible,
+          reason: String(raw.reason || '').trim() || (eligible
+            ? `Profile is currently aligned for ${company}.`
+            : `Profile needs stronger readiness for ${company}.`),
+          requiredSkills: eligible ? [] : requiredSkills
+        };
+      }
+      return assessCompanyEligibility(
+        safeRole,
+        guidance.targetCompany || fallback.targetCompany,
+        clampScore(guidance.proficiency, 0, 100, fallback.proficiency || 0),
+        missingSkills
+      );
+    })(),
     recommendations,
     roadmap,
     resources
   };
 }
 
-function careerCoachChatFallback(message = '', targetRole = '', skills = [], guidance = null, experienceLevel = 'fresher') {
+function careerCoachChatFallback(message = '', targetRole = '', targetCompany = '', skills = [], guidance = null, experienceLevel = 'fresher') {
   const baseRole = targetRole || 'your selected role';
   const weakArea = guidance?.missingSkills?.[0] || 'core fundamentals';
   const level = normalizeCareerCoachExperienceLevel(experienceLevel);
@@ -2892,6 +3006,16 @@ function careerCoachChatFallback(message = '', targetRole = '', skills = [], gui
     return `Prioritize practical learning for ${weakArea}. Recommended links: ${links}. Complete one mini project and publish your learnings weekly.`;
   }
 
+  if (/eligible|eligibility|company|apply/i.test(message) && targetCompany) {
+    const status = guidance?.companyEligibility?.eligible
+      ? `You look eligible for ${targetCompany}.`
+      : `You are not eligible for ${targetCompany} yet.`;
+    const required = Array.isArray(guidance?.companyEligibility?.requiredSkills) && guidance.companyEligibility.requiredSkills.length
+      ? ` Focus on: ${guidance.companyEligibility.requiredSkills.join(', ')}.`
+      : '';
+    return `${status}${required}`;
+  }
+
   return `${skillHint}focus first on ${weakArea}, then build a role-focused project and document outcomes clearly. I can also help you break this into a weekly routine.`;
 }
 
@@ -2899,6 +3023,7 @@ app.post('/api/career-coach', async (req, res) => {
   try {
     const mode = String(req.body?.mode || 'analyze').trim().toLowerCase();
     const targetRole = String(req.body?.targetRole || '').trim();
+    const targetCompany = String(req.body?.targetCompany || '').trim();
     const experienceLevel = normalizeCareerCoachExperienceLevel(req.body?.experienceLevel);
     const skills = parseCareerCoachSkills(req.body?.skills);
     const message = String(req.body?.message || '').trim();
@@ -2916,7 +3041,8 @@ Give concise, practical career guidance for candidates.
 Keep responses actionable and under 120 words.`;
 
         const prompt = `Candidate target role: ${targetRole || 'Not set'}
-      Candidate experience level: ${experienceLevel}
+      Candidate target company: ${targetCompany || 'Not set'}
+    Candidate experience level: ${experienceLevel}
 Candidate skills: ${skills.join(', ') || 'Not provided'}
 Current guidance context: ${JSON.stringify(guidanceContext || {})}
 Candidate message: ${message}
@@ -2927,21 +3053,21 @@ Reply with direct next-step guidance.`;
           const reply = await callAI(prompt, systemPrompt, { task: 'career' });
           return res.json({
             success: true,
-            reply: String(reply || '').trim().slice(0, 1400) || careerCoachChatFallback(message, targetRole, skills, guidanceContext, experienceLevel)
+            reply: String(reply || '').trim().slice(0, 1400) || careerCoachChatFallback(message, targetRole, targetCompany, skills, guidanceContext, experienceLevel)
           });
         } catch (aiError) {
           console.error('Career coach chat AI error:', aiError.message);
         }
       }
 
-      return res.json({ success: true, reply: careerCoachChatFallback(message, targetRole, skills, guidanceContext, experienceLevel) });
+      return res.json({ success: true, reply: careerCoachChatFallback(message, targetRole, targetCompany, skills, guidanceContext, experienceLevel) });
     }
 
-    if (!targetRole || skills.length === 0) {
-      return res.status(400).json({ error: 'targetRole and skills are required for analysis' });
+    if (!targetRole || !targetCompany || skills.length === 0) {
+      return res.status(400).json({ error: 'targetRole, targetCompany, and skills are required for analysis' });
     }
 
-    const fallbackGuidance = buildCareerCoachFallback(targetRole, skills, experienceLevel);
+    const fallbackGuidance = buildCareerCoachFallback(targetRole, skills, experienceLevel, targetCompany);
     const hasApiKey = process.env.OPENROUTER_API_KEY || process.env.GOOGLE_GEMINI_API_KEY || process.env.OPENAI_API_KEY || process.env.ANTHROPIC_API_KEY;
 
     if (hasApiKey) {
@@ -2950,17 +3076,25 @@ Return only valid JSON with no markdown.`;
 
       const prompt = `Create personalized career guidance for a candidate.
 Target role: ${targetRole}
+Target company: ${targetCompany}
 Candidate experience level: ${experienceLevel}
 Candidate skills: ${skills.join(', ')}
 
 Return EXACT JSON:
 {
   "role": "${targetRole}",
+  "targetCompany": "${targetCompany}",
   "experienceLevel": "${experienceLevel}",
   "skills": ["skill"],
   "proficiency": 0,
   "matchingSkills": ["skill"],
   "missingSkills": ["skill"],
+  "companyEligibility": {
+    "company": "${targetCompany}",
+    "eligible": false,
+    "reason": "string",
+    "requiredSkills": ["skill"]
+  },
   "recommendations": ["string"],
   "roadmap": ["string", "string", "string", "string"],
   "resources": [
@@ -2974,6 +3108,8 @@ Return EXACT JSON:
 
 Rules:
 - proficiency is integer 0-100.
+- companyEligibility.eligible must be true only when profile is realistically ready for ${targetCompany}.
+- if not eligible, companyEligibility.requiredSkills must list the key missing skills.
 - recommendations must focus on improving missing skills.
 - roadmap should be practical, progressive, and weekly-oriented.
 - include exactly 3 role-specific resources matching the experience level.`;
