@@ -11,6 +11,13 @@ const crypto = require('crypto');
 const path = require('path');
 const fs = require('fs').promises;
 const os = require('os');
+const {
+  evaluateResumeParsing,
+  evaluateInterview,
+  getModelStats: getTalentRouterModelStats,
+  getCostReport: getTalentRouterCostReport,
+  getABTestResults: getTalentRouterABTestResults
+} = require('../talentai');
 
 // Lazy loaders - prevents crashes on Vercel serverless startup
 function getPdf() { return require('pdf-parse'); }
@@ -1532,8 +1539,33 @@ Focus on:
   const systemPrompt = "You are TalentAI, an expert ATS and resume evaluator. Follow schema strictly and return only valid JSON object output.";
 
     try {
-      const analysis = await callAI(prompt, systemPrompt, { task: 'resume' });
-      const parsed = parseJsonFromAI(analysis, 'object');
+      const useCheapMode = req.body?.useCheapMode === true || String(req.body?.useCheapMode || '').toLowerCase() === 'true';
+      const abTest = req.body?.abTest === true || String(req.body?.abTest || '').toLowerCase() === 'true';
+
+      let parsed = null;
+      try {
+        const routed = await evaluateResumeParsing(
+          {
+            position: candidate.position,
+            resumeText
+          },
+          {
+            useCheapMode,
+            abTest
+          }
+        );
+
+        parsed = routed?.result || null;
+        console.log(`[TalentAI][MODEL][RESUME_PARSING] Routed model: ${routed?.modelUsed || 'unknown'}`);
+      } catch (routerError) {
+        console.error('[TalentAI][MODEL][RESUME_PARSING] Router failed, falling back to legacy AI call:', routerError.message);
+      }
+
+      if (!parsed || typeof parsed !== 'object' || parsed.atsScore === undefined) {
+        const analysis = await callAI(prompt, systemPrompt, { task: 'resume' });
+        parsed = parseJsonFromAI(analysis, 'object');
+      }
+
       const validated = normalizeResumeAnalysis(parsed, resumeText);
 
       candidate.resumeScore = validated.atsScore;
@@ -1699,8 +1731,30 @@ Rules:
   const systemPrompt = 'You are a strict interview evaluator. Return JSON only.';
 
   try {
-    const raw = await callAI(prompt, systemPrompt, { task: 'interview' });
-    const parsed = parseJsonFromAI(raw, 'object');
+    let parsed = null;
+    try {
+      const routed = await evaluateInterview(
+        {
+          transcript: safeTranscript,
+          position,
+          analysisType
+        },
+        {
+          useCheapMode: false,
+          abTest: false
+        }
+      );
+
+      parsed = routed?.result || null;
+      console.log(`[TalentAI][MODEL][INTERVIEW_EVAL] Routed model: ${routed?.modelUsed || 'unknown'}`);
+    } catch (routerError) {
+      console.error('[TalentAI][MODEL][INTERVIEW_EVAL] Router failed, falling back to legacy AI call:', routerError.message);
+    }
+
+    if (!parsed || typeof parsed !== 'object' || parsed.totalScore === undefined) {
+      const raw = await callAI(prompt, systemPrompt, { task: 'interview' });
+      parsed = parseJsonFromAI(raw, 'object');
+    }
 
     const clarityScore = clampScore(parsed.clarityScore, 0, 25, 12);
     const relevanceScore = clampScore(parsed.relevanceScore, 0, 25, 12);
@@ -2963,6 +3017,20 @@ app.get('/api/health', (req, res) => {
     openRouter: !!process.env.OPENROUTER_API_KEY,
     cloudStorage: useGCS
   });
+});
+
+app.get('/api/ai-router/stats', (req, res) => {
+  try {
+    res.json({
+      success: true,
+      modelStats: getTalentRouterModelStats(),
+      costReport: getTalentRouterCostReport(),
+      abTests: getTalentRouterABTestResults()
+    });
+  } catch (error) {
+    console.error('AI router stats error:', error.message);
+    res.status(500).json({ error: 'Failed to fetch AI router stats' });
+  }
 });
 
 
