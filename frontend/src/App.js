@@ -1549,11 +1549,11 @@ function TechnicalQuizStage({ candidateData, setCandidateData, setStage }) {
   const timerRef = useRef(null);
   const REVIEW_PER_PAGE = 10;
 
-  const normalizeText = (value) => String(value || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim();
+  const normalizeText = useCallback((value) => String(value || '').toLowerCase().replace(/[^a-z0-9\s]/g, ' ').replace(/\s+/g, ' ').trim(), []);
 
-  const tokenizeText = (value) => normalizeText(value).split(' ').filter(Boolean);
+  const tokenizeText = useCallback((value) => normalizeText(value).split(' ').filter(Boolean), [normalizeText]);
 
-  const cosineTokenSimilarity = (a, b) => {
+  const cosineTokenSimilarity = useCallback((a, b) => {
     const tokensA = tokenizeText(a);
     const tokensB = tokenizeText(b);
     if (!tokensA.length || !tokensB.length) return 0;
@@ -1578,9 +1578,9 @@ function TechnicalQuizStage({ candidateData, setCandidateData, setStage }) {
 
     if (!normA || !normB) return 0;
     return dot / (Math.sqrt(normA) * Math.sqrt(normB));
-  };
+  }, [tokenizeText]);
 
-  const inferDifficulty = (question) => {
+  const inferDifficulty = useCallback((question) => {
     const explicit = normalizeText(question?.difficulty || '');
     if (explicit === 'hard') return { label: 'hard', weight: 1.5 };
     if (explicit === 'easy') return { label: 'easy', weight: 1.0 };
@@ -1595,14 +1595,14 @@ function TechnicalQuizStage({ candidateData, setCandidateData, setStage }) {
     if (hardHits >= 2 || text.length > 180) return { label: 'hard', weight: 1.5 };
     if (easyHits >= 2 && text.length < 110) return { label: 'easy', weight: 1.0 };
     return { label: 'medium', weight: 1.25 };
-  };
+  }, [normalizeText]);
 
-  const resolveCorrectAnswerText = (question) => {
+  const resolveCorrectAnswerText = useCallback((question) => {
     if (typeof question?.correctAnswer === 'number') {
       return question?.options?.[question.correctAnswer] ?? '';
     }
     return String(question?.correctAnswer ?? '');
-  };
+  }, []);
 
   const formatTime = (secs) => {
     const m = Math.floor(secs / 60).toString().padStart(2, '0');
