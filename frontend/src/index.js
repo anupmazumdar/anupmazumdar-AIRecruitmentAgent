@@ -4,7 +4,7 @@ import { BrowserRouter, Route, Routes } from 'react-router-dom';
 import { Auth0Provider } from '@auth0/auth0-react';
 import './index.css';
 import App from './App';
-import Privacy from './pages/Privacy';
+import PrivacyPolicy from './pages/PrivacyPolicy';
 import Terms from './pages/Terms';
 
 const AUTH0_DOMAIN = process.env.REACT_APP_AUTH0_DOMAIN || 'dev-shjk32vx4oscfrde.us.auth0.com';
@@ -24,7 +24,7 @@ root.render(
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<App />} />
-          <Route path="/privacy" element={<Privacy />} />
+          <Route path="/privacy" element={<PrivacyPolicy />} />
           <Route path="/terms" element={<Terms />} />
         </Routes>
       </BrowserRouter>
