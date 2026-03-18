@@ -150,8 +150,8 @@ GOOGLE_GEMINI_API_KEY=your_gemini_key
 OPENROUTER_API_KEY=your_openrouter_key
 GOOGLE_CLOUD_PROJECT_ID=your_gcp_project_id
 GOOGLE_CLOUD_BUCKET_NAME=your_bucket_name
-AUTH0_DOMAIN=dev-shjk32vx4oscfrde.us.auth0.com
-AUTH0_CLIENT_ID=KHC4ncaBYv0W4NqgVSLD5vJI8SuqPHDk
+AUTH0_DOMAIN=your_api_here
+AUTH0_CLIENT_ID=your_client_id_here
 # Comma-separated corporate domains allowed to create recruiter accounts through Auth0
 AUTH0_ALLOWED_RECRUITER_DOMAINS=yourcompany.com,partnercompany.com
 # Optional for local key file auth only (not needed on Vercel)
