@@ -214,7 +214,14 @@ async function extractTextFromDocument(filePathOrBuffer, mimeType) {
 // 1. Helmet — HTTP security headers
 app.use(helmetMiddleware);
 // 2. CORS — hardened, allowlist-based
-app.use(corsMiddleware);
+const corsOptions = {
+  origin: ['https://talentai.anupmazumdar.me', 'https://anupmazumdar-ai-recruitment-agent.vercel.app', 'http://localhost:3000'],
+  methods: ['GET', 'POST', 'PUT', 'DELETE'],
+  allowedHeaders: ['Authorization', 'Content-Type'],
+  credentials: true,
+  optionsSuccessStatus: 200
+};
+app.use(cors(corsOptions));
 // 3. API version header
 app.use((req, res, next) => { res.setHeader('X-API-Version', '1.0'); next(); });
 // 4. Morgan HTTP logger
