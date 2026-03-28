@@ -1,14 +1,8 @@
 {
-    "buildCommand": "npm run build --prefix frontend",
-    "outputDirectory": "frontend/build",
-    "rewrites": [
-        {
-            "source": "/api/(.*)",
-            "destination": "/api/[...talentai]"
-        },
-        {
-            "source": "/(.*)",
-            "destination": "/index.html"
-        }
-    ]
+  "rewrites": [
+    {
+      "source": "/api/(.*)",
+      "destination": "/api/[...talentai]"
+    }
+  ]
 }
