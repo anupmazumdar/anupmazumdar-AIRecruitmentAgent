@@ -1,0 +1,30 @@
+{
+  "name": "talentai-api",
+  "private": true,
+  "version": "1.0.0",
+  "scripts": {
+    "build": "echo API-only deployment build"
+  },
+  "dependencies": {
+    "@anthropic-ai/sdk": "^0.74.0",
+    "@google-cloud/storage": "^7.14.0",
+    "bcryptjs": "^3.0.3",
+    "cors": "^2.8.6",
+    "docx": "^8.5.0",
+    "dotenv": "^17.3.1",
+    "express": "^4.22.1",
+    "express-mongo-sanitize": "^2.2.0",
+    "express-rate-limit": "^7.5.1",
+    "helmet": "^8.1.0",
+    "hpp": "^0.2.3",
+    "jsonwebtoken": "^9.0.3",
+    "jwks-rsa": "^4.0.1",
+    "mammoth": "^1.6.0",
+    "mongoose": "^7.5.0",
+    "morgan": "^1.10.1",
+    "multer": "^2.1.1",
+    "pdf-parse": "^2.4.5",
+    "winston": "^3.19.0",
+    "xss-clean": "^0.1.4"
+  }
+}
