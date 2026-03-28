@@ -1,9 +1,15 @@
 {
-  "buildCommand": "npm run build",
-  "rewrites": [
+  "version": 2,
+  "builds": [
     {
-      "source": "/(.*)",
-      "destination": "/api/[...talentai]"
+      "src": "[...talentai].js",
+      "use": "@vercel/node"
+    }
+  ],
+  "routes": [
+    {
+      "src": "/(.*)",
+      "dest": "/[...talentai].js"
     }
   ]
 }
