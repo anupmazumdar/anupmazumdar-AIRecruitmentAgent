@@ -4455,6 +4455,44 @@ Respond with direct, helpful guidance for TalentAI website usage.`;
   }
 });
 
+  // ==================== ML MATCH SCORE ====================
+  // POST /api/ml/match-score — compute resume-job match score via ML microservice
+  app.post('/api/ml/match-score', async (req, res) => {
+    try {
+      const { resumeText, jobDescription } = req.body;
+
+      if (!resumeText || !jobDescription) {
+        return res.status(400).json({ error: 'resumeText and jobDescription are required' });
+      }
+
+      const mlServiceUrl = String(process.env.ML_SERVICE_URL || 'http://localhost:8000').trim();
+      if (!mlServiceUrl) {
+        return res.status(503).json({ error: 'ML service not configured' });
+      }
+
+      const response = await fetchWithTimeout(`${mlServiceUrl}/match`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resume_text: resumeText, job_description: jobDescription })
+      }, Math.max(5000, AI_REQUEST_TIMEOUT_MS));
+
+      const data = await response.json();
+      if (!response.ok) {
+        console.error('ML service error:', data);
+        return res.status(response.status).json({ error: data?.error || 'ML service error' });
+      }
+
+      return res.json({
+        success: true,
+        score: Number(data.score) || 0,
+        label: String(data.label || 'Unknown').trim()
+      });
+    } catch (error) {
+      console.error('ML match-score error:', error.message);
+      return res.status(500).json({ error: 'Failed to compute match score' });
+    }
+  });
+
 // ==================== HEALTH CHECK ====================
 app.get('/api/health', (req, res) => {
   const aiProvider = process.env.OPENROUTER_API_KEY
