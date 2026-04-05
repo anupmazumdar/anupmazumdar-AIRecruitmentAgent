@@ -319,11 +319,6 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
   const [error, setError] = useState('');
   const [auth0RoleExplicitlySelected, setAuth0RoleExplicitlySelected] = useState(Boolean(selectedPlan || authUserType === 'candidate' || authUserType === 'recruiter'));
 
-  const auth0LogoutReturnTo = (() => {
-    const candidate = process.env.REACT_APP_AUTH0_LOGOUT_RETURN_TO || process.env.REACT_APP_AUTH0_REDIRECT_URI || window.location.origin;
-    return candidate.endsWith('/') ? candidate : `${candidate}/`;
-  })();
-
   useEffect(() => {
     if (selectedPlan) {
       setAuth0RoleExplicitlySelected(true);
@@ -550,7 +545,7 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
               </button>
               <button
                 type="button"
-                onClick={() => auth0Logout({ logoutParams: { returnTo: auth0LogoutReturnTo } })}
+                onClick={() => auth0Logout({ logoutParams: { returnTo: process.env.REACT_APP_AUTH0_LOGOUT_RETURN_TO || process.env.REACT_APP_AUTH0_REDIRECT_URI || 'https://anupmazumdar-ai-recruitment-agent.vercel.app/' } })}
                 className="mt-2 min-h-[36px] rounded-md bg-cyan-700 px-3 py-1.5 text-xs font-semibold hover:bg-cyan-600"
               >
                 Logout Auth0 Session
