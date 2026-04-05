@@ -12,7 +12,7 @@ const hpp = require('hpp');
 // ---------------------------------------------------------------------------
 const allowedOrigins = (
   process.env.ALLOWED_ORIGINS ||
-  'https://talentai.anupmazumdar.me,https://anupmazumdar-ai-recruitment-agent.vercel.app,http://localhost:3000'
+  'https://anupmazumdar-ai-recruitment-agent.vercel.app,http://localhost:3000'
 )
   .split(',')
   .map((o) => o.trim())

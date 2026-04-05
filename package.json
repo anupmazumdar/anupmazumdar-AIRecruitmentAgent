@@ -2,7 +2,6 @@
     "name": "talentai-recruitment",
     "version": "1.0.0",
     "scripts": {
-        "start": "node server.js",
         "install": "npm install --prefix frontend",
         "build": "npm run build --prefix frontend",
         "server": "node api/[...talentai].js",
@@ -24,7 +23,6 @@
         "jsonwebtoken": "^9.0.3",
         "jwks-rsa": "^4.0.1",
         "mammoth": "^1.6.0",
-        "mongoose": "^7.5.0",
         "morgan": "^1.10.1",
         "multer": "^2.1.1",
         "pdf-parse": "^2.4.5",
