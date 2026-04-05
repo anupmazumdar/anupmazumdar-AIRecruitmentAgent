@@ -320,7 +320,7 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
   const [auth0RoleExplicitlySelected, setAuth0RoleExplicitlySelected] = useState(Boolean(selectedPlan || authUserType === 'candidate' || authUserType === 'recruiter'));
 
   const auth0LogoutReturnTo = (() => {
-    const candidate = window.location.origin;
+    const candidate = process.env.REACT_APP_AUTH0_LOGOUT_RETURN_TO || process.env.REACT_APP_AUTH0_REDIRECT_URI || window.location.origin;
     return candidate.endsWith('/') ? candidate : `${candidate}/`;
   })();
 
