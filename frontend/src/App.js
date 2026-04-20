@@ -237,6 +237,7 @@ export default function AIRecruitmentAgent() {
         {!userType ? (
           <Home
             setUserType={setUserType}
+            setShowSubscriptionModal={setShowSubscriptionModal}
             setShowAuthModal={setShowAuthModal}
             setAuthMode={setAuthMode}
             authState={authState}

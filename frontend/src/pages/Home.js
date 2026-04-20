@@ -1,136 +1,135 @@
 import React, { useState } from 'react';
 import {
-  Menu,
-  X,
-  Sparkles,
-  PlayCircle,
-  UserRound,
-  FileText,
-  Video,
-  ClipboardCheck,
-  MessageSquare,
-  Camera,
+  ArrowRight,
   BarChart3,
-  Brain,
   Bot,
-  CheckCheck,
-  LayoutDashboard,
-  ShieldCheck,
-  Briefcase,
+  Brain,
   Check,
+  CheckCheck,
+  ClipboardCheck,
+  FileText,
   Github,
+  LayoutDashboard,
   Linkedin,
+  Menu,
+  MessageSquare,
+  PlayCircle,
+  ShieldCheck,
+  Sparkles,
+  Terminal,
+  UserRound,
+  Workflow,
+  X,
 } from 'lucide-react';
 
 const NAV_LINKS = [
   { label: 'Features', href: '#features' },
-  { label: 'How it Works', href: '#how-it-works' },
+  { label: 'Workflow', href: '#workflow' },
   { label: 'Pricing', href: '#pricing' },
+  { label: 'Security', href: '#security' },
 ];
 
-const PIPELINE_STEPS = [
-  { icon: UserRound, title: 'Profile Creation', desc: 'Candidates create a profile in minutes with role preferences.' },
-  { icon: FileText, title: 'Resume Upload & Parsing', desc: 'AI extracts structured data and ranks relevance instantly.' },
-  { icon: Video, title: 'Video Introduction', desc: 'Record a short intro so recruiters assess communication quickly.' },
-  { icon: ClipboardCheck, title: 'Technical Quiz', desc: 'Adaptive quizzes score exact and semantic answers automatically.' },
-  { icon: MessageSquare, title: 'AI Interview', desc: 'Conversational interview with rubric-based scoring and feedback.' },
-  { icon: Camera, title: 'Live Video Recording', desc: 'Capture confidence, clarity, and presentation indicators.' },
-  { icon: BarChart3, title: 'Results & Analytics', desc: 'Unified scorecards and rankings for faster shortlisting decisions.' },
+const COMMAND_LINES = [
+  '$ talentai scan "senior product designer"',
+  '> 48 resumes parsed in 2.4s',
+  '> 12 candidates short-listed',
+  '> interview kit generated',
+  '> score confidence: 93%',
 ];
 
-const FEATURES = [
+const METRICS = [
+  { value: '7-stage', label: 'assessment pipeline' },
+  { value: '93%', label: 'score confidence' },
+  { value: '10x', label: 'faster shortlisting' },
+  { value: '0$', label: 'candidate cost' },
+];
+
+const FEATURE_CARDS = [
   {
     icon: Brain,
-    title: 'AI Resume Scoring',
-    desc: 'Gemini Pro analyzes and scores resumes instantly.',
+    title: 'AI resume intelligence',
+    desc: 'Parse, score, and summarize talent signals instantly with a clear explanation trail.',
   },
   {
     icon: Bot,
-    title: 'Smart Interviews',
-    desc: 'AI conducts natural language video interviews.',
+    title: 'Conversational screening',
+    desc: 'Run structured interviews that adapt to role context without losing consistency.',
   },
   {
     icon: ClipboardCheck,
-    title: 'Technical Assessment',
-    desc: 'Auto-graded quizzes with semantic scoring.',
+    title: 'Auto-graded assessments',
+    desc: 'Combine objective quizzes with semantic evaluation for a fuller signal.',
   },
   {
     icon: LayoutDashboard,
-    title: 'Recruiter Dashboard',
-    desc: 'Real-time analytics and candidate rankings.',
-  },
-  {
-    icon: Sparkles,
-    title: '100% Free for Candidates',
-    desc: 'No cost, no barrier for job seekers.',
+    title: 'Recruiter command center',
+    desc: 'See rankings, confidence, and notes in a layout built for fast decisions.',
   },
   {
     icon: ShieldCheck,
-    title: 'Enterprise Security',
-    desc: 'JWT auth, encrypted data, GCP storage.',
+    title: 'Trust by design',
+    desc: 'Keep auditability, role separation, and clean permission boundaries in view.',
+  },
+  {
+    icon: Sparkles,
+    title: 'Candidate-first experience',
+    desc: 'A polished journey that feels modern, fair, and surprisingly lightweight.',
   },
 ];
 
-const CANDIDATE_BENEFITS = [
-  'Create profile and apply in minutes',
-  'Get AI feedback after each stage',
-  'Track strengths and growth areas',
-  'Completely free assessment pipeline',
-  'Improve interview readiness with insights',
-];
-
-const RECRUITER_BENEFITS = [
-  'Rank candidates with objective AI scores',
-  'Reduce manual screening time dramatically',
-  'Review interview intelligence in one place',
-  'Use analytics-driven shortlisting decisions',
-  'Scale hiring without adding recruiter load',
+const WORKFLOW_STEPS = [
+  {
+    icon: UserRound,
+    title: 'Create a profile',
+    desc: 'Candidates land on a focused onboarding flow and start immediately.',
+  },
+  {
+    icon: FileText,
+    title: 'Ingest the resume',
+    desc: 'The system extracts structured information and highlights relevant matches.',
+  },
+  {
+    icon: MessageSquare,
+    title: 'Run interviews',
+    desc: 'Use guided prompts, scoring rubrics, and a clear transcript trail.',
+  },
+  {
+    icon: BarChart3,
+    title: 'Make the decision',
+    desc: 'Review a clean ranking view with the evidence needed to move quickly.',
+  },
 ];
 
 const PRICING = [
   {
     name: 'Free',
-    role: 'Candidate',
-    price: '$0/mo',
-    highlighted: false,
-    cta: 'Get Started Free',
-    features: [
-      '7-stage AI assessment flow',
-      'Resume parsing and scoring',
-      'AI interview feedback',
-      'Technical quiz access',
-      'Career insights report',
-    ],
+    role: 'For candidates',
+    price: '$0',
+    note: 'Free forever',
+    featured: false,
+    cta: 'Start free',
+    plan: null,
+    features: ['Full assessment flow', 'AI feedback after each step', 'Interview readiness insights', 'No candidate fee'],
   },
   {
-    name: 'Starter',
-    role: 'Recruiter',
-    price: '$29/mo',
-    highlighted: true,
-    cta: 'Choose Starter',
-    features: [
-      'Up to 10 candidates/month',
-      'Recruiter dashboard',
-      'AI ranking and filtering',
-      'Interview scoring visibility',
-      'Basic support',
-      'Export score summaries',
-    ],
+    name: 'Basic',
+    role: 'For recruiters',
+    price: '$29',
+    note: 'Per month',
+    featured: true,
+    cta: 'Choose Basic',
+    plan: 'basic',
+    features: ['Up to 10 candidates', 'AI ranking and filtering', 'Interview review dashboard', 'Basic support'],
   },
   {
-    name: 'Pro',
-    role: 'Enterprise',
-    price: '$79/mo',
-    highlighted: false,
-    cta: 'Choose Pro',
-    features: [
-      'Up to 50 candidates/month',
-      'Advanced analytics suite',
-      'Priority support',
-      'Custom workflows',
-      'Team collaboration controls',
-      'API-ready integration options',
-    ],
+    name: 'Premium',
+    role: 'For teams',
+    price: '$79',
+    note: 'Per month',
+    featured: false,
+    cta: 'Choose Premium',
+    plan: 'premium',
+    features: ['Up to 50 candidates', 'Advanced analytics suite', 'Priority support', 'Team workflows'],
   },
 ];
 
@@ -140,6 +139,7 @@ function Home({
   setUserType,
   setAuthMode,
   setShowAuthModal,
+  setShowSubscriptionModal,
   setSelectedPlan,
   setAuthUserType,
 }) {
@@ -147,9 +147,11 @@ function Home({
 
   const openAuth = (mode, intendedUserType = null, options = {}) => {
     const { clearPlan = true } = options;
+
     if (clearPlan) {
       setSelectedPlan(null);
     }
+
     setAuthMode(mode);
     setAuthUserType(intendedUserType);
     setShowAuthModal(true);
@@ -161,326 +163,317 @@ function Home({
       setUserType('candidate');
       return;
     }
+
     openAuth('register', 'candidate');
   };
 
   const selectRecruiterPlan = (plan) => {
     setSelectedPlan(plan);
+
     if (authState?.isAuthenticated) {
-      setUserType('recruiter');
+      setShowSubscriptionModal(true);
       return;
     }
+
     openAuth('register', 'recruiter', { clearPlan: false });
   };
 
+  const handlePlanClick = (plan) => {
+    if (!plan.plan) {
+      startCandidate();
+      return;
+    }
+
+    selectRecruiterPlan(plan.plan);
+  };
+
+  const scrollToSection = (sectionId) => {
+    document.getElementById(sectionId)?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+    setMenuOpen(false);
+  };
+
   return (
-    <div className="relative min-h-screen overflow-x-hidden bg-[#0f1221] text-[#ffffff] scroll-smooth">
-      <div className="pointer-events-none absolute inset-0 opacity-40">
-        <div className="absolute -top-40 left-1/2 h-80 w-80 -translate-x-1/2 rounded-full bg-[#7c3aed]/30 blur-3xl" />
-        <div className="absolute top-52 left-10 h-56 w-56 rounded-full bg-[#f97316]/20 blur-3xl" />
-        <div className="absolute bottom-10 right-6 h-64 w-64 rounded-full bg-[#7c3aed]/20 blur-3xl" />
+    <div className="landing-shell">
+      <div className="landing-orbs" aria-hidden="true">
+        <span className="orb orb-a" />
+        <span className="orb orb-b" />
+        <span className="orb orb-c" />
       </div>
 
-      <header className="sticky top-0 z-50 border-b border-white/10 bg-[#0f1221]/80 backdrop-blur-xl">
-        <nav className="mx-auto flex w-full max-w-7xl items-center justify-between px-4 py-3 md:px-6">
-          <button className="text-left" onClick={() => window.scrollTo({ top: 0, behavior: 'smooth' })}>
-            <span className="bg-gradient-to-r from-[#7c3aed] to-[#f97316] bg-clip-text text-xl font-extrabold text-transparent md:text-2xl">
+      <header className="landing-header">
+        <nav className="landing-nav">
+          <button type="button" className="brand-mark" onClick={() => scrollToSection('top')}>
+            <span className="brand-mark__icon">
+              <Terminal size={18} />
+            </span>
+            <span>
               TalentAI
+              <small>terminal-grade hiring</small>
             </span>
           </button>
 
-          <div className="hidden items-center gap-7 md:flex">
+          <div className="nav-links">
             {NAV_LINKS.map((link) => (
-              <a key={link.href} href={link.href} className="text-sm font-medium text-slate-300 transition-colors hover:text-white md:text-base">
+              <a key={link.href} href={link.href} className="nav-link">
                 {link.label}
               </a>
             ))}
           </div>
 
-          <div className="hidden items-center gap-2 md:flex">
+          <div className="nav-actions nav-actions--desktop">
             {authState?.isAuthenticated ? (
-              <button
-                onClick={logout}
-                className="min-h-[44px] rounded-lg border border-white/20 px-4 text-sm font-semibold text-white transition hover:bg-white/10"
-              >
-                Logout
+              <button type="button" className="btn btn-secondary btn-secondary--compact" onClick={logout}>
+                Log out
               </button>
             ) : (
-              <div className="flex items-center gap-2">
-                <div className="flex items-center gap-1 rounded-xl border border-white/15 bg-white/5 p-1">
-                  <span className="px-2 text-xs font-semibold text-slate-300">Candidate</span>
-                  <button
-                    onClick={() => openAuth('login', 'candidate')}
-                    className="min-h-[36px] rounded-md px-3 text-xs font-semibold text-slate-200 transition hover:bg-white/10"
-                  >
-                    Sign In
-                  </button>
-                  <button
-                    onClick={() => openAuth('register', 'candidate')}
-                    className="min-h-[36px] rounded-md bg-[#f97316] px-3 text-xs font-semibold text-white transition hover:bg-orange-500"
-                  >
-                    Sign Up
-                  </button>
-                </div>
-
-                <div className="flex items-center gap-1 rounded-xl border border-white/15 bg-white/5 p-1">
-                  <span className="px-2 text-xs font-semibold text-slate-300">Recruiter</span>
-                  <button
-                    onClick={() => openAuth('login', 'recruiter')}
-                    className="min-h-[36px] rounded-md px-3 text-xs font-semibold text-slate-200 transition hover:bg-white/10"
-                  >
-                    Sign In
-                  </button>
-                  <button
-                    onClick={() => openAuth('register', 'recruiter')}
-                    className="min-h-[36px] rounded-md border border-white/20 px-3 text-xs font-semibold text-white transition hover:bg-white/10"
-                  >
-                    Sign Up
-                  </button>
-                </div>
-              </div>
+              <>
+                <button type="button" className="btn btn-secondary btn-secondary--compact" onClick={() => openAuth('login', 'candidate')}>
+                  Sign in
+                </button>
+                <button type="button" className="btn btn-primary btn-primary--compact" onClick={startCandidate}>
+                  Start free
+                </button>
+              </>
             )}
           </div>
 
           <button
-            onClick={() => setMenuOpen((prev) => !prev)}
-            className="flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg border border-white/15 bg-white/5 md:hidden"
-            aria-label="Toggle menu"
+            type="button"
+            className="menu-button"
+            aria-label="Toggle navigation"
+            aria-expanded={menuOpen}
+            onClick={() => setMenuOpen((current) => !current)}
           >
-            {menuOpen ? <X size={20} /> : <Menu size={20} />}
+            {menuOpen ? <X size={18} /> : <Menu size={18} />}
           </button>
         </nav>
 
         {menuOpen && (
-          <div className="border-t border-white/10 bg-[#11152a] px-4 py-3 md:hidden">
-            <div className="flex flex-col gap-2">
+          <div className="mobile-panel">
+            <div className="mobile-links">
               {NAV_LINKS.map((link) => (
-                <a
-                  key={link.href}
-                  href={link.href}
-                  className="min-h-[44px] rounded-md px-3 py-2 text-sm text-slate-200 hover:bg-white/5"
-                  onClick={() => setMenuOpen(false)}
-                >
+                <a key={link.href} href={link.href} className="mobile-link" onClick={() => setMenuOpen(false)}>
                   {link.label}
                 </a>
               ))}
-              {!authState?.isAuthenticated && (
-                <div className="space-y-3">
-                  <div className="rounded-lg border border-white/15 bg-white/5 p-2">
-                    <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-slate-300">Candidate</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button onClick={() => openAuth('login', 'candidate')} className="min-h-[44px] rounded-md border border-white/15 px-3 py-2 text-left text-sm">
-                        Sign In
-                      </button>
-                      <button onClick={() => openAuth('register', 'candidate')} className="min-h-[44px] rounded-md bg-[#f97316] px-3 py-2 text-left text-sm font-semibold">
-                        Sign Up
-                      </button>
-                    </div>
-                  </div>
-
-                  <div className="rounded-lg border border-white/15 bg-white/5 p-2">
-                    <p className="mb-2 px-1 text-xs font-semibold uppercase tracking-wide text-slate-300">Recruiter</p>
-                    <div className="grid grid-cols-2 gap-2">
-                      <button onClick={() => openAuth('login', 'recruiter')} className="min-h-[44px] rounded-md border border-[#f97316]/70 px-3 py-2 text-left text-sm text-orange-300">
-                        Sign In
-                      </button>
-                      <button onClick={() => openAuth('register', 'recruiter')} className="min-h-[44px] rounded-md border border-white/20 px-3 py-2 text-left text-sm text-white">
-                        Sign Up
-                      </button>
-                    </div>
-                  </div>
-                </div>
+            </div>
+            <div className="mobile-actions">
+              {authState?.isAuthenticated ? (
+                <button type="button" className="btn btn-secondary" onClick={logout}>
+                  Log out
+                </button>
+              ) : (
+                <>
+                  <button type="button" className="btn btn-secondary" onClick={() => openAuth('login', 'candidate')}>
+                    Sign in
+                  </button>
+                  <button type="button" className="btn btn-primary" onClick={startCandidate}>
+                    Start free
+                  </button>
+                </>
               )}
             </div>
           </div>
         )}
       </header>
 
-      <main>
-        <section className="relative mx-auto flex w-full max-w-7xl flex-col items-center px-4 pb-16 pt-12 text-center md:px-6 md:pb-24 md:pt-20">
-          <div className="inline-flex items-center gap-2 rounded-full border border-[#7c3aed]/40 bg-[#1a1f3c]/80 px-4 py-2 text-xs font-medium text-purple-200 md:text-sm">
-            <Sparkles size={14} className="text-[#f97316]" />
-            🚀 AI-Powered Recruitment Platform
+      <main id="top">
+        <section className="hero-section">
+          <div className="hero-copy">
+            <div className="eyebrow">
+              <Sparkles size={14} />
+              Terminal-inspired recruitment for modern teams
+            </div>
+
+            <h1 className="hero-title">Hire with the speed of a command line and the polish of a premium product.</h1>
+
+            <p className="hero-text">
+              TalentAI turns recruiting into a fast, readable workflow. Parse resumes, run assessments, and short-list candidates with a layout that feels crisp, modern, and serious.
+            </p>
+
+            <div className="hero-actions">
+              <button type="button" className="btn btn-primary" onClick={startCandidate}>
+                Get started free
+                <ArrowRight size={16} />
+              </button>
+              <button type="button" className="btn btn-secondary" onClick={() => scrollToSection('workflow')}>
+                <PlayCircle size={16} />
+                See the workflow
+              </button>
+            </div>
+
+            <div className="hero-metrics">
+              {METRICS.map((metric) => (
+                <article key={metric.label} className="metric-card">
+                  <strong>{metric.value}</strong>
+                  <span>{metric.label}</span>
+                </article>
+              ))}
+            </div>
           </div>
 
-          <h1 className="mt-6 max-w-4xl bg-gradient-to-r from-[#7c3aed] to-[#f97316] bg-clip-text text-4xl font-black leading-tight text-transparent sm:text-5xl lg:text-6xl">
-            Hire Smarter with AI-Driven Assessments
-          </h1>
+          <div className="hero-visual surface-card surface-card--hero">
+            <div className="terminal-shell">
+              <div className="terminal-bar">
+                <span />
+                <span />
+                <span />
+              </div>
 
-          <p className="mt-5 max-w-3xl text-sm text-slate-300 md:text-base lg:text-lg">
-            Automate your entire recruitment pipeline — from resume screening to AI interviews. 100% free for candidates.
-          </p>
-
-          <div className="mt-8 flex w-full flex-col items-stretch justify-center gap-3 sm:w-auto sm:flex-row">
-            <button
-              onClick={startCandidate}
-              className="min-h-[44px] rounded-lg bg-[#f97316] px-6 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-orange-500 hover:shadow-lg hover:shadow-orange-900/40 md:text-base"
-            >
-              Get Started Free
-            </button>
-            <button
-              onClick={() => window.alert('Demo coming soon')}
-              className="inline-flex min-h-[44px] items-center justify-center gap-2 rounded-lg border border-white/20 bg-white/5 px-6 py-3 text-sm font-semibold text-white transition hover:-translate-y-0.5 hover:bg-white/10 md:text-base"
-            >
-              <PlayCircle size={18} />
-              Watch Demo
-            </button>
-          </div>
-
-          <div className="mt-10 grid w-full grid-cols-1 gap-3 rounded-2xl border border-white/10 bg-[#1a1f3c]/60 p-4 text-sm text-slate-200 sm:grid-cols-2 lg:grid-cols-4 lg:text-base">
-            <p>500+ Candidates Assessed</p>
-            <p>7-Stage AI Pipeline</p>
-            <p>100% Free for Candidates</p>
-            <p>98% Accuracy Rate</p>
-          </div>
-        </section>
-
-        <section id="how-it-works" className="mx-auto w-full max-w-7xl px-4 py-14 md:px-6 md:py-20">
-          <div className="mb-10 text-center">
-            <h2 className="text-2xl font-bold md:text-4xl">Your Complete Recruitment Pipeline</h2>
-          </div>
-
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-4">
-            {PIPELINE_STEPS.map((step, index) => {
-              const Icon = step.icon;
-              return (
-                <div
-                  key={step.title}
-                  className={`group relative rounded-2xl border p-5 transition duration-300 hover:-translate-y-1 hover:shadow-xl ${
-                    index % 2 === 0
-                      ? 'border-[#7c3aed]/30 bg-[#1a1f3c]/80 hover:shadow-purple-900/30'
-                      : 'border-[#f97316]/30 bg-[#151934] hover:shadow-orange-900/30'
-                  }`}
-                >
-                  <div className="mb-3 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-[#7c3aed] to-[#f97316]">
-                    <Icon size={20} />
-                  </div>
-                  <p className="text-xs font-semibold text-slate-400">Step {index + 1}</p>
-                  <h3 className="mt-1 text-lg font-bold md:text-xl">{step.title}</h3>
-                  <p className="mt-2 text-sm text-slate-300 md:text-base">{step.desc}</p>
+              <div className="terminal-body">
+                <div className="terminal-title-row">
+                  <span className="terminal-title">
+                    <Terminal size={14} />
+                    talentai / session
+                  </span>
+                  <span className="status-pill">live</span>
                 </div>
-              );
-            })}
+
+                <div className="terminal-commands">
+                  {COMMAND_LINES.map((line) => (
+                    <div key={line} className={line.startsWith('>') ? 'terminal-line terminal-line--output' : 'terminal-line'}>
+                      {line}
+                    </div>
+                  ))}
+                </div>
+
+                <div className="terminal-grid">
+                  <article className="insight-card">
+                    <span>Candidate signal</span>
+                    <strong>92 / 100</strong>
+                    <small>best fit</small>
+                  </article>
+                  <article className="insight-card">
+                    <span>Time saved</span>
+                    <strong>6.4 hrs</strong>
+                    <small>this week</small>
+                  </article>
+                </div>
+              </div>
+            </div>
+
+            <div className="surface-chip-row">
+              <span className="surface-chip">Resume parsing</span>
+              <span className="surface-chip">AI interview</span>
+              <span className="surface-chip">Scorecards</span>
+            </div>
           </div>
         </section>
 
-        <section id="features" className="mx-auto w-full max-w-7xl px-4 py-14 md:px-6 md:py-20">
-          <div className="mb-10 text-center">
-            <h2 className="text-2xl font-bold md:text-4xl">Everything You Need to Hire the Best</h2>
+        <section className="section-block">
+          <div className="section-heading">
+            <p className="section-kicker">What makes it feel expensive</p>
+            <h2>Everything is framed around signal, rhythm, and clarity.</h2>
+            <p>
+              The page is intentionally bento-like, with a terminal core and supporting panels that give the product depth without clutter.
+            </p>
           </div>
 
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
-            {FEATURES.map((feature) => {
+          <div id="features" className="feature-grid">
+            {FEATURE_CARDS.map((feature, index) => {
               const Icon = feature.icon;
               return (
-                <article
-                  key={feature.title}
-                  className="group rounded-2xl border border-white/10 bg-[#1a1f3c]/70 p-6 transition duration-300 hover:-translate-y-1 hover:border-[#7c3aed]/50 hover:shadow-xl hover:shadow-purple-900/20"
-                >
-                  <div className="mb-4 inline-flex h-11 w-11 items-center justify-center rounded-xl bg-gradient-to-br from-[#7c3aed] to-[#f97316]">
-                    <Icon size={20} />
+                <article key={feature.title} className={`surface-card feature-card feature-card--${index % 3}`}>
+                  <div className="feature-icon">
+                    <Icon size={18} />
                   </div>
-                  <h3 className="text-lg font-bold md:text-xl">{feature.title}</h3>
-                  <p className="mt-2 text-sm text-slate-300 md:text-base">{feature.desc}</p>
+                  <h3>{feature.title}</h3>
+                  <p>{feature.desc}</p>
                 </article>
               );
             })}
           </div>
         </section>
 
-        <section className="mx-auto w-full max-w-7xl px-4 py-14 md:px-6 md:py-20">
-          <div className="grid grid-cols-1 gap-5 md:grid-cols-2">
-            <div className="rounded-2xl border border-[#1a1f3c] bg-[#1a1f3c] p-6 md:p-8">
-              <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-[#f97316]/20 text-[#f97316]">
-                <UserRound size={24} />
-              </div>
-              <h3 className="text-2xl font-bold">For Candidates</h3>
-              <p className="mt-2 text-sm text-slate-300 md:text-base">Take control of your job journey with AI-powered feedback and fair scoring.</p>
-              <ul className="mt-5 space-y-2">
-                {CANDIDATE_BENEFITS.map((benefit) => (
-                  <li key={benefit} className="flex items-start gap-2 text-sm text-slate-200 md:text-base">
-                    <Check size={16} className="mt-1 text-[#f97316]" />
-                    {benefit}
-                  </li>
-                ))}
-              </ul>
-              <button
-                onClick={startCandidate}
-                className="mt-6 min-h-[44px] rounded-lg bg-[#f97316] px-5 py-3 text-sm font-semibold transition hover:bg-orange-500 md:text-base"
-              >
-                Start Free
-              </button>
+        <section id="workflow" className="section-block">
+          <div className="section-heading section-heading--split">
+            <div>
+              <p className="section-kicker">Workflow</p>
+              <h2>Designed like a clean terminal session, not a dashboard dump.</h2>
             </div>
+            <button type="button" className="btn btn-secondary" onClick={() => scrollToSection('pricing')}>
+              View pricing
+              <Workflow size={16} />
+            </button>
+          </div>
 
-            <div className="rounded-2xl border border-purple-400/30 bg-gradient-to-br from-[#2b1f5f] to-[#7c3aed] p-6 md:p-8">
-              <div className="mb-4 inline-flex h-12 w-12 items-center justify-center rounded-xl bg-white/15 text-white">
-                <Briefcase size={24} />
-              </div>
-              <h3 className="text-2xl font-bold">For Recruiters</h3>
-              <p className="mt-2 text-sm text-purple-100 md:text-base">Cut hiring time with intelligent ranking, analytics, and interview insights.</p>
-              <ul className="mt-5 space-y-2">
-                {RECRUITER_BENEFITS.map((benefit) => (
-                  <li key={benefit} className="flex items-start gap-2 text-sm text-white md:text-base">
-                    <Check size={16} className="mt-1 text-orange-200" />
-                    {benefit}
-                  </li>
-                ))}
-              </ul>
-              <button
-                onClick={() => document.getElementById('pricing')?.scrollIntoView({ behavior: 'smooth' })}
-                className="mt-6 min-h-[44px] rounded-lg border border-white/40 bg-white/10 px-5 py-3 text-sm font-semibold transition hover:bg-white/20 md:text-base"
-              >
-                View Plans
-              </button>
-            </div>
+          <div className="workflow-grid">
+            {WORKFLOW_STEPS.map((step, index) => {
+              const Icon = step.icon;
+              return (
+                <article key={step.title} className="surface-card workflow-card">
+                  <div className="workflow-card__top">
+                    <span className="workflow-step-number">0{index + 1}</span>
+                    <Icon size={18} />
+                  </div>
+                  <h3>{step.title}</h3>
+                  <p>{step.desc}</p>
+                </article>
+              );
+            })}
           </div>
         </section>
 
-        <section id="pricing" className="mx-auto w-full max-w-7xl px-4 py-14 md:px-6 md:py-20">
-          <div className="mb-10 text-center">
-            <h2 className="text-2xl font-bold md:text-4xl">Simple, Transparent Pricing</h2>
+        <section id="security" className="section-block section-block--split">
+          <article className="surface-card surface-card--accent">
+            <p className="section-kicker">For candidates</p>
+            <h2>Fast, fair, and confidence-building.</h2>
+            <p>
+              A focused journey that keeps the candidate experience smooth while still producing useful signals for the hiring team.
+            </p>
+            <ul className="feature-list">
+              <li><Check size={16} /> Guided profile flow in minutes</li>
+              <li><Check size={16} /> Feedback at every stage</li>
+              <li><Check size={16} /> No candidate-side fee</li>
+            </ul>
+            <button type="button" className="btn btn-primary" onClick={startCandidate}>
+              Start free
+            </button>
+          </article>
+
+          <article className="surface-card">
+            <p className="section-kicker">For recruiters</p>
+            <h2>Objective scoring with a decision-ready layout.</h2>
+            <p>
+              Prioritize signal over noise with ranked cards, evidence summaries, and a visual hierarchy that makes the next action obvious.
+            </p>
+            <ul className="feature-list">
+              <li><CheckCheck size={16} /> Ranked shortlists</li>
+              <li><CheckCheck size={16} /> Interview context in one view</li>
+              <li><CheckCheck size={16} /> Analytics for faster decisions</li>
+            </ul>
+            <button type="button" className="btn btn-secondary" onClick={() => scrollToSection('pricing')}>
+              Explore plans
+            </button>
+          </article>
+        </section>
+
+        <section id="pricing" className="section-block">
+          <div className="section-heading">
+            <p className="section-kicker">Pricing</p>
+            <h2>Simple pricing that keeps the story clear.</h2>
+            <p>One free path for candidates, and two recruiter tiers that scale without making the page feel noisy.</p>
           </div>
 
-          <div className="grid grid-cols-1 gap-5 md:grid-cols-3">
+          <div className="pricing-grid">
             {PRICING.map((plan) => (
-              <article
-                key={plan.name}
-                className={`relative rounded-2xl border p-6 transition duration-300 hover:-translate-y-1 hover:shadow-xl ${
-                  plan.highlighted
-                    ? 'border-[#f97316]/70 bg-[#1a1f3c] shadow-lg shadow-orange-900/30'
-                    : 'border-white/10 bg-[#151934] hover:border-[#7c3aed]/40'
-                }`}
-              >
-                {plan.highlighted && (
-                  <span className="absolute -top-3 left-1/2 -translate-x-1/2 rounded-full bg-[#f97316] px-3 py-1 text-xs font-bold">
-                    MOST POPULAR
-                  </span>
-                )}
-                <p className="text-sm text-slate-300">{plan.role}</p>
-                <h3 className="mt-1 text-2xl font-bold">{plan.name}</h3>
-                <p className="mt-2 text-3xl font-black">{plan.price}</p>
-
-                <ul className="mt-5 space-y-2">
+              <article key={plan.name} className={`surface-card pricing-card ${plan.featured ? 'pricing-card--featured' : ''}`}>
+                {plan.featured && <span className="featured-badge">Most popular</span>}
+                <p className="pricing-role">{plan.role}</p>
+                <h3>{plan.name}</h3>
+                <div className="pricing-value">
+                  <strong>{plan.price}</strong>
+                  <span>{plan.note}</span>
+                </div>
+                <ul className="pricing-list">
                   {plan.features.map((feature) => (
-                    <li key={feature} className="flex items-start gap-2 text-sm text-slate-200 md:text-base">
-                      <CheckCheck size={16} className="mt-1 text-[#f97316]" />
+                    <li key={feature}>
+                      <CheckCheck size={15} />
                       {feature}
                     </li>
                   ))}
                 </ul>
-
-                <button
-                  onClick={() => {
-                    if (plan.name === 'Free') startCandidate();
-                    if (plan.name === 'Starter') selectRecruiterPlan('basic');
-                    if (plan.name === 'Pro') selectRecruiterPlan('premium');
-                  }}
-                  className={`mt-6 w-full min-h-[44px] rounded-lg px-4 py-3 text-sm font-semibold transition md:text-base ${
-                    plan.highlighted
-                      ? 'bg-[#f97316] hover:bg-orange-500'
-                      : 'border border-white/20 bg-white/5 hover:bg-white/10'
-                  }`}
-                >
+                <button type="button" className={plan.featured ? 'btn btn-primary' : 'btn btn-secondary'} onClick={() => handlePlanClick(plan)}>
                   {plan.cta}
                 </button>
               </article>
@@ -489,56 +482,31 @@ function Home({
         </section>
       </main>
 
-      <footer className="border-t border-white/10 bg-[#0c0f1c]">
-        <div className="mx-auto grid w-full max-w-7xl grid-cols-1 gap-8 px-4 py-10 md:grid-cols-3 md:px-6">
-          <div>
-            <h3 className="bg-gradient-to-r from-[#7c3aed] to-[#f97316] bg-clip-text text-2xl font-extrabold text-transparent">TalentAI</h3>
-            <p className="mt-2 text-sm text-slate-300 md:text-base">AI-Powered Recruitment Made Simple</p>
-          </div>
+      <footer className="landing-footer">
+        <div>
+          <p className="footer-brand">TalentAI</p>
+          <p className="footer-copy">A polished landing experience for a terminal-first recruitment product.</p>
+        </div>
 
-          <div>
-            <p className="text-sm font-semibold text-white">Links</p>
-            <div className="mt-2 flex flex-col gap-2 text-sm text-slate-300 md:text-base">
-              <a href="#features" className="hover:text-white">Features</a>
-              <a href="#pricing" className="hover:text-white">Pricing</a>
-              <a href="/privacy" className="hover:text-white">Privacy</a>
-              <a href="/terms" className="hover:text-white">Terms</a>
-            </div>
-          </div>
+        <div className="footer-links">
+          <a href="#features">Features</a>
+          <a href="#workflow">Workflow</a>
+          <a href="/privacy">Privacy</a>
+          <a href="/terms">Terms</a>
+        </div>
 
-          <div>
-            <p className="text-sm font-semibold text-white">Built by Anup Mazumdar | MCA Student | UEM Jaipur</p>
-            <div className="mt-3 flex items-center gap-3">
-              <a
-                href="https://github.com/anupmazumdar"
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg border border-white/20 bg-white/5 transition hover:bg-white/10"
-                aria-label="GitHub"
-              >
-                <Github size={18} />
-              </a>
-              <a
-                href="https://www.linkedin.com"
-                target="_blank"
-                rel="noreferrer"
-                className="inline-flex min-h-[44px] min-w-[44px] items-center justify-center rounded-lg border border-white/20 bg-white/5 transition hover:bg-white/10"
-                aria-label="LinkedIn"
-              >
-                <Linkedin size={18} />
-              </a>
-            </div>
-            {!authState?.isAuthenticated && (
-              <div className="mt-3">
-                <button
-                  onClick={() => openAuth('login', 'superadmin')}
-                  className="text-sm text-slate-300 underline-offset-2 transition hover:text-white hover:underline"
-                >
-                  admin
-                </button>
-              </div>
-            )}
-          </div>
+        <div className="footer-social">
+          <a href="https://github.com/anupmazumdar" target="_blank" rel="noreferrer" aria-label="GitHub">
+            <Github size={18} />
+          </a>
+          <a href="https://www.linkedin.com" target="_blank" rel="noreferrer" aria-label="LinkedIn">
+            <Linkedin size={18} />
+          </a>
+          {!authState?.isAuthenticated && (
+            <button type="button" className="footer-admin" onClick={() => openAuth('login', 'superadmin')}>
+              admin
+            </button>
+          )}
         </div>
       </footer>
     </div>
