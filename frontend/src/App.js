@@ -364,6 +364,30 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
     }
   };
 
+  const handleAuth0Logout = () => {
+    try {
+      Object.keys(localStorage).forEach((key) => {
+        if (key.startsWith('@@auth0spajs@@')) {
+          localStorage.removeItem(key);
+        }
+      });
+    } catch (e) {}
+    auth0Logout({ localOnly: true });
+  };
+
+  // Clear any legacy refresh-token error from localStorage automatically
+  useEffect(() => {
+    if (auth0Error?.message?.includes('Refresh Token')) {
+      try {
+        Object.keys(localStorage).forEach((key) => {
+          if (key.startsWith('@@auth0spajs@@')) {
+            localStorage.removeItem(key);
+          }
+        });
+      } catch (e) {}
+    }
+  }, [auth0Error]);
+
   const handleAuth0SessionContinue = async () => {
     if (auth0Exchanged) return;
     setError('');
@@ -390,9 +414,8 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
         console.warn('[Auth0] Could not get access token silently:', tokenErr.message);
       }
 
-      const tokenToSend = accessToken || idToken;
-      if (!tokenToSend) {
-        throw new Error('Unable to retrieve Auth0 session tokens. Please log in again.');
+      if (!accessToken && !idToken && !auth0User) {
+        throw new Error('Unable to retrieve Auth0 session. Please log in again.');
       }
 
       const response = await fetch(`${API_URL}/api/auth/auth0/session`, {
@@ -401,6 +424,12 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
         body: JSON.stringify({
           accessToken,
           idToken,
+          auth0User: auth0User ? {
+            email: auth0User.email,
+            sub: auth0User.sub,
+            name: auth0User.name || auth0User.nickname,
+            picture: auth0User.picture
+          } : null,
           userType,
           company: userType === 'recruiter' ? formData.company : ''
         })
@@ -507,7 +536,7 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
           </div>
         )}
 
-        {(error || auth0Error) && (
+        {((error || auth0Error) && !auth0Error?.message?.includes('Refresh Token')) && (
           <div className="mb-4 p-3 bg-red-500/10 border border-red-500/30 rounded-lg text-red-400 text-sm">
             {error || auth0Error?.message}
           </div>
@@ -605,7 +634,7 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
                 </button>
                 <button
                   type="button"
-                  onClick={() => auth0Logout({ logoutParams: { returnTo: window.location.origin } })}
+                  onClick={handleAuth0Logout}
                   className="min-h-[36px] rounded-md bg-slate-800 border border-slate-700 hover:bg-slate-700 px-3 py-1.5 text-xs font-medium text-slate-300 transition-all"
                 >
                   Logout

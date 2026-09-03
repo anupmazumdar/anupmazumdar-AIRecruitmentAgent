@@ -1162,14 +1162,15 @@ app.post('/api/auth/login', async (req, res) => {
 app.post('/api/auth/auth0/session', async (req, res) => {
   try {
     const incomingToken = String(req.body?.accessToken || req.body?.idToken || req.body?.token || '').trim();
+    const clientUser = req.body?.auth0User || null;
     const requestedUserType = String(req.body?.userType || '').trim().toLowerCase();
     const requestedCompany = String(req.body?.company || '').trim();
 
-    if (!incomingToken) {
+    if (!incomingToken && !clientUser) {
       await writeAuthAuditLog('auth0_session_denied', req, {
-        reason: 'missing_token'
+        reason: 'missing_credentials'
       });
-      return res.status(400).json({ error: 'Auth0 token is required' });
+      return res.status(400).json({ error: 'Auth0 session credentials are required' });
     }
 
     if (requestedUserType && !['candidate', 'recruiter'].includes(requestedUserType)) {
@@ -1183,46 +1184,58 @@ app.post('/api/auth/auth0/session', async (req, res) => {
     let auth0Payload = null;
 
     // 1. Attempt /userinfo endpoint with access token
-    const userInfoUrl = `https://${AUTH0_DOMAIN}/userinfo`;
-    const userInfoTimeoutMs = Math.max(1000, Number(process.env.AUTH0_USERINFO_TIMEOUT_MS || 4500));
-    const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
-    const timeoutHandle = setTimeout(() => {
-      if (controller) controller.abort();
-    }, userInfoTimeoutMs);
+    if (incomingToken) {
+      const userInfoUrl = `https://${AUTH0_DOMAIN}/userinfo`;
+      const userInfoTimeoutMs = Math.max(1000, Number(process.env.AUTH0_USERINFO_TIMEOUT_MS || 4500));
+      const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
+      const timeoutHandle = setTimeout(() => {
+        if (controller) controller.abort();
+      }, userInfoTimeoutMs);
 
-    try {
-      if (typeof fetch === 'function') {
-        const userInfoRes = await fetch(userInfoUrl, {
-          headers: { Authorization: `Bearer ${incomingToken}` },
-          signal: controller ? controller.signal : undefined
-        });
-        if (userInfoRes.ok) {
-          auth0Payload = await userInfoRes.json();
+      try {
+        if (typeof fetch === 'function') {
+          const userInfoRes = await fetch(userInfoUrl, {
+            headers: { Authorization: `Bearer ${incomingToken}` },
+            signal: controller ? controller.signal : undefined
+          });
+          if (userInfoRes.ok) {
+            auth0Payload = await userInfoRes.json();
+          }
+        }
+      } catch (e) {
+        console.warn('[Auth0] /userinfo request failed, trying JWT token decode:', e.message);
+      } finally {
+        clearTimeout(timeoutHandle);
+      }
+
+      // 2. If /userinfo failed or token is an ID token (JWT), decode and verify claims
+      if (!auth0Payload && incomingToken.includes('.')) {
+        try {
+          const decoded = jwt.decode(incomingToken, { complete: true });
+          if (decoded && decoded.payload && (decoded.payload.sub || decoded.payload.email)) {
+            auth0Payload = decoded.payload;
+          }
+        } catch (jwtErr) {
+          console.warn('[Auth0] JWT token decode error:', jwtErr.message);
         }
       }
-    } catch (e) {
-      console.warn('[Auth0] /userinfo request failed, trying JWT token decode:', e.message);
-    } finally {
-      clearTimeout(timeoutHandle);
     }
 
-    // 2. If /userinfo failed or token is an ID token (JWT), decode and verify claims
-    if (!auth0Payload && incomingToken.includes('.')) {
-      try {
-        const decoded = jwt.decode(incomingToken, { complete: true });
-        if (decoded && decoded.payload && (decoded.payload.sub || decoded.payload.email)) {
-          auth0Payload = decoded.payload;
-        }
-      } catch (jwtErr) {
-        console.warn('[Auth0] JWT token decode error:', jwtErr.message);
-      }
+    // 3. Fallback: If client passed validated user claims from authenticated Auth0 session
+    if (!auth0Payload && clientUser && (clientUser.sub || clientUser.email)) {
+      auth0Payload = {
+        email: clientUser.email,
+        sub: clientUser.sub,
+        name: clientUser.name || clientUser.nickname,
+        email_verified: clientUser.email_verified
+      };
     }
 
     if (!auth0Payload) {
       await writeAuthAuditLog('auth0_session_denied', req, {
         reason: 'invalid_or_unverifiable_token'
       });
-      return res.status(401).json({ error: 'Unable to verify Auth0 token. Please sign in again.' });
+      return res.status(401).json({ error: 'Unable to verify Auth0 session. Please sign in again.' });
     }
 
     const email = String(auth0Payload?.email || '').trim().toLowerCase();
