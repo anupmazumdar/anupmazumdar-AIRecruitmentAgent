@@ -788,8 +788,21 @@ function normalizeResumeAnalysis(parsed = {}, resumeText = '') {
       }))
     : [];
 
-  const atsScore = clampScore(data.atsScore, 0, 100, 75);
-  const projectScoreFallback = signals.projectMentions > 0 ? 78 : 60;
+  const docCheck = detectAndValidateResume(resumeText);
+  if (!docCheck.isResume && data.isResume !== true) {
+    return {
+      isResume: false,
+      atsScore: 0,
+      projectScore: 0,
+      projects: [],
+      strengths: [],
+      improvements: ['Uploaded document is missing essential resume sections. Please upload a genuine CV.'],
+      projectAnalysis: 'Non-resume document detected.'
+    };
+  }
+
+  const atsScore = clampScore(data.atsScore, 0, 100, 60);
+  const projectScoreFallback = signals.projectMentions > 0 ? 70 : 50;
   const projectScore = clampScore(data.projectScore, 0, 100, projectScoreFallback);
 
   const strengths = toStringArray(data.strengths, [
@@ -2876,6 +2889,19 @@ Focus on:
 
       const validated = normalizeResumeAnalysis(parsed, resumeText);
 
+      if (validated.isResume === false || validated.atsScore === 0) {
+        if (req.file?.path) {
+          try { await fs.unlink(req.file.path); } catch (e) {}
+        }
+        return res.status(400).json({
+          success: false,
+          isResume: false,
+          detectedDocumentType: 'unrelated_document',
+          error: 'Invalid Document: The uploaded document does not contain required resume sections (missing contact information, employment history, or education).',
+          missingSections: ['Contact Information', 'Work Experience', 'Education']
+        });
+      }
+
       candidate.resumeScore = validated.atsScore;
       candidate.resumeUrl = resumeUrl; // Save GCS URL
       candidate.resumeAnalyzedAt = new Date().toISOString();
@@ -2895,43 +2921,26 @@ Focus on:
     } catch (aiError) {
       console.error('AI analysis error:', aiError);
 
-      // Fallback with project extraction
-      const projectKeywords = ['project', 'built', 'developed', 'created', 'implemented', 'designed'];
-      const hasProjects = projectKeywords.some(keyword =>
-        resumeText.toLowerCase().includes(keyword)
-      );
+      if (req.file?.path) {
+        try { await fs.unlink(req.file.path); } catch (e) {}
+      }
 
-      candidate.resumeScore = 75;
-      candidate.resumeUrl = resumeUrl; // Save GCS URL
-      candidate.resumeAnalyzedAt = new Date().toISOString();
-      await saveCandidates(); // Persist to cloud
+      // Re-verify with strict resume detection
+      const strictCheck = detectAndValidateResume(resumeText);
+      if (!strictCheck.isResume) {
+        return res.status(400).json({
+          success: false,
+          isResume: false,
+          detectedDocumentType: strictCheck.detectedDocumentType || 'unrelated_document',
+          error: `Invalid Document: ${strictCheck.rejectionReason}`,
+          missingSections: strictCheck.missingSections || []
+        });
+      }
 
-      res.json({
-        success: true,
-        analysis: {
-          atsScore: 75,
-          projectScore: hasProjects ? 80 : 60,
-          projects: hasProjects ? [
-            {
-              name: "Identified Project",
-              description: "Projects detected in resume - detailed analysis requires successful AI processing",
-              technologies: ["Various technologies mentioned"]
-            }
-          ] : [],
-          strengths: [
-            "Professional resume format",
-            hasProjects ? "Practical project experience mentioned" : "Clear experience presentation",
-            "Relevant for position"
-          ],
-          improvements: [
-            "Add more quantifiable metrics and outcomes",
-            "Highlight specific technologies used in projects",
-            "Include measurable impact of work"
-          ],
-          projectAnalysis: hasProjects
-            ? "Resume contains project references. Full analysis temporarily unavailable."
-            : "Consider adding more hands-on project examples to demonstrate practical skills."
-        }
+      // If it is a real resume but the AI service had an error, fail cleanly without granting false scores
+      return res.status(500).json({
+        success: false,
+        error: 'AI analysis service is temporarily busy. Please try re-uploading your resume in a few moments or use our free AI Resume Builder.'
       });
     }
   } catch (error) {

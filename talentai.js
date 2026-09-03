@@ -168,7 +168,7 @@ function getOutputSchemaInstruction(taskMode) {
     const mode = String(taskMode || '').toUpperCase();
 
     if (mode === TASK_MODES.RESUME_PARSING) {
-      return 'Return only valid JSON with fields: atsScore (0-100 integer), projectScore (0-100 integer), projects (array of {name, description, technologies, impact}), strengths (array), improvements (array), projectAnalysis (string).';
+      return 'Return only valid JSON with fields: isResume (boolean: true if genuine candidate resume, false if invoice/assignment/paper/other document), detectedDocumentType (string), rejectionReason (string or null), atsScore (0-100 integer), projectScore (0-100 integer), projects (array of {name, description, technologies, impact}), strengths (array), improvements (array), projectAnalysis (string).';
     }
 
     if (mode === TASK_MODES.CANDIDATE_SCORING) {
@@ -213,7 +213,7 @@ function buildTaskPrompt(taskMode, input) {
     const mode = String(taskMode || '').toUpperCase();
 
     if (mode === TASK_MODES.RESUME_PARSING) {
-      return `Analyze this resume for ATS compatibility and project depth. Return structured scoring and improvements only.\n${JSON.stringify(input || {})}`;
+      return `Evaluate this candidate document. FIRST verify if it is an authentic Resume or Curriculum Vitae. If it is NOT a resume (such as an invoice, coursework, textbook excerpt, research paper, legal policy, or random article), set "isResume": false, "detectedDocumentType": "<type>", "rejectionReason": "<reason>", "atsScore": 0, "projectScore": 0, "projects": []. If it IS a genuine resume, set "isResume": true and score ATS compatibility and projects.\n${JSON.stringify(input || {})}`;
     }
 
     if (mode === TASK_MODES.CANDIDATE_SCORING) {
