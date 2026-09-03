@@ -1915,7 +1915,7 @@ function ResumeUploadStage({ candidateData, setCandidateData, setStage, authStat
   const [error, setError] = useState('');
   const [docValidationWarning, setDocValidationWarning] = useState(null);
   const [enhancing, setEnhancing] = useState(false);
-  const rawResumeTextRef = React.useRef(''); // Stores extracted text from last upload
+  const [rawResumeText, setRawResumeText] = useState(''); // Extracted text from last upload
   const fileInputRef = useRef(null);
 
   // Keep live LaTeX in sync
@@ -1990,8 +1990,8 @@ function ResumeUploadStage({ candidateData, setCandidateData, setStage, authStat
       }
 
       const score = data.analysis?.atsScore || data.analysis?.score || 85;
-      // Store the raw resume text for one-click enhancement
-      rawResumeTextRef.current = data.analysis?.resumeText || data.resumeText || '';
+      // Store raw resume text for one-click enhancement
+      setRawResumeText(data.resumeText || '');
       setAnalysis({
         score,
         projects: data.analysis?.projects || [],
@@ -2020,7 +2020,7 @@ function ResumeUploadStage({ candidateData, setCandidateData, setStage, authStat
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
-          resumeText: rawResumeTextRef.current || file?.name || '',
+          resumeText: rawResumeText,
           targetRole: candidateData.position || targetRole || 'Software Engineer',
           candidateName: candidateData.name || authState?.user?.name || '',
           candidateEmail: candidateData.email || authState?.user?.email || ''

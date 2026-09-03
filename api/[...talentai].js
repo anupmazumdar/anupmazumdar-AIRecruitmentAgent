@@ -3098,7 +3098,7 @@ Focus on:
           candidate.resumeAnalyzedAt = new Date().toISOString();
           await saveCandidates();
           if (req.file?.path) { try { await fs.unlink(req.file.path); } catch (e) {} }
-          return res.json({ success: true, analysis: detResult });
+          return res.json({ success: true, analysis: detResult, resumeText });
         }
       }
 
@@ -3189,7 +3189,8 @@ Focus on:
 
         return res.json({
           success: true,
-          analysis: fallbackAnalysis
+          analysis: fallbackAnalysis,
+          resumeText
         });
       } catch (detError) {
         console.error('Deterministic analysis error:', detError);
