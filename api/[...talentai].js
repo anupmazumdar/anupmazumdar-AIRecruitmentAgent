@@ -44,7 +44,8 @@ const {
   formatResumeToPlainText,
   formatResumeToLatex,
   generateResumeDocxBuffer,
-  detectAndValidateResume
+  detectAndValidateResume,
+  parseResumeDeterministically
 } = require('./services/resumeTailor');
 const {
   evaluateFullInterview,
@@ -2870,8 +2871,13 @@ Focus on:
       }
 
       if (!parsed || typeof parsed !== 'object' || parsed.atsScore === undefined) {
-        const analysis = await callAI(prompt, systemPrompt, { task: 'resume' });
-        parsed = parseJsonFromAI(analysis, 'object');
+        try {
+          const analysis = await callAI(prompt, systemPrompt, { task: 'resume' });
+          parsed = parseJsonFromAI(analysis, 'object');
+        } catch (callError) {
+          console.warn('[TalentAI] External AI call unavailable, using deterministic resume parser:', callError.message);
+          parsed = parseResumeDeterministically(resumeText, candidateRole);
+        }
       }
 
       if (parsed && parsed.isResume === false) {
@@ -2937,11 +2943,28 @@ Focus on:
         });
       }
 
-      // If it is a real resume but the AI service had an error, fail cleanly without granting false scores
-      return res.status(500).json({
-        success: false,
-        error: 'AI analysis service is temporarily busy. Please try re-uploading your resume in a few moments or use our free AI Resume Builder.'
-      });
+      // Candidate uploaded an authentic resume, but external AI provider failed/timed out:
+      // Perform genuine deterministic ATS extraction based on candidate's real content
+      try {
+        const candidateRole = candidate.position || req.body?.position || 'Software Engineer';
+        const fallbackAnalysis = parseResumeDeterministically(resumeText, candidateRole);
+
+        candidate.resumeScore = fallbackAnalysis.atsScore;
+        candidate.resumeUrl = resumeUrl;
+        candidate.resumeAnalyzedAt = new Date().toISOString();
+        await saveCandidates();
+
+        return res.json({
+          success: true,
+          analysis: fallbackAnalysis
+        });
+      } catch (detError) {
+        console.error('Deterministic analysis error:', detError);
+        return res.status(500).json({
+          success: false,
+          error: 'Failed to complete resume analysis. Please check file format and try again.'
+        });
+      }
     }
   } catch (error) {
     console.error('Resume analysis error:', error);
