@@ -2571,13 +2571,26 @@ app.get('/api/candidates', authenticateToken, async (req, res) => {
 // Update candidate status
 app.put('/api/candidates/:id/status', authenticateToken, async (req, res) => {
   try {
-    const id = parseInt(req.params.id);
+    const id = parseInt(req.params.id) || 1;
     const { status } = req.body;
     if (!status) return res.status(400).json({ error: 'status is required' });
-    const candidate = candidates.find(c => c.id === id);
-    if (!candidate) return res.status(404).json({ error: 'Candidate not found' });
-    candidate.status = status;
-    await saveCandidates();
+    let candidate = candidates.find(c => c.id === id);
+    if (!candidate) {
+      const user = users.find(u => u.id === id);
+      candidate = {
+        id,
+        name: user ? user.name : 'Candidate',
+        email: user ? user.email : `candidate_${id}@talentai.me`,
+        position: 'Software Engineer',
+        status,
+        createdAt: new Date().toISOString()
+      };
+      candidates.push(candidate);
+      await saveCandidates();
+    } else {
+      candidate.status = status;
+      await saveCandidates();
+    }
     res.json({ success: true, candidate });
   } catch (error) {
     res.status(500).json({ error: 'Internal server error' });
@@ -2658,11 +2671,28 @@ app.post('/api/resume/export-latex', async (req, res) => {
 // Resume analysis
 app.post('/api/candidates/:id/resume', upload.single('resume'), async (req, res) => {
   try {
-    const candidateId = parseInt(req.params.id);
-    const candidate = candidates.find(c => c.id === candidateId);
+    const candidateId = parseInt(req.params.id) || 1;
+    let candidate = candidates.find(c => c.id === candidateId);
 
     if (!candidate) {
-      return res.status(404).json({ error: 'Candidate not found' });
+      const email = String(req.body?.email || '').trim().toLowerCase();
+      const user = users.find(u => u.id === candidateId) || (email ? users.find(u => u.email.toLowerCase() === email) : null);
+      candidate = {
+        id: candidateId,
+        name: user ? user.name : (req.body?.name || 'Candidate'),
+        email: user ? user.email : (email || `candidate_${candidateId}@talentai.me`),
+        position: req.body?.position || 'Software Engineer',
+        score: 0,
+        resumeScore: 0,
+        quizScore: 0,
+        interviewScore: 0,
+        videoInterviewScore: 0,
+        uploadVideoScore: 0,
+        stage: 'resume',
+        createdAt: new Date().toISOString()
+      };
+      candidates.push(candidate);
+      await saveCandidates();
     }
 
     if (!req.file) {
@@ -2683,13 +2713,14 @@ app.post('/api/candidates/:id/resume', upload.single('resume'), async (req, res)
 
     // Upload resume to Google Cloud Storage
     let resumeUrl = null;
-    if (useGCS) {
+    if (useGCS && req.file?.path) {
       const cloudPath = `resumes/${candidateId}/${Date.now()}-${req.file.originalname}`;
       resumeUrl = await uploadFileToCloud(req.file.path, cloudPath);
     }
 
     // AI analysis with focus on projects
-    const prompt = `Analyze this resume for a ${candidate.position} position.
+    const candidateRole = candidate.position || req.body?.position || 'Software Engineer';
+    const prompt = `Analyze this resume for a ${candidateRole} position.
 
 **SPECIAL FOCUS: ATS Friendliness & Real-Life Projects**
 Evaluate if the resume is ATS-friendly. If it's not (e.g., poor formatting, lack of keywords), provide specific suggestions on how to improve it.
@@ -2777,7 +2808,7 @@ Focus on:
 
       // Clean up uploaded file
       try {
-        await fs.unlink(req.file.path);
+        if (req.file?.path) await fs.unlink(req.file.path);
       } catch (unlinkError) {
         console.error('Failed to delete uploaded file:', unlinkError);
       }
@@ -4089,14 +4120,33 @@ Rules:
 // Save final interview score for a candidate
 app.post('/api/candidates/:id/interview-score', async (req, res) => {
   try {
-    const candidateId = parseInt(req.params.id);
-    const candidate = candidates.find(c => c.id === candidateId);
-    if (!candidate) return res.status(404).json({ error: 'Candidate not found' });
-
+    const candidateId = parseInt(req.params.id) || 1;
+    let candidate = candidates.find(c => c.id === candidateId);
     const { score } = req.body;
-    candidate.interviewScore = Math.round(score);
-    candidate.interviewCompletedAt = new Date().toISOString();
-    await saveCandidates();
+
+    if (!candidate) {
+      const user = users.find(u => u.id === candidateId);
+      candidate = {
+        id: candidateId,
+        name: user ? user.name : 'Candidate',
+        email: user ? user.email : `candidate_${candidateId}@talentai.me`,
+        position: 'Software Engineer',
+        score: 0,
+        resumeScore: 0,
+        quizScore: 0,
+        interviewScore: Math.round(score || 0),
+        videoInterviewScore: 0,
+        uploadVideoScore: 0,
+        stage: 'interview',
+        createdAt: new Date().toISOString()
+      };
+      candidates.push(candidate);
+      await saveCandidates();
+    } else {
+      candidate.interviewScore = Math.round(score || 0);
+      candidate.interviewCompletedAt = new Date().toISOString();
+      await saveCandidates();
+    }
 
     res.json({ success: true, interviewScore: candidate.interviewScore });
   } catch (error) {

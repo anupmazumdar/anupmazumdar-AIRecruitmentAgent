@@ -934,14 +934,15 @@ function CandidatePortal({ setUserType, subscription, authState, logout }) {
 
   // Update candidate data if authState changes (e.g. after login)
   useEffect(() => {
-    if (authState.user && !candidateData.id) {
+    if (authState?.user) {
       setCandidateData(prev => ({
         ...prev,
-        name: authState.user.name,
-        email: authState.user.email
+        id: prev.id || authState.user.id || authState.user.candidateId || 1,
+        name: prev.name || authState.user.name || '',
+        email: prev.email || authState.user.email || ''
       }));
     }
-  }, [authState.user, candidateData.id]);
+  }, [authState?.user]);
 
   const stages = [
     { id: 'profile', label: 'Profile', icon: User },
@@ -981,7 +982,7 @@ function CandidatePortal({ setUserType, subscription, authState, logout }) {
             const isCurrent = idx === currentStageIndex;
 
             return (
-              <div key={s.id} className="flex items-center flex-1">
+              <div key={s.id} className="flex items-center flex-1 last:flex-none">
                 <div className="flex flex-col items-center">
                   <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${isCompleted ? 'bg-green-500' : isCurrent ? 'bg-indigo-500 ring-4 ring-indigo-500/30' : 'bg-slate-700'
                     }`}>
@@ -1003,7 +1004,7 @@ function CandidatePortal({ setUserType, subscription, authState, logout }) {
       <div className="max-w-3xl mx-auto w-full">
         {stage === 'profile' && <ProfileStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} />}
         {stage === 'careerCoach' && <CareerGuidanceStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} />}
-        {stage === 'resume' && <ResumeUploadStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} />}
+        {stage === 'resume' && <ResumeUploadStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} authState={authState} />}
         {stage === 'uploadVideo' && <UploadVideoStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} />}
         {stage === 'quiz' && <TechnicalQuizStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} authState={authState} />}
         {stage === 'interview' && <TextInterviewStage candidateData={candidateData} setCandidateData={setCandidateData} setStage={setStage} authState={authState} />}
@@ -1847,7 +1848,7 @@ const createDefaultResumeData = (candidateData, role) => ({
   ]
 });
 
-function ResumeUploadStage({ candidateData, setCandidateData, setStage }) {
+function ResumeUploadStage({ candidateData, setCandidateData, setStage, authState }) {
   const [mode, setMode] = useState('tailor'); // 'tailor' | 'form' | 'upload'
 
   // Tailor Mode State
@@ -1908,13 +1909,25 @@ function ResumeUploadStage({ candidateData, setCandidateData, setStage }) {
     setError('');
 
     try {
+      const candidateId = candidateData.id || candidateData.candidateId || authState?.user?.id || 1;
       const formData = new FormData();
       formData.append('resume', file);
-      formData.append('position', candidateData.position || targetRole);
+      formData.append('position', candidateData.position || targetRole || 'Software Engineer');
+      if (candidateData.email || authState?.user?.email) {
+        formData.append('email', candidateData.email || authState.user.email);
+      }
+      if (candidateData.name || authState?.user?.name) {
+        formData.append('name', candidateData.name || authState.user.name);
+      }
 
-      const candidateId = candidateData.id || candidateData.candidateId || 1;
+      const headers = {};
+      if (authState?.token) {
+        headers['Authorization'] = `Bearer ${authState.token}`;
+      }
+
       const response = await fetch(`${API_URL}/api/candidates/${candidateId}/resume`, {
         method: 'POST',
+        headers,
         body: formData
       });
 
