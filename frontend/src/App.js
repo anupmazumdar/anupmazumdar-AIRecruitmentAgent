@@ -4,7 +4,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
-import { Upload, CheckCircle, XCircle, User, Briefcase, MessageSquare, Award, FileText, Users, TrendingUp, Crown, Zap, Sparkles, Check, X, Mail, Lock, Eye, EyeOff, LogOut, Video, VideoOff, Search, Paperclip, Image as ImageIcon, Clock3, Sun, Moon, Download, Copy, RefreshCw, ShieldCheck, CheckCheck, ExternalLink, Printer, Plus, Trash2, Edit3, Code } from 'lucide-react';
+import { Upload, CheckCircle, XCircle, User, Briefcase, MessageSquare, Award, FileText, Users, TrendingUp, Crown, Zap, Sparkles, Check, X, Mail, Lock, Eye, EyeOff, LogOut, Video, VideoOff, Search, Paperclip, Image as ImageIcon, Clock3, Sun, Moon, Download, Copy, RefreshCw, ShieldCheck, CheckCheck, ExternalLink, Printer, Plus, Trash2, Edit3, Code, AlertTriangle, FileWarning } from 'lucide-react';
 import './App.css';
 import Home from './pages/Home';
 import SupportChatbot from './components/SupportChatbot';
@@ -1873,6 +1873,7 @@ function ResumeUploadStage({ candidateData, setCandidateData, setStage, authStat
   const [analyzing, setAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState(null);
   const [error, setError] = useState('');
+  const [docValidationWarning, setDocValidationWarning] = useState(null);
   const fileInputRef = useRef(null);
 
   // Keep live LaTeX in sync
@@ -1896,6 +1897,7 @@ function ResumeUploadStage({ candidateData, setCandidateData, setStage, authStat
       if (validTypes.includes(selectedFile.type) || validExtensions.includes(fileExtension)) {
         setFile(selectedFile);
         setError('');
+        setDocValidationWarning(null);
       } else {
         setError('Please upload a resume in PDF, DOC, DOCX, TXT, or RTF format');
         setFile(null);
@@ -1907,6 +1909,7 @@ function ResumeUploadStage({ candidateData, setCandidateData, setStage, authStat
     if (!file) return;
     setAnalyzing(true);
     setError('');
+    setDocValidationWarning(null);
 
     try {
       const candidateId = candidateData.id || candidateData.candidateId || authState?.user?.id || 1;
@@ -1933,6 +1936,14 @@ function ResumeUploadStage({ candidateData, setCandidateData, setStage, authStat
 
       const data = await parseApiJson(response);
       if (!response.ok) {
+        if (data.isResume === false) {
+          setDocValidationWarning({
+            detectedType: data.detectedDocumentType || 'unrelated_document',
+            message: data.error || 'The uploaded file does not appear to be a valid resume or CV.',
+            missingSections: data.missingSections || []
+          });
+          setFile(null); // Clear invalid document so candidate cannot bypass
+        }
         throw new Error(data.error || 'Failed to analyze resume');
       }
 
@@ -2294,6 +2305,51 @@ function ResumeUploadStage({ candidateData, setCandidateData, setStage, authStat
         <div className="bg-red-900/30 border border-red-500/50 rounded-xl p-4 mb-6 text-red-200 text-sm flex items-center justify-between no-print">
           <span>{error}</span>
           <button onClick={() => setError('')} className="text-red-400 hover:text-red-200"><X size={18} /></button>
+        </div>
+      )}
+
+      {docValidationWarning && (
+        <div className="bg-amber-950/40 border-2 border-amber-500/70 rounded-2xl p-5 mb-6 text-amber-100 shadow-xl no-print">
+          <div className="flex items-start gap-3.5">
+            <div className="p-2.5 rounded-xl bg-amber-500/20 text-amber-400 mt-0.5 shrink-0">
+              <AlertTriangle size={24} />
+            </div>
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center justify-between gap-2">
+                <h4 className="font-bold text-amber-300 text-sm md:text-base flex items-center gap-2">
+                  <span>Invalid Document Rejected</span>
+                  <span className="text-[11px] font-semibold px-2 py-0.5 bg-amber-500/20 border border-amber-500/40 rounded-full text-amber-200 uppercase tracking-wider">
+                    {docValidationWarning.detectedType.replace(/_/g, ' ')}
+                  </span>
+                </h4>
+                <button
+                  onClick={() => setDocValidationWarning(null)}
+                  className="text-amber-400 hover:text-amber-200 transition-colors p-1"
+                >
+                  <X size={18} />
+                </button>
+              </div>
+              <p className="text-xs md:text-sm mt-2 text-amber-100/90 leading-relaxed">
+                {docValidationWarning.message}
+              </p>
+              {docValidationWarning.missingSections && docValidationWarning.missingSections.length > 0 && (
+                <div className="mt-3 text-xs bg-slate-950/60 rounded-xl p-3 border border-amber-500/30">
+                  <span className="font-bold text-amber-300">Missing Mandatory Resume Sections:</span>
+                  <div className="flex flex-wrap gap-1.5 mt-1.5">
+                    {docValidationWarning.missingSections.map((sec, idx) => (
+                      <span key={idx} className="px-2 py-0.5 bg-red-500/20 border border-red-500/40 rounded text-red-300 font-medium">
+                        ✗ {sec}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
+              <div className="mt-3 flex items-center gap-2 text-xs font-medium text-amber-300">
+                <FileWarning size={15} />
+                <span>To proceed, please upload a genuine resume or build one for free using the "AI Builder (from JD)" tab above.</span>
+              </div>
+            </div>
+          </div>
         </div>
       )}
 

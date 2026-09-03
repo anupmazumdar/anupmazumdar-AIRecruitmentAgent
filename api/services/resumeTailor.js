@@ -1082,6 +1082,164 @@ async function generateResumeDocxBuffer(resumeData) {
   return await Packer.toBuffer(doc);
 }
 
+/**
+ * Detect whether the uploaded document text is a genuine Resume / CV
+ * or an unrelated document (e.g. invoice, assignment, book, contract, receipt, code, etc.).
+ */
+function detectAndValidateResume(rawText = '') {
+  const text = String(rawText || '').trim();
+  const lower = text.toLowerCase();
+  const words = lower.split(/\s+/).filter(Boolean);
+
+  // 1. Minimum content check
+  if (words.length < 35 || text.length < 180) {
+    return {
+      isResume: false,
+      confidence: 98,
+      detectedDocumentType: 'insufficient_text',
+      rejectionReason: 'The uploaded file has insufficient text content. A valid resume or CV must contain detailed professional experience, education, and skills.',
+      foundSections: [],
+      missingSections: ['Work Experience', 'Education', 'Skills', 'Contact Information']
+    };
+  }
+
+  // 2. Identify Strong Negative Document Type Indicators
+  const invoiceKeywords = [
+    'invoice', 'tax invoice', 'bill to:', 'ship to:', 'subtotal', 'amount due',
+    'due date', 'total amount', 'receipt no', 'gstin', 'payment advice',
+    'remittance advice', 'bank statement', 'account balance', 'balance due', 'payment terms'
+  ];
+  const invoiceMatches = invoiceKeywords.filter(k => lower.includes(k));
+  if (invoiceMatches.length >= 2) {
+    return {
+      isResume: false,
+      confidence: 95,
+      detectedDocumentType: 'invoice_or_financial_bill',
+      rejectionReason: `The uploaded file appears to be an invoice or billing document (matched: ${invoiceMatches.slice(0, 3).join(', ')}), not a resume or CV.`,
+      foundSections: [],
+      missingSections: ['Work Experience', 'Education', 'Technical Skills']
+    };
+  }
+
+  const legalKeywords = [
+    'terms of service', 'terms and conditions', 'privacy policy', 'non-disclosure agreement',
+    'nda agreement', 'contract agreement', 'indemnification', 'arbitration clause',
+    'all rights reserved', 'governing law', 'confidentiality agreement', 'lease agreement'
+  ];
+  const legalMatches = legalKeywords.filter(k => lower.includes(k));
+  if (legalMatches.length >= 2) {
+    return {
+      isResume: false,
+      confidence: 95,
+      detectedDocumentType: 'legal_agreement_or_policy',
+      rejectionReason: 'The uploaded file appears to be a legal contract, terms of service, or policy document rather than a resume.',
+      foundSections: [],
+      missingSections: ['Work Experience', 'Education', 'Technical Skills']
+    };
+  }
+
+  const assignmentKeywords = [
+    'assignment no', 'assignment 1', 'assignment 2', 'assignment 3', 'homework 1', 'homework 2',
+    'lab manual', 'question paper', 'q.1', 'q.2', 'q1.', 'q2.', 'answer all questions',
+    'marks: 100', 'maximum marks', 'course instructor:', 'submitted to:', 'experiment no'
+  ];
+  const assignmentMatches = assignmentKeywords.filter(k => lower.includes(k));
+  if (assignmentMatches.length >= 2) {
+    return {
+      isResume: false,
+      confidence: 92,
+      detectedDocumentType: 'academic_assignment_or_exam',
+      rejectionReason: 'The uploaded file appears to be an academic assignment, test paper, or lab report rather than a resume.',
+      foundSections: [],
+      missingSections: ['Professional Experience', 'Work History', 'Career Summary']
+    };
+  }
+
+  const academicPaperKeywords = [
+    'abstract\n', 'abstract:\n', 'introduction\n', 'literature review',
+    'methodology\n', 'proceedings of', 'doi:', 'arxiv:', 'references\n[1]', 'et al.'
+  ];
+  const academicPaperMatches = academicPaperKeywords.filter(k => lower.includes(k));
+  if (academicPaperMatches.length >= 3 && !lower.includes('work experience') && !lower.includes('employment')) {
+    return {
+      isResume: false,
+      confidence: 88,
+      detectedDocumentType: 'research_paper_or_article',
+      rejectionReason: 'The uploaded file appears to be a research paper, journal publication, or academic article rather than a resume.',
+      foundSections: [],
+      missingSections: ['Work Experience', 'Professional Summary', 'Skills']
+    };
+  }
+
+  // 3. Positive Resume Section Scoring
+  const sectionChecks = [
+    {
+      name: 'Work Experience',
+      regex: /\b(experience|work experience|employment history|work history|professional experience|internship|career history|job experience|worked as|developer at|engineer at|consultant at)\b/i
+    },
+    {
+      name: 'Education',
+      regex: /\b(education|academic background|qualifications|university|college|bachelor|master|b\.?tech|b\.?e|b\.?s|m\.?tech|m\.?s|mca|bca|diploma|degree|cgpa|gpa|higher secondary)\b/i
+    },
+    {
+      name: 'Technical / Professional Skills',
+      regex: /\b(skills|technical skills|technologies|proficiencies|tools & technologies|programming languages|competencies|frameworks|key skills)\b/i
+    },
+    {
+      name: 'Projects',
+      regex: /\b(projects|personal projects|key projects|academic projects|portfolio|built with|developed with|implemented)\b/i
+    },
+    {
+      name: 'Contact & Identity',
+      regex: /([a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}|(?:\+?\d{1,3}[\s-]?)?\(?\d{3}\)?[\s-]?\d{3}[\s-]?\d{4}|linkedin\.com\/in\/|github\.com\/)/i
+    }
+  ];
+
+  const foundSections = [];
+  const missingSections = [];
+
+  for (const check of sectionChecks) {
+    if (check.regex.test(text)) {
+      foundSections.push(check.name);
+    } else {
+      missingSections.push(check.name);
+    }
+  }
+
+  // 4. Common technical and occupational keywords
+  const commonOccupational = [
+    'javascript', 'typescript', 'python', 'java', 'c++', 'c#', 'react', 'node', 'angular',
+    'vue', 'sql', 'mysql', 'postgresql', 'mongodb', 'docker', 'kubernetes', 'aws', 'azure',
+    'gcp', 'git', 'html', 'css', 'linux', 'rest', 'api', 'django', 'flask', 'spring',
+    'figma', 'excel', 'agile', 'scrum', 'jira', 'ci/cd', 'frontend', 'backend', 'full stack',
+    'developer', 'engineer', 'manager', 'analyst', 'designer', 'consultant'
+  ];
+  const detectedOcc = commonOccupational.filter(t => lower.includes(t));
+
+  const score = foundSections.length;
+  const hasContactOrOcc = foundSections.includes('Contact & Identity') || detectedOcc.length >= 2;
+
+  // A valid resume must have at least 2 key sections and some professional keywords/contact info
+  if (score < 2 || (!hasContactOrOcc && score < 3)) {
+    return {
+      isResume: false,
+      confidence: 85,
+      detectedDocumentType: 'unrelated_document',
+      rejectionReason: `The uploaded document lacks standard resume sections. Missing: ${missingSections.slice(0, 3).join(', ')}. Please upload a valid resume with your professional experience and education.`,
+      foundSections,
+      missingSections
+    };
+  }
+
+  return {
+    isResume: true,
+    confidence: Math.min(100, 60 + (foundSections.length * 8)),
+    detectedDocumentType: 'resume',
+    foundSections,
+    missingSections
+  };
+}
+
 module.exports = {
   generateResumeFromJD,
   evaluateResumeATSAndAI,
@@ -1089,5 +1247,6 @@ module.exports = {
   formatResumeToMarkdown,
   formatResumeToPlainText,
   formatResumeToLatex,
-  generateResumeDocxBuffer
+  generateResumeDocxBuffer,
+  detectAndValidateResume
 };

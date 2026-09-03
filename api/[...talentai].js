@@ -43,7 +43,8 @@ const {
   formatResumeToMarkdown,
   formatResumeToPlainText,
   formatResumeToLatex,
-  generateResumeDocxBuffer
+  generateResumeDocxBuffer,
+  detectAndValidateResume
 } = require('./services/resumeTailor');
 const {
   evaluateFullInterview,
@@ -2711,6 +2712,22 @@ app.post('/api/candidates/:id/resume', upload.single('resume'), async (req, res)
       return res.status(400).json({ error: 'Failed to read resume. Please ensure file is not corrupted or password-protected.' });
     }
 
+    // Step 1: Automated Document Classification & Resume Authenticity Validation
+    const docValidation = detectAndValidateResume(resumeText);
+    if (!docValidation.isResume) {
+      if (req.file?.path) {
+        try { await fs.unlink(req.file.path); } catch (e) {}
+      }
+      return res.status(400).json({
+        success: false,
+        isResume: false,
+        detectedDocumentType: docValidation.detectedDocumentType,
+        error: `Invalid Document: ${docValidation.rejectionReason}`,
+        missingSections: docValidation.missingSections || [],
+        foundSections: docValidation.foundSections || []
+      });
+    }
+
     // Upload resume to Google Cloud Storage
     let resumeUrl = null;
     if (useGCS && req.file?.path) {
@@ -2718,9 +2735,17 @@ app.post('/api/candidates/:id/resume', upload.single('resume'), async (req, res)
       resumeUrl = await uploadFileToCloud(req.file.path, cloudPath);
     }
 
-    // AI analysis with focus on projects
+    // AI analysis with focus on projects and validation
     const candidateRole = candidate.position || req.body?.position || 'Software Engineer';
     const prompt = `Analyze this resume for a ${candidateRole} position.
+
+**CRITICAL STEP 1: AUTHENTICITY VALIDATION**
+Verify whether this document is a genuine professional Resume, Curriculum Vitae (CV), or Career Profile.
+If the uploaded document is NOT a resume (for example: an invoice, receipt, legal contract, terms of service, research paper, academic homework/assignment, source code, or random article):
+- Set "isResume": false
+- Set "detectedDocumentType": string (e.g. "invoice", "assignment", "legal_policy", "academic_paper", "code_file", "unrelated_document")
+- Set "rejectionReason": string (specific explanation)
+- Set "atsScore": 0, "projectScore": 0, "projects": []
 
 **SPECIAL FOCUS: ATS Friendliness & Real-Life Projects**
 Evaluate if the resume is ATS-friendly. If it's not (e.g., poor formatting, lack of keywords), provide specific suggestions on how to improve it.
@@ -2732,12 +2757,15 @@ ${resumeText}
 STRICT SCHEMA REQUIREMENTS:
 - Return a single valid JSON object only.
 - No markdown, no code fences, no trailing commentary.
-- Required keys: atsScore, projectScore, projects, strengths, improvements, projectAnalysis.
+- Required keys: isResume, detectedDocumentType, rejectionReason, atsScore, projectScore, projects, strengths, improvements, projectAnalysis.
 - atsScore and projectScore must be integers from 0 to 100.
 - projects must be an array of objects with name, description, technologies (array), impact.
 
 Provide analysis in this EXACT JSON schema shape:
 {
+  "isResume": true,
+  "detectedDocumentType": "resume",
+  "rejectionReason": null,
   "atsScore": 85,
   "projectScore": 90,
   "projects": [
@@ -2797,6 +2825,19 @@ Focus on:
       if (!parsed || typeof parsed !== 'object' || parsed.atsScore === undefined) {
         const analysis = await callAI(prompt, systemPrompt, { task: 'resume' });
         parsed = parseJsonFromAI(analysis, 'object');
+      }
+
+      if (parsed && parsed.isResume === false) {
+        if (req.file?.path) {
+          try { await fs.unlink(req.file.path); } catch (e) {}
+        }
+        return res.status(400).json({
+          success: false,
+          isResume: false,
+          detectedDocumentType: parsed.detectedDocumentType || 'unrelated_document',
+          error: `Invalid Document: ${parsed.rejectionReason || 'The uploaded file does not appear to be a valid resume or CV.'}`,
+          missingSections: parsed.missingSections || ['Work Experience', 'Education', 'Skills']
+        });
       }
 
       const validated = normalizeResumeAnalysis(parsed, resumeText);
