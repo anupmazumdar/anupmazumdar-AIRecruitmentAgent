@@ -1172,28 +1172,44 @@ function detectAndValidateResume(rawText = '') {
   }
 
   const coursewareKeywords = [
-    'course syllabus', 'syllabus\n', 'lecture notes', 'table of contents',
-    'chapter 1', 'chapter 2', 'chapter 3', 'slide 1', 'grading policy',
-    'semester 1', 'semester 2', 'reading list', 'textbook'
+    'syllabus', 'curriculum', 'course syllabus', 'detailed syllabus', 'course code', 'subject code', 'course title',
+    'module 1', 'module 2', 'module 3', 'module-1', 'module-2', 'module-3', 'module i', 'module ii',
+    'unit 1', 'unit 2', 'unit 3', 'unit-1', 'unit-2', 'unit-3', 'unit i', 'unit ii',
+    'credit:', 'credits:', 'credit point', 'credit points', 'contact hours', 'lecture hours', 'l-t-p',
+    'course objective', 'course objectives', 'course outcome', 'course outcomes', 'learning outcomes',
+    'text books', 'reference books', 'reading list', 'textbook', 'chapter 1', 'chapter 2', 'table of contents',
+    'lecture notes', 'grading policy', 'semester exam', 'end semester', 'mid semester', 'marks distribution',
+    'academic regulations', 'academic regulation', 'prerequisite:', 'prerequisites:'
   ];
   const coursewareMatches = coursewareKeywords.filter(k => lower.includes(k));
-  if (coursewareMatches.length >= 2) {
+  if (coursewareMatches.length >= 1 && (lower.includes('syllabus') || lower.includes('curriculum') || coursewareMatches.length >= 2)) {
     return {
       isResume: false,
-      confidence: 94,
+      confidence: 98,
       detectedDocumentType: 'courseware_or_syllabus',
-      rejectionReason: 'The uploaded file appears to be a course syllabus, lecture slides, or textbook notes rather than a resume.',
+      rejectionReason: `The uploaded file appears to be a course syllabus, curriculum, or academic teaching material (matched: ${coursewareMatches.slice(0, 3).join(', ')}), not a resume or CV.`,
       foundSections: [],
       missingSections: ['Work Experience', 'Candidate Profile', 'Professional Summary']
     };
   }
 
   // 3. Positive Resume Structural Indicators
-  // A. Contact Information (Email, Phone, LinkedIn, GitHub)
+  // A. Contact Information (Email, Phone, LinkedIn, GitHub) - MANDATORY for all genuine resumes
   const hasEmail = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/i.test(text);
   const hasPhone = /(?:\+?\d{1,3}[\s-]?)?\(?\d{3}\)?[\s-]?\d{3}[\s-]?\d{4}|\+91[\s-]?\d{10}|\b\d{10}\b/.test(text);
   const hasProfileLink = /(linkedin\.com|github\.com|portfolio|behance\.net|gitlab\.com)/i.test(text);
-  const hasContactInfo = hasEmail || hasPhone || hasProfileLink;
+  const hasContactInfo = hasEmail || (hasPhone && hasProfileLink) || (hasEmail && hasPhone);
+
+  if (!hasContactInfo && !hasEmail && !hasPhone) {
+    return {
+      isResume: false,
+      confidence: 96,
+      detectedDocumentType: 'unrelated_document',
+      rejectionReason: 'The uploaded file lacks candidate contact information (missing Email address or Phone number). A valid resume must identify the applicant.',
+      foundSections: [],
+      missingSections: ['Candidate Contact Information (Email / Phone)', 'Work Experience', 'Education']
+    };
+  }
 
   // B. Chronological Dates (Resumes have graduation or employment years: e.g. 2018-2024, 2023, Present)
   const yearMatches = text.match(/\b(19|20)\d{2}\b/g) || [];
@@ -1234,20 +1250,13 @@ function detectAndValidateResume(rawText = '') {
     }
   }
 
-  // Common occupational / professional roles
-  const roles = [
-    'developer', 'engineer', 'manager', 'analyst', 'designer', 'consultant',
-    'specialist', 'administrator', 'intern', 'lead', 'architect', 'programmer'
-  ];
-  const detectedRoles = roles.filter(r => lower.includes(r));
-
   // Resume Scoring Decision Logic:
   // A genuine resume MUST have:
-  // 1. Candidate Contact info OR at least 3 distinct resume sections
+  // 1. Candidate Contact info
   // 2. Chronological years OR dates
   // 3. At least 2 recognized sections (Experience, Education, Skills, Projects)
   const hasCoreRequirements =
-    (hasContactInfo || detectedRoles.length >= 2) &&
+    hasContactInfo &&
     foundSections.length >= 2 &&
     (hasChronology || foundSections.length >= 3);
 
@@ -1260,7 +1269,7 @@ function detectAndValidateResume(rawText = '') {
 
     return {
       isResume: false,
-      confidence: 90,
+      confidence: 92,
       detectedDocumentType: 'unrelated_document',
       rejectionReason: `The uploaded document does not contain standard resume structure. Missing: ${missing.slice(0, 3).join(', ')}. Please upload a genuine resume or CV.`,
       foundSections,
@@ -1283,12 +1292,28 @@ function detectAndValidateResume(rawText = '') {
  * based on verified resume content without relying on external API availability.
  */
 function parseResumeDeterministically(resumeText = '', targetRole = 'Software Engineer') {
+  // 1. Rigorous pre-validation: never score non-resume documents
+  const validation = detectAndValidateResume(resumeText);
+  if (!validation.isResume) {
+    return {
+      isResume: false,
+      detectedDocumentType: validation.detectedDocumentType || 'unrelated_document',
+      rejectionReason: validation.rejectionReason || 'The uploaded file does not appear to be a valid resume or CV.',
+      atsScore: 0,
+      projectScore: 0,
+      projects: [],
+      strengths: [],
+      improvements: [validation.rejectionReason || 'Please upload an authentic resume/CV.'],
+      projectAnalysis: 'Document was rejected as an invalid non-resume submission.'
+    };
+  }
+
   const text = String(resumeText || '');
   const lower = text.toLowerCase();
   const words = lower.split(/\s+/).filter(Boolean);
   const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
 
-  // 1. Comprehensive Technology & Skill Extraction
+  // 2. Comprehensive Technology & Skill Extraction
   const TECH_MAP = [
     'javascript', 'typescript', 'react', 'react native', 'next.js', 'node.js', 'express',
     'vue', 'angular', 'python', 'django', 'flask', 'fastapi', 'java', 'spring boot', 'c++',
@@ -1299,10 +1324,10 @@ function parseResumeDeterministically(resumeText = '', targetRole = 'Software En
   ];
   const detectedTech = TECH_MAP.filter(t => lower.includes(t));
 
-  // 2. Quantifiable Impact & Metrics Extraction
+  // 3. Quantifiable Impact & Metrics Extraction
   const metricMatches = text.match(/\b\d+[%kKmMbBsS]?\b|\b\d+\s*(users|clients|requests|ms|seconds|minutes|hours|percent|growth|million|billion)\b/gi) || [];
 
-  // 3. Project Extraction
+  // 4. Project Extraction
   const projects = [];
   const projectIndex = lines.findIndex(l => /^(?:key\s+|featured\s+|academic\s+)?projects?\b/i.test(l));
 
@@ -1343,7 +1368,7 @@ function parseResumeDeterministically(resumeText = '', targetRole = 'Software En
     }
   }
 
-  // 4. Calculate Objective ATS Score
+  // 5. Calculate Objective ATS Score
   let sectionPoints = 0;
   if (/experience|employment|work history/i.test(lower)) sectionPoints += 7;
   if (/education|academic|degree|university/i.test(lower)) sectionPoints += 7;
@@ -1354,8 +1379,8 @@ function parseResumeDeterministically(resumeText = '', targetRole = 'Software En
   const metricPoints = Math.min(20, metricMatches.length * 4);
   const depthPoints = Math.min(20, Math.round(words.length / 25));
 
-  const calculatedAts = Math.min(96, Math.max(74, sectionPoints + techPoints + metricPoints + depthPoints));
-  const calculatedProjectScore = Math.min(95, Math.max(72, 60 + (projects.length * 8) + (detectedTech.length * 2)));
+  const calculatedAts = Math.min(96, Math.max(0, sectionPoints + techPoints + metricPoints + depthPoints));
+  const calculatedProjectScore = Math.min(95, Math.max(0, (projects.length * 15) + (detectedTech.length * 3)));
 
   // Strengths reflecting candidate's actual contents
   const strengths = [];

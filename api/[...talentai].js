@@ -2949,6 +2949,16 @@ Focus on:
         const candidateRole = candidate.position || req.body?.position || 'Software Engineer';
         const fallbackAnalysis = parseResumeDeterministically(resumeText, candidateRole);
 
+        if (!fallbackAnalysis.isResume || fallbackAnalysis.atsScore === 0) {
+          return res.status(400).json({
+            success: false,
+            isResume: false,
+            detectedDocumentType: fallbackAnalysis.detectedDocumentType || 'unrelated_document',
+            error: `Invalid Document: ${fallbackAnalysis.rejectionReason || 'The uploaded file is not a valid resume.'}`,
+            missingSections: ['Candidate Contact Information', 'Work Experience', 'Education']
+          });
+        }
+
         candidate.resumeScore = fallbackAnalysis.atsScore;
         candidate.resumeUrl = resumeUrl;
         candidate.resumeAnalyzedAt = new Date().toISOString();
