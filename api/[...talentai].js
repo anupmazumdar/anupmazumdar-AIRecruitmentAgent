@@ -802,8 +802,9 @@ function normalizeResumeAnalysis(parsed = {}, resumeText = '') {
     };
   }
 
-  const atsScore = clampScore(data.atsScore, 0, 100, 60);
-  const projectScoreFallback = signals.projectMentions > 0 ? 70 : 50;
+  // Never inflate score with arbitrary fallback — if AI gave no valid score, use 0
+  const atsScore = clampScore(data.atsScore, 0, 100, 0);
+  const projectScoreFallback = signals.projectMentions > 0 ? 60 : 0;
   const projectScore = clampScore(data.projectScore, 0, 100, projectScoreFallback);
 
   const strengths = toStringArray(data.strengths, [
@@ -2876,7 +2877,24 @@ Focus on:
           parsed = parseJsonFromAI(analysis, 'object');
         } catch (callError) {
           console.warn('[TalentAI] External AI call unavailable, using deterministic resume parser:', callError.message);
-          parsed = parseResumeDeterministically(resumeText, candidateRole);
+          const detResult = parseResumeDeterministically(resumeText, candidateRole);
+          if (!detResult.isResume || detResult.atsScore === 0) {
+            if (req.file?.path) { try { await fs.unlink(req.file.path); } catch (e) {} }
+            return res.status(400).json({
+              success: false,
+              isResume: false,
+              detectedDocumentType: detResult.detectedDocumentType || 'unrelated_document',
+              error: `Invalid Document: ${detResult.rejectionReason || 'The uploaded file is not a valid resume or CV.'}`,
+              missingSections: ['Candidate Contact Information', 'Work Experience', 'Education']
+            });
+          }
+          // Deterministic analysis succeeded — return it directly, skip normalizeResumeAnalysis
+          candidate.resumeScore = detResult.atsScore;
+          candidate.resumeUrl = resumeUrl;
+          candidate.resumeAnalyzedAt = new Date().toISOString();
+          await saveCandidates();
+          if (req.file?.path) { try { await fs.unlink(req.file.path); } catch (e) {} }
+          return res.json({ success: true, analysis: detResult });
         }
       }
 
