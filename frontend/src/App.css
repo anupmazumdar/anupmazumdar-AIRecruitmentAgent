@@ -86,3 +86,30 @@ textarea:focus {
   outline: 2px solid #6366f1;
   outline-offset: 2px;
 }
+
+/* Print styles for Clean ATS PDF Export */
+@media print {
+  body * {
+    visibility: hidden;
+  }
+  .printable-ats-resume,
+  .printable-ats-resume * {
+    visibility: visible;
+  }
+  .printable-ats-resume {
+    position: absolute;
+    left: 0;
+    top: 0;
+    width: 100%;
+    margin: 0;
+    padding: 20px 32px;
+    background: #ffffff !important;
+    color: #111827 !important;
+    border: none !important;
+    box-shadow: none !important;
+    font-family: 'Times New Roman', Times, serif, system-ui;
+  }
+  .no-print {
+    display: none !important;
+  }
+}

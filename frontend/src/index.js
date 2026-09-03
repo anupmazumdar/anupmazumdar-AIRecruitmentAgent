@@ -16,14 +16,16 @@ root.render(
     <Auth0Provider
       domain={AUTH0_DOMAIN}
       clientId={AUTH0_CLIENT_ID}
-      authorizationParams={{ redirect_uri: `${window.location.origin}/callback` }}
+      authorizationParams={{
+        redirect_uri: window.location.origin
+      }}
       cacheLocation="localstorage"
       useRefreshTokens={true}
-      skipRedirectCallback={true}
     >
       <BrowserRouter>
         <Routes>
           <Route path="/" element={<App />} />
+          <Route path="/callback" element={<App />} />
           <Route path="/privacy" element={<PrivacyPolicy />} />
           <Route path="/terms" element={<Terms />} />
         </Routes>

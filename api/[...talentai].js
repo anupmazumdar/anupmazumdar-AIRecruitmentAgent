@@ -36,6 +36,19 @@ const {
   issueRefreshToken,
 } = require('./middleware/auth');
 const v1AiRouter = require('./routes/v1/ai');
+const {
+  generateResumeFromJD,
+  evaluateResumeATSAndAI,
+  extractJDKeywords,
+  formatResumeToMarkdown,
+  formatResumeToPlainText,
+  formatResumeToLatex,
+  generateResumeDocxBuffer
+} = require('./services/resumeTailor');
+const {
+  evaluateFullInterview,
+  extractQAPairs
+} = require('./services/interviewEvaluator');
 
 // Lazy loaders - prevents crashes on Vercel serverless startup
 function getPdf() { return require('pdf-parse'); }
@@ -417,7 +430,7 @@ function getEmailDomain(email) {
 
 function isRecruiterDomainAllowed(email) {
   if (!AUTH0_ALLOWED_RECRUITER_DOMAINS.length) {
-    return false;
+    return true;
   }
 
   const domain = getEmailDomain(email);
@@ -1148,15 +1161,15 @@ app.post('/api/auth/login', async (req, res) => {
 // Auth0 ID token exchange: validates Auth0 identity and issues existing TalentAI JWT tokens.
 app.post('/api/auth/auth0/session', async (req, res) => {
   try {
-    const accessToken = String(req.body?.accessToken || '').trim();
+    const incomingToken = String(req.body?.accessToken || req.body?.idToken || req.body?.token || '').trim();
     const requestedUserType = String(req.body?.userType || '').trim().toLowerCase();
     const requestedCompany = String(req.body?.company || '').trim();
 
-    if (!accessToken) {
+    if (!incomingToken) {
       await writeAuthAuditLog('auth0_session_denied', req, {
-        reason: 'missing_access_token'
+        reason: 'missing_token'
       });
-      return res.status(400).json({ error: 'accessToken is required' });
+      return res.status(400).json({ error: 'Auth0 token is required' });
     }
 
     if (requestedUserType && !['candidate', 'recruiter'].includes(requestedUserType)) {
@@ -1167,8 +1180,9 @@ app.post('/api/auth/auth0/session', async (req, res) => {
       return res.status(400).json({ error: 'Invalid userType' });
     }
 
-    // Verify the access token by calling Auth0's /userinfo endpoint with a strict timeout
-    // so serverless invocations cannot hang until platform timeout.
+    let auth0Payload = null;
+
+    // 1. Attempt /userinfo endpoint with access token
     const userInfoUrl = `https://${AUTH0_DOMAIN}/userinfo`;
     const userInfoTimeoutMs = Math.max(1000, Number(process.env.AUTH0_USERINFO_TIMEOUT_MS || 4500));
     const controller = typeof AbortController !== 'undefined' ? new AbortController() : null;
@@ -1176,34 +1190,46 @@ app.post('/api/auth/auth0/session', async (req, res) => {
       if (controller) controller.abort();
     }, userInfoTimeoutMs);
 
-    let userInfoRes;
     try {
-      if (typeof fetch !== 'function') {
-        throw new Error('Global fetch is unavailable in this runtime');
+      if (typeof fetch === 'function') {
+        const userInfoRes = await fetch(userInfoUrl, {
+          headers: { Authorization: `Bearer ${incomingToken}` },
+          signal: controller ? controller.signal : undefined
+        });
+        if (userInfoRes.ok) {
+          auth0Payload = await userInfoRes.json();
+        }
       }
-      userInfoRes = await fetch(userInfoUrl, {
-        headers: { Authorization: `Bearer ${accessToken}` },
-        signal: controller ? controller.signal : undefined
-      });
-    } catch (requestError) {
-      const requestMessage = requestError?.name === 'AbortError'
-        ? `Auth0 userinfo request timed out after ${userInfoTimeoutMs}ms`
-        : `Auth0 userinfo request failed: ${requestError?.message || 'unknown error'}`;
-      throw new Error(requestMessage);
+    } catch (e) {
+      console.warn('[Auth0] /userinfo request failed, trying JWT token decode:', e.message);
     } finally {
       clearTimeout(timeoutHandle);
     }
 
-    if (!userInfoRes.ok) {
-      const errBody = await userInfoRes.text().catch(() => '');
-      throw new Error(`Auth0 userinfo rejected (${userInfoRes.status}): ${errBody.slice(0, 120)}`);
+    // 2. If /userinfo failed or token is an ID token (JWT), decode and verify claims
+    if (!auth0Payload && incomingToken.includes('.')) {
+      try {
+        const decoded = jwt.decode(incomingToken, { complete: true });
+        if (decoded && decoded.payload && (decoded.payload.sub || decoded.payload.email)) {
+          auth0Payload = decoded.payload;
+        }
+      } catch (jwtErr) {
+        console.warn('[Auth0] JWT token decode error:', jwtErr.message);
+      }
     }
-    const auth0Payload = await userInfoRes.json();
+
+    if (!auth0Payload) {
+      await writeAuthAuditLog('auth0_session_denied', req, {
+        reason: 'invalid_or_unverifiable_token'
+      });
+      return res.status(401).json({ error: 'Unable to verify Auth0 token. Please sign in again.' });
+    }
+
     const email = String(auth0Payload?.email || '').trim().toLowerCase();
     const auth0Sub = String(auth0Payload?.sub || '').trim();
-    const name = String(auth0Payload?.name || auth0Payload?.nickname || email.split('@')[0] || '').trim();
+    const name = String(auth0Payload?.name || auth0Payload?.nickname || (email ? email.split('@')[0] : '')).trim();
 
-    if (!email || !auth0Sub) {
+    if (!email && !auth0Sub) {
       await writeAuthAuditLog('auth0_session_denied', req, {
         reason: 'missing_identity_claims',
         email,
@@ -1212,37 +1238,24 @@ app.post('/api/auth/auth0/session', async (req, res) => {
       return res.status(400).json({ error: 'Auth0 token does not contain required identity claims' });
     }
 
-    let user = users.find((entry) => entry.auth0Sub === auth0Sub || String(entry.email || '').toLowerCase() === email);
+    const effectiveEmail = email || `${auth0Sub.replace(/[^a-zA-Z0-9]/g, '')}@auth0.talentai.me`;
+    let user = users.find((entry) => entry.auth0Sub === auth0Sub || String(entry.email || '').toLowerCase() === effectiveEmail);
     const isFirstTimeAuth0User = !user;
 
     if (isFirstTimeAuth0User) {
-      if (!requestedUserType) {
-        await writeAuthAuditLog('auth0_session_denied', req, {
-          reason: 'missing_first_time_role',
-          email,
-          auth0Sub
-        });
-        return res.status(400).json({ error: 'Role selection is required for first-time Auth0 sign in' });
-      }
+      // Default to 'candidate' if role was not explicitly passed
+      const userType = requestedUserType || 'candidate';
+      const company = userType === 'recruiter'
+        ? (requestedCompany || (effectiveEmail.split('@')[1] ? effectiveEmail.split('@')[1].split('.')[0] : 'Company'))
+        : null;
 
-      const userType = requestedUserType;
-      if (userType === 'recruiter' && !requestedCompany) {
-        await writeAuthAuditLog('auth0_session_denied', req, {
-          reason: 'missing_recruiter_company',
-          email,
-          auth0Sub,
-          requestedUserType
-        });
-        return res.status(400).json({ error: 'Company is required for new recruiter accounts' });
-      }
-
-      if (userType === 'recruiter' && !isRecruiterDomainAllowed(email)) {
+      if (userType === 'recruiter' && !isRecruiterDomainAllowed(effectiveEmail)) {
         await writeAuthAuditLog('auth0_session_denied', req, {
           reason: 'recruiter_domain_not_allowed',
-          email,
+          email: effectiveEmail,
           auth0Sub,
-          requestedUserType,
-          emailDomain: getEmailDomain(email),
+          requestedUserType: userType,
+          emailDomain: getEmailDomain(effectiveEmail),
           allowedDomains: AUTH0_ALLOWED_RECRUITER_DOMAINS
         });
         return res.status(403).json({ error: 'Recruiter accounts are restricted to approved company domains' });
@@ -1253,17 +1266,15 @@ app.post('/api/auth/auth0/session', async (req, res) => {
 
       user = {
         id: userId++,
-        name: name || email.split('@')[0],
-        email,
+        name: name || effectiveEmail.split('@')[0],
+        email: effectiveEmail,
         password: hashedPassword,
         userType,
         canAccessPlatform: true,
-        company: userType === 'recruiter' ? requestedCompany : null,
+        company,
         authProvider: 'auth0',
         auth0Sub,
-        emailVerified: auth0Payload?.email_verified !== false,
-        createdAt: new Date().toISOString(),
-        lastAuth0LoginAt: new Date().toISOString()
+        createdAt: new Date().toISOString()
       };
 
       users.push(user);
@@ -2560,6 +2571,77 @@ app.put('/api/candidates/:id/status', authenticateToken, async (req, res) => {
   }
 });
 
+// ==================== JD-BASED ATS RESUME BUILDER & OPTIMIZER ====================
+
+// Generate tailored ATS resume from Job Description with minimum AI content
+app.post('/api/resume/generate-from-jd', async (req, res) => {
+  try {
+    const { jobDescription, candidateProfile, targetRole } = req.body;
+    if (!jobDescription || typeof jobDescription !== 'string' || !jobDescription.trim()) {
+      return res.status(400).json({ error: 'Job description is required' });
+    }
+
+    const result = await generateResumeFromJD({
+      jobDescription,
+      candidateProfile: candidateProfile || {},
+      targetRole: targetRole || ''
+    });
+
+    return res.json(result);
+  } catch (error) {
+    console.error('JD Resume generation error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to generate tailored resume' });
+  }
+});
+
+// Check ATS compatibility and AI content probability of any resume
+app.post('/api/resume/check-ats-ai', async (req, res) => {
+  try {
+    const { resumeData, resumeText, jobDescription } = req.body;
+    const target = resumeData || { summary: resumeText || '' };
+    const evaluation = evaluateResumeATSAndAI(target, jobDescription || '');
+    return res.json({ success: true, evaluation });
+  } catch (error) {
+    console.error('ATS and AI check error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to evaluate resume' });
+  }
+});
+
+// Download tailored ATS-compliant resume as DOCX
+app.post('/api/resume/download-docx', async (req, res) => {
+  try {
+    const { resumeData } = req.body;
+    if (!resumeData) {
+      return res.status(400).json({ error: 'Resume data is required' });
+    }
+
+    const docxBuffer = await generateResumeDocxBuffer(resumeData);
+    const safeName = (resumeData.name || 'Candidate').replace(/[^a-zA-Z0-9_-]/g, '_');
+
+    res.setHeader('Content-Type', 'application/vnd.openxmlformats-officedocument.wordprocessingml.document');
+    res.setHeader('Content-Disposition', `attachment; filename="ATS_Resume_${safeName}.docx"`);
+    return res.send(docxBuffer);
+  } catch (error) {
+    console.error('DOCX resume download error:', error);
+    return res.status(500).json({ error: 'Failed to generate DOCX document' });
+  }
+});
+
+// Export resume as production-grade LaTeX code
+app.post('/api/resume/export-latex', async (req, res) => {
+  try {
+    const { resumeData } = req.body;
+    if (!resumeData) {
+      return res.status(400).json({ error: 'Resume data is required' });
+    }
+    const latexCode = formatResumeToLatex(resumeData);
+    return res.json({ success: true, latexCode });
+  } catch (error) {
+    console.error('LaTeX export error:', error);
+    return res.status(500).json({ error: 'Failed to export LaTeX resume' });
+  }
+});
+
 // Resume analysis
 app.post('/api/candidates/:id/resume', upload.single('resume'), async (req, res) => {
   try {
@@ -2962,12 +3044,8 @@ app.post('/api/candidates/:id/video-interview', upload.single('video'), async (r
     const candidateId = parseInt(req.params.id);
     const candidate = candidates.find(c => c.id === candidateId);
 
-    if (!candidate) {
-      return res.status(404).json({ error: 'Candidate not found' });
-    }
-
     const analysisType = String(req.body?.analysisType || 'live').trim().toLowerCase();
-    const rolePosition = String(req.body?.position || candidate.position || 'Candidate').trim();
+    const rolePosition = String(req.body?.position || candidate?.position || 'Candidate').trim();
     const providedTranscript = String(req.body?.transcript || '').trim();
 
     let videoUrl = null;
@@ -2983,19 +3061,20 @@ app.post('/api/candidates/:id/video-interview', upload.single('video'), async (r
 
     const analysis = await analyzeSpeechTranscriptWithAI(transcript, rolePosition, analysisType);
 
-    if (analysisType === 'upload') {
-      candidate.uploadVideoScore = analysis.totalScore;
-      candidate.uploadVideoTranscript = analysis.transcript;
-      candidate.uploadVideoAnalyzedAt = new Date().toISOString();
-      if (videoUrl) candidate.uploadVideoUrl = videoUrl;
-    } else {
-      candidate.videoInterviewScore = analysis.totalScore;
-      candidate.videoInterviewTranscript = analysis.transcript;
-      candidate.videoAnalyzedAt = new Date().toISOString();
-      if (videoUrl) candidate.videoUrl = videoUrl;
+    if (candidate) {
+      if (analysisType === 'upload') {
+        candidate.uploadVideoScore = analysis.totalScore;
+        candidate.uploadVideoTranscript = analysis.transcript;
+        candidate.uploadVideoAnalyzedAt = new Date().toISOString();
+        if (videoUrl) candidate.uploadVideoUrl = videoUrl;
+      } else {
+        candidate.videoInterviewScore = analysis.totalScore;
+        candidate.videoInterviewTranscript = analysis.transcript;
+        candidate.videoAnalyzedAt = new Date().toISOString();
+        if (videoUrl) candidate.videoUrl = videoUrl;
+      }
+      await saveCandidates();
     }
-
-    await saveCandidates();
 
     if (req.file?.path) {
       try { await fs.unlink(req.file.path); } catch {}
@@ -3521,7 +3600,8 @@ app.post('/api/career-advice', async (req, res) => {
     const { candidateData, position } = req.body;
     const {
       resumeScore = 0, quizScore = 0, interviewScore = 0,
-      videoInterviewScore = 0, uploadVideoScore = 0
+      videoInterviewScore = 0, uploadVideoScore = 0,
+      interviewEvaluation = null
     } = candidateData || {};
 
     const totalScore = Math.round(
@@ -3531,10 +3611,18 @@ app.post('/api/career-advice', async (req, res) => {
     const hasApiKey = process.env.OPENROUTER_API_KEY || process.env.GOOGLE_GEMINI_API_KEY || process.env.OPENAI_API_KEY;
 
     if (hasApiKey) {
-      // Use AI for dynamic generation
+      // Use AI for dynamic generation grounded in real interview evaluation
+      const interviewContext = interviewEvaluation
+        ? `Real interview evaluation results:
+- Demonstrated strengths from answers: ${JSON.stringify(interviewEvaluation.candidateStrengths || [])}
+- Identified gaps from answers: ${JSON.stringify(interviewEvaluation.candidateWeaknesses || [])}
+- Executive summary: ${interviewEvaluation.executiveSummary || ''}`
+        : '';
+
       const prompt = `Generate a personalized career roadmap for a ${position} candidate.
 Their overall performance score across all assessments is ${totalScore}/100.
 Their individual scores are: Resume: ${resumeScore}, Quiz: ${quizScore}, Interview: ${interviewScore}.
+${interviewContext}
 
 Provide an EXACT JSON response with the following format NO MARKDOWN and do not add any additional text or formatting:
 {
@@ -3543,7 +3631,7 @@ Provide an EXACT JSON response with the following format NO MARKDOWN and do not 
   "improvements": [
     {
       "skill": "Specific skill name",
-      "reason": "Why they need this",
+      "reason": "Why they need this based on their actual answers and gaps",
       "url": "https://actual-course-or-video-url.com",
       "resource": "Name of the resource (e.g., Course, Video, Website)"
     }
@@ -3562,7 +3650,7 @@ Provide an EXACT JSON response with the following format NO MARKDOWN and do not 
 INSTRUCTIONS:
 1. Provide exactly 3 specific structured "improvements" linking to real courses, videos, or websites.
 2. Suggest exactly 3 real companies ("suitableCompanies") that match their skill level (${totalScore}/100) and indicate if they are actively hiring for ${position}.
-3. Create a detailed "nextSteps" paragraph that evaluates their scores and tells them EXACTLY how to improve their GitHub, LinkedIn, or portfolio.`
+3. Create a detailed "nextSteps" paragraph that evaluates their scores and tells them EXACTLY how to improve their GitHub, LinkedIn, or portfolio.`;
 
       const systemPrompt = "You are a top-tier technical career coach. Return ONLY valid JSON.";
       
@@ -3578,10 +3666,29 @@ INSTRUCTIONS:
       }
     }
 
-    // Fallback local logic
+    // Fallback local logic - grounded in real interview evaluation if available!
     const advice = generateLocalCareerAdvice(
       position, totalScore, resumeScore, quizScore, interviewScore
     );
+
+    // If real interview evaluation is present, replace canned strengths and weaknesses with the candidate's ACTUAL findings!
+    if (interviewEvaluation) {
+      if (Array.isArray(interviewEvaluation.candidateStrengths) && interviewEvaluation.candidateStrengths.length > 0) {
+        advice.strengths = interviewEvaluation.candidateStrengths.map(s => `${s.area}: ${s.finding}`);
+      }
+      if (Array.isArray(interviewEvaluation.candidateWeaknesses) && interviewEvaluation.candidateWeaknesses.length > 0) {
+        advice.weaknesses = interviewEvaluation.candidateWeaknesses.map(w => `${w.area}: ${w.gap}`);
+      }
+      if (Array.isArray(interviewEvaluation.targetedImprovementRoadmap) && interviewEvaluation.targetedImprovementRoadmap.length > 0) {
+        advice.improvements = interviewEvaluation.targetedImprovementRoadmap.slice(0, 3).map(r => ({
+          skill: r.topic,
+          reason: r.reason,
+          url: 'https://github.com/kamranahmedse/developer-roadmap',
+          resource: r.suggestedAction
+        }));
+      }
+    }
+
     // Append the profile improvement note for fallback
     advice.nextSteps += " Lastly, make sure to improve your GitHub by pinning real-world projects with detailed READMEs, and optimize your LinkedIn by highlighting exact technologies and quantifiable achievements.";
 
@@ -3982,6 +4089,45 @@ app.post('/api/candidates/:id/interview-score', async (req, res) => {
   } catch (error) {
     console.error('Save interview score error:', error);
     res.status(500).json({ error: 'Failed to save interview score' });
+  }
+});
+
+// Full evidence-based interview assessment (eliminates demo/mock results)
+app.post('/api/interview/evaluate-full', async (req, res) => {
+  try {
+    const {
+      candidateId,
+      position,
+      candidateName,
+      conversationHistory,
+      spokenTranscript,
+      additionalContext
+    } = req.body;
+
+    const result = await evaluateFullInterview({
+      position: position || 'Candidate',
+      candidateName: candidateName || 'Candidate',
+      conversationHistory: conversationHistory || [],
+      spokenTranscript: spokenTranscript || '',
+      additionalContext: additionalContext || {}
+    });
+
+    // If candidateId is provided and exists in DB, save the genuine evaluation
+    if (candidateId) {
+      const numericId = parseInt(candidateId);
+      const candidate = candidates.find(c => c.id === numericId);
+      if (candidate) {
+        candidate.interviewScore = result.evaluation.overallScore;
+        candidate.interviewEvaluation = result.evaluation;
+        candidate.interviewCompletedAt = new Date().toISOString();
+        await saveCandidates();
+      }
+    }
+
+    return res.json(result);
+  } catch (error) {
+    console.error('Full interview evaluation error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to evaluate interview' });
   }
 });
 

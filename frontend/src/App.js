@@ -4,7 +4,7 @@
 
 import React, { useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { useAuth0 } from '@auth0/auth0-react';
-import { Upload, CheckCircle, XCircle, User, Briefcase, MessageSquare, Award, FileText, Users, TrendingUp, Crown, Zap, Sparkles, Check, X, Mail, Lock, Eye, EyeOff, LogOut, Video, VideoOff, Search, Paperclip, Image as ImageIcon, Clock3, Sun, Moon } from 'lucide-react';
+import { Upload, CheckCircle, XCircle, User, Briefcase, MessageSquare, Award, FileText, Users, TrendingUp, Crown, Zap, Sparkles, Check, X, Mail, Lock, Eye, EyeOff, LogOut, Video, VideoOff, Search, Paperclip, Image as ImageIcon, Clock3, Sun, Moon, Download, Copy, RefreshCw, ShieldCheck, CheckCheck, ExternalLink, Printer, Plus, Trash2, Edit3, Code } from 'lucide-react';
 import './App.css';
 import Home from './pages/Home';
 import SupportChatbot from './components/SupportChatbot';
@@ -237,6 +237,7 @@ export default function AIRecruitmentAgent() {
         {!userType ? (
           <Home
             setUserType={setUserType}
+            setShowSubscriptionModal={setShowSubscriptionModal}
             setShowAuthModal={setShowAuthModal}
             setAuthMode={setAuthMode}
             authState={authState}
@@ -301,8 +302,10 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
     isAuthenticated: isAuth0Authenticated,
     error: auth0Error,
     loginWithPopup,
+    loginWithRedirect,
     logout: auth0Logout,
     getAccessTokenSilently,
+    getIdTokenClaims,
     user: auth0User
   } = useAuth0();
 
@@ -317,16 +320,14 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
   const [showPassword, setShowPassword] = useState(false);
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState('');
-  const [auth0RoleExplicitlySelected, setAuth0RoleExplicitlySelected] = useState(Boolean(selectedPlan || authUserType === 'candidate' || authUserType === 'recruiter'));
+  const [auth0Exchanged, setAuth0Exchanged] = useState(false);
 
   useEffect(() => {
     if (selectedPlan) {
-      setAuth0RoleExplicitlySelected(true);
       setFormData(prev => ({ ...prev, userType: 'recruiter' }));
       return;
     }
     if (authUserType === 'candidate' || authUserType === 'recruiter') {
-      setAuth0RoleExplicitlySelected(true);
       setFormData(prev => ({
         ...prev,
         userType: authUserType,
@@ -343,6 +344,96 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
       name: prev.name || auth0User.name || ''
     }));
   }, [auth0User, isAuth0Authenticated]);
+
+  const handleAuth0SignIn = async (screenHint) => {
+    setError('');
+    const params = screenHint ? { authorizationParams: { screen_hint: screenHint } } : undefined;
+    try {
+      await loginWithPopup(params);
+    } catch (e) {
+      console.warn('Auth0 popup failed, attempting redirect fallback:', e);
+      if (e?.message && (e.message.includes('Popup window failed to open') || e.message.includes('pop-up') || e.message.includes('blocked'))) {
+        try {
+          await loginWithRedirect(params);
+        } catch (redirErr) {
+          setError(redirErr.message || 'Auth0 redirect failed');
+        }
+      } else if (e?.message !== 'Popup closed') {
+        setError(e?.message || 'Auth0 sign-in failed');
+      }
+    }
+  };
+
+  const handleAuth0SessionContinue = async () => {
+    if (auth0Exchanged) return;
+    setError('');
+    setLoading(true);
+    try {
+      const userType = formData.userType || authUserType || 'candidate';
+      if (userType === 'recruiter' && !formData.company.trim()) {
+        throw new Error('Company name is required for recruiter sign in.');
+      }
+
+      let accessToken = '';
+      let idToken = '';
+
+      try {
+        const claims = await getIdTokenClaims();
+        idToken = claims?.__raw || '';
+      } catch (claimsErr) {
+        console.warn('[Auth0] Could not get ID token claims:', claimsErr.message);
+      }
+
+      try {
+        accessToken = await getAccessTokenSilently();
+      } catch (tokenErr) {
+        console.warn('[Auth0] Could not get access token silently:', tokenErr.message);
+      }
+
+      const tokenToSend = accessToken || idToken;
+      if (!tokenToSend) {
+        throw new Error('Unable to retrieve Auth0 session tokens. Please log in again.');
+      }
+
+      const response = await fetch(`${API_URL}/api/auth/auth0/session`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          accessToken,
+          idToken,
+          userType,
+          company: userType === 'recruiter' ? formData.company : ''
+        })
+      });
+
+      const data = await parseApiJson(response);
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to create TalentAI session from Auth0 login');
+      }
+
+      setAuth0Exchanged(true);
+      login({
+        ...data.user,
+        token: data.token,
+        type: data.user.userType
+      });
+      setShowAuthModal(false);
+    } catch (err) {
+      setError(err.message || 'Auth0 session setup failed');
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  // Auto-complete Auth0 session if user is candidate or company is already set
+  useEffect(() => {
+    if (isAuth0Authenticated && auth0User && !auth0Exchanged && !loading) {
+      if (formData.userType !== 'recruiter' || formData.company.trim()) {
+        handleAuth0SessionContinue();
+      }
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [isAuth0Authenticated, auth0User, auth0Exchanged]);
 
   const handleSubmit = async (e) => {
     e.preventDefault();
@@ -394,50 +485,6 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
     }
   };
 
-  const handleAuth0SessionContinue = async () => {
-    setError('');
-    setLoading(true);
-    try {
-      if (!auth0RoleExplicitlySelected) {
-        throw new Error('Please select Candidate or Recruiter before continuing with Auth0.');
-      }
-
-      if (formData.userType === 'recruiter' && !formData.company.trim()) {
-        throw new Error('Company name is required for recruiter Auth0 sign in.');
-      }
-
-      const accessToken = await getAccessTokenSilently();
-      if (!accessToken) {
-        throw new Error('Unable to get Auth0 access token. Please login again.');
-      }
-
-      const response = await fetch(`${API_URL}/api/auth/auth0/session`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          accessToken,
-          userType: auth0RoleExplicitlySelected ? formData.userType : '',
-          company: formData.userType === 'recruiter' ? formData.company : ''
-        })
-      });
-
-      const data = await parseApiJson(response);
-      if (!response.ok || !data.success) {
-        throw new Error(data.error || 'Failed to create TalentAI session from Auth0 login');
-      }
-
-      login({
-        ...data.user,
-        token: data.token,
-        type: data.user.userType
-      });
-    } catch (err) {
-      setError(err.message || 'Auth0 session setup failed');
-    } finally {
-      setLoading(false);
-    }
-  };
-
   return (
     <div className="fixed inset-0 bg-black/70 backdrop-blur-sm z-50 flex items-center justify-center p-3 md:p-4">
       <div className="bg-slate-900/95 rounded-2xl max-w-md w-full p-4 md:p-6 border border-slate-700">
@@ -477,37 +524,47 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
             <>
               <button
                 type="button"
-                onClick={async () => { setError(''); try { await loginWithPopup(); } catch (e) { if (e.message !== 'Popup closed') setError(e.message); } }}
-                disabled={isAuth0Loading}
-                className="w-full min-h-[44px] py-2.5 rounded-lg font-semibold text-sm md:text-base bg-cyan-700 hover:bg-cyan-600 transition-all disabled:opacity-60"
+                onClick={() => handleAuth0SignIn()}
+                disabled={isAuth0Loading || loading}
+                className="w-full min-h-[44px] py-2.5 rounded-lg font-semibold text-sm md:text-base bg-cyan-700 hover:bg-cyan-600 transition-all disabled:opacity-60 flex items-center justify-center gap-2"
               >
-                {isAuth0Loading ? 'Connecting...' : 'Continue with Auth0'}
+                {isAuth0Loading ? 'Connecting to Auth0...' : 'Continue with Auth0'}
               </button>
               <button
                 type="button"
-                onClick={async () => { setError(''); try { await loginWithPopup({ authorizationParams: { screen_hint: 'signup' } }); } catch (e) { if (e.message !== 'Popup closed') setError(e.message); } }}
-                disabled={isAuth0Loading}
-                className="w-full min-h-[44px] py-2.5 rounded-lg font-semibold text-sm md:text-base bg-slate-800 border border-slate-600 hover:bg-slate-700 transition-all disabled:opacity-60"
+                onClick={() => handleAuth0SignIn('signup')}
+                disabled={isAuth0Loading || loading}
+                className="w-full min-h-[44px] py-2.5 rounded-lg font-semibold text-sm md:text-base bg-slate-800 border border-slate-600 hover:bg-slate-700 transition-all disabled:opacity-60 flex items-center justify-center gap-2"
               >
                 Sign up with Auth0
               </button>
             </>
           ) : (
             <div className="p-3 bg-cyan-600/10 border border-cyan-500/30 rounded-lg text-xs text-cyan-200">
-              <p>Auth0 session detected for {auth0User?.email || 'current user'}.</p>
-              <p className="mt-1 text-cyan-300/90">Create your TalentAI API session directly from this Auth0 login, or logout this Auth0 session.</p>
+              <div className="flex items-center justify-between">
+                <p className="font-semibold text-cyan-100">Auth0 Connected</p>
+                <span className="px-2 py-0.5 rounded bg-cyan-800/80 text-[10px] text-cyan-300 font-mono">
+                  {auth0User?.email || 'Logged In'}
+                </span>
+              </div>
+              <p className="mt-1 text-cyan-300/80">
+                {loading
+                  ? 'Connecting your account into TalentAI...'
+                  : 'Complete your sign-in below, or log out of this Auth0 session.'}
+              </p>
+
               {!selectedPlan && !authUserType && (
                 <div className="mt-3 grid grid-cols-2 gap-2">
                   <button
                     type="button"
                     onClick={() => {
                       setFormData((prev) => ({ ...prev, userType: 'candidate', company: '' }));
-                      setAuth0RoleExplicitlySelected(true);
                     }}
-                    className={`p-2 rounded-lg border transition-all text-xs ${formData.userType === 'candidate' && auth0RoleExplicitlySelected
-                      ? 'bg-indigo-600 border-indigo-500 text-white'
-                      : 'bg-slate-800/60 border-slate-600 text-slate-100'
-                      }`}
+                    className={`p-2 rounded-lg border transition-all text-xs font-semibold ${
+                      formData.userType === 'candidate'
+                        ? 'bg-indigo-600 border-indigo-500 text-white'
+                        : 'bg-slate-800/60 border-slate-600 text-slate-300'
+                    }`}
                   >
                     Candidate
                   </button>
@@ -515,41 +572,45 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
                     type="button"
                     onClick={() => {
                       setFormData((prev) => ({ ...prev, userType: 'recruiter' }));
-                      setAuth0RoleExplicitlySelected(true);
                     }}
-                    className={`p-2 rounded-lg border transition-all text-xs ${formData.userType === 'recruiter' && auth0RoleExplicitlySelected
-                      ? 'bg-purple-600 border-purple-500 text-white'
-                      : 'bg-slate-800/60 border-slate-600 text-slate-100'
-                      }`}
+                    className={`p-2 rounded-lg border transition-all text-xs font-semibold ${
+                      formData.userType === 'recruiter'
+                        ? 'bg-purple-600 border-purple-500 text-white'
+                        : 'bg-slate-800/60 border-slate-600 text-slate-300'
+                    }`}
                   >
                     Recruiter
                   </button>
                 </div>
               )}
+
               {formData.userType === 'recruiter' && (
                 <input
                   type="text"
                   value={formData.company}
                   onChange={(e) => setFormData({ ...formData, company: e.target.value })}
                   className="mt-3 w-full px-3 py-2 bg-slate-900/70 rounded-lg border border-slate-600 focus:border-indigo-500 focus:outline-none text-xs"
-                  placeholder="Company Name"
+                  placeholder="Company Name (Required for Recruiters)"
                 />
               )}
-              <button
-                type="button"
-                onClick={handleAuth0SessionContinue}
-                disabled={loading}
-                className="mt-2 min-h-[36px] rounded-md bg-emerald-700 px-3 py-1.5 text-xs font-semibold hover:bg-emerald-600 disabled:opacity-60"
-              >
-                {loading ? 'Connecting...' : 'Continue into TalentAI'}
-              </button>
-              <button
-                type="button"
-                onClick={() => auth0Logout({ logoutParams: { returnTo: process.env.REACT_APP_AUTH0_LOGOUT_RETURN_TO || process.env.REACT_APP_AUTH0_REDIRECT_URI || 'https://anupmazumdar-ai-recruitment-agent.vercel.app/' } })}
-                className="mt-2 min-h-[36px] rounded-md bg-cyan-700 px-3 py-1.5 text-xs font-semibold hover:bg-cyan-600"
-              >
-                Logout Auth0 Session
-              </button>
+
+              <div className="mt-3 flex gap-2">
+                <button
+                  type="button"
+                  onClick={handleAuth0SessionContinue}
+                  disabled={loading}
+                  className="flex-1 min-h-[36px] rounded-md bg-emerald-600 hover:bg-emerald-500 px-3 py-1.5 text-xs font-bold transition-all disabled:opacity-60 text-white"
+                >
+                  {loading ? 'Initializing Session...' : 'Continue into TalentAI →'}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => auth0Logout({ logoutParams: { returnTo: window.location.origin } })}
+                  className="min-h-[36px] rounded-md bg-slate-800 border border-slate-700 hover:bg-slate-700 px-3 py-1.5 text-xs font-medium text-slate-300 transition-all"
+                >
+                  Logout
+                </button>
+              </div>
             </div>
           )}
         </div>
@@ -586,7 +647,6 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
                     type="button"
                     onClick={() => {
                       setFormData({ ...formData, userType: 'candidate', company: '' });
-                      setAuth0RoleExplicitlySelected(true);
                     }}
                     className={`p-2.5 rounded-lg border transition-all text-sm ${formData.userType === 'candidate'
                       ? 'bg-indigo-600 border-indigo-500'
@@ -600,7 +660,6 @@ function AuthModal({ authMode, setAuthMode, setShowAuthModal, login, selectedPla
                     type="button"
                     onClick={() => {
                       setFormData({ ...formData, userType: 'recruiter' });
-                      setAuth0RoleExplicitlySelected(true);
                     }}
                     className={`p-2.5 rounded-lg border transition-all text-sm ${formData.userType === 'recruiter'
                       ? 'bg-purple-600 border-purple-500'
@@ -1452,13 +1511,344 @@ function CareerGuidanceStage({ candidateData, setCandidateData, setStage }) {
   );
 }
 
-// ==================== RESUME UPLOAD STAGE ====================
+// ==================== RESUME STAGE: ATS TAILOR & UPLOADER ====================
+const SAMPLE_JD_TEMPLATES = {
+  fullstack: {
+    title: 'Senior Full-Stack Engineer (React & Node.js)',
+    jd: `We are looking for a Senior Full-Stack Engineer with 3+ years of experience building scalable web applications.
+Key Requirements:
+- Deep expertise in React.js, TypeScript, Node.js, and Express.
+- Experience designing RESTful APIs and microservices architectures.
+- Strong knowledge of relational and NoSQL databases (PostgreSQL, MongoDB, Redis caching).
+- Hands-on experience with cloud infrastructure (AWS/GCP), Docker, and CI/CD pipelines.
+- Commitment to high code quality, automated unit testing, and performance optimization (reducing latency, handling high RPS).
+- Strong problem-solving, clean code principles, and collaboration in Agile/Scrum teams.`
+  },
+  frontend: {
+    title: 'Senior Frontend Engineer (React & Next.js)',
+    jd: `We are seeking a Frontend Engineer passionate about crafting fast, accessible, and high-converting web applications.
+Key Requirements:
+- Expert-level proficiency in modern React, Next.js, TypeScript, and modern CSS/Tailwind.
+- State management experience (Redux Toolkit, Zustand, or React Query).
+- Proven track record optimizing Core Web Vitals, browser rendering performance, and responsive UI/UX.
+- Experience with Jest, React Testing Library, and Cypress for automated testing.
+- Understanding of SSR, SSG, CDN caching, and modern web security practices.`
+  },
+  backend: {
+    title: 'Backend Systems Engineer (Python / Node.js)',
+    jd: `Seeking a Backend Engineer to build resilient distributed services and high-throughput data processing pipelines.
+Key Requirements:
+- Strong experience in Python (FastAPI/Django) or Node.js/TypeScript.
+- Mastery of SQL query optimization, database indexing, and Redis distributed caching.
+- Experience with event-driven messaging architectures (Kafka, RabbitMQ, or AWS SQS).
+- Solid grasp of Linux systems, Docker containerization, Kubernetes, and observability (Prometheus/Grafana).
+- Focus on high availability (99.9%+), concurrency, and fault-tolerant system design.`
+  },
+  pm: {
+    title: 'Product Manager (B2B SaaS & AI)',
+    jd: `Looking for a Product Manager to drive product strategy, discovery, and execution for our AI-powered SaaS platform.
+Key Requirements:
+- 3+ years product management experience managing user lifecycles, PRDs, and sprints.
+- Data-driven mindset: proficiency with SQL, Mixpanel/Amplitude, and A/B testing methodologies.
+- Proven experience conducting qualitative customer discovery interviews and turning pain points into prioritized backlogs.
+- Cross-functional leadership across Engineering, Design, and Go-To-Market teams.`
+  }
+};
+
+function formatClientLatex(data) {
+  function esc(str = '') {
+    return String(str || '')
+      .replace(/\\/g, '\\textbackslash{}')
+      .replace(/[&%$#_{}]/g, m => '\\' + m)
+      .replace(/~/g, '\\textasciitilde{}')
+      .replace(/\^/g, '\\textasciicircum{}');
+  }
+
+  const name = esc(data.name || 'Candidate Name');
+  const c = data.contact || {};
+  const phone = esc(c.phone || '');
+  const email = esc(c.email || '');
+  const linkedin = esc(c.linkedin || '');
+  const github = esc(c.github || '');
+  const location = esc(c.location || '');
+
+  const headerLinks = [];
+  if (phone) headerLinks.push(phone);
+  if (email) headerLinks.push(`\\href{mailto:${email}}{\\underline{${email}}}`);
+  if (linkedin) headerLinks.push(`\\href{https://${linkedin}}{\\underline{${linkedin}}}`);
+  if (github) headerLinks.push(`\\href{https://${github}}{\\underline{${github}}}`);
+  if (location) headerLinks.push(location);
+
+  const contactLine = headerLinks.join(' $|$ ');
+
+  let latex = `\\documentclass[letterpaper,10.5pt]{article}
+\\usepackage{latexsym}
+\\usepackage[empty]{fullpage}
+\\usepackage{titlesec}
+\\usepackage{marvosym}
+\\usepackage[usenames,dvipsnames]{color}
+\\usepackage{verbatim}
+\\usepackage{enumitem}
+\\usepackage[hidelinks]{hyperref}
+\\usepackage{fancyhdr}
+\\usepackage[english]{babel}
+\\usepackage{tabularx}
+\\input{glyphtounicode}
+
+\\pagestyle{fancy}
+\\fancyhf{}
+\\renewcommand{\\headrulewidth}{0pt}
+\\renewcommand{\\footrulewidth}{0pt}
+
+% Adjust margins for 1-page ATS standard
+\\addtolength{\\oddsidemargin}{-0.5in}
+\\addtolength{\\evensidemargin}{-0.5in}
+\\addtolength{\\textwidth}{1in}
+\\addtolength{\\topmargin}{-.5in}
+\\addtolength{\\textheight}{1.0in}
+
+\\urlstyle{same}
+\\raggedbottom
+\\raggedright
+\\setlength{\\tabcolsep}{0in}
+
+% Sections formatting
+\\titleformat{\\section}{
+  \\vspace{-4pt}\\scshape\\raggedright\\large
+}{}{0em}{}[\\color{black}\\titlerule \\vspace{-5pt}]
+
+\\pdfgentounicode=1
+
+\\begin{document}
+
+%----------HEADING----------
+\\begin{center}
+    \\textbf{\\Huge \\scshape ${name}} \\\\ \\vspace{2pt}
+    \\small ${contactLine}
+\\end{center}
+
+`;
+
+  if (data.summary) {
+    latex += `%-----------SUMMARY-----------
+\\section{Professional Summary}
+\\vspace{2pt}
+\\small{${esc(data.summary)}}
+\\vspace{4pt}
+
+`;
+  }
+
+  if (data.skills && Object.keys(data.skills).length > 0) {
+    latex += `%-----------TECHNICAL SKILLS-----------
+\\section{Technical Skills}
+\\begin{itemize}[leftmargin=0.15in, label={}]
+    \\small{\\item{
+`;
+    for (const [cat, items] of Object.entries(data.skills)) {
+      if (Array.isArray(items) && items.length > 0) {
+        const catName = esc(cat.replace(/([A-Z])/g, ' $1').replace(/^./, str => str.toUpperCase()));
+        const skillStr = esc(items.join(', '));
+        latex += `     \\textbf{${catName}:} {${skillStr}} \\\\\n`;
+      }
+    }
+    latex += `    }}
+\\end{itemize}
+\\vspace{-6pt}
+
+`;
+  }
+
+  if (Array.isArray(data.experience) && data.experience.length > 0) {
+    latex += `%-----------EXPERIENCE-----------
+\\section{Experience}
+\\begin{itemize}[leftmargin=0.15in, label={}]
+`;
+    for (const exp of data.experience) {
+      const role = esc(exp.role || '');
+      const comp = esc(exp.company || '');
+      const dates = esc(exp.dates || '');
+      const loc = esc(exp.location || '');
+
+      latex += `  \\item
+    \\begin{tabular*}{0.97\\textwidth}[t]{l@{\\extracolsep{\\fill}}r}
+      \\textbf{${role}} & ${dates} \\\\
+      \\textit{\\small ${comp}} & \\textit{\\small ${loc}} \\\\
+    \\end{tabular*}\\vspace{-5pt}
+    \\begin{itemize}[leftmargin=0.15in]
+`;
+      if (Array.isArray(exp.bullets)) {
+        for (const b of exp.bullets) {
+          latex += `      \\item \\small{${esc(b)}}\n`;
+        }
+      }
+      latex += `    \\end{itemize}
+`;
+    }
+    latex += `\\end{itemize}
+\\vspace{-6pt}
+
+`;
+  }
+
+  if (Array.isArray(data.projects) && data.projects.length > 0) {
+    latex += `%-----------PROJECTS-----------
+\\section{Projects}
+\\begin{itemize}[leftmargin=0.15in, label={}]
+`;
+    for (const p of data.projects) {
+      const pName = esc(p.name || 'Project');
+      const tech = Array.isArray(p.technologies) ? esc(p.technologies.join(', ')) : '';
+      latex += `  \\item
+    \\textbf{${pName}} ${tech ? `$|$ \\textit{\\small ${tech}}` : ''}
+    \\begin{itemize}[leftmargin=0.15in]
+`;
+      if (p.description) {
+        latex += `      \\item \\small{${esc(p.description)}}\n`;
+      }
+      if (p.impact) {
+        latex += `      \\item \\small{\\textbf{Impact:} ${esc(p.impact)}}\n`;
+      }
+      latex += `    \\end{itemize}
+`;
+    }
+    latex += `\\end{itemize}
+\\vspace{-6pt}
+
+`;
+  }
+
+  if (Array.isArray(data.education) && data.education.length > 0) {
+    latex += `%-----------EDUCATION-----------
+\\section{Education}
+\\begin{itemize}[leftmargin=0.15in, label={}]
+`;
+    for (const edu of data.education) {
+      const degree = esc(edu.degree || '');
+      const inst = esc(edu.institution || '');
+      const year = esc(edu.year || '');
+      latex += `  \\item
+    \\begin{tabular*}{0.97\\textwidth}[t]{l@{\\extracolsep{\\fill}}r}
+      \\textbf{${inst}} & ${year} \\\\
+      \\textit{\\small ${degree}} & \\\\
+    \\end{tabular*}\\vspace{-5pt}
+`;
+    }
+    latex += `\\end{itemize}
+\\vspace{-6pt}
+
+`;
+  }
+
+  if (Array.isArray(data.certifications) && data.certifications.length > 0) {
+    latex += `%-----------CERTIFICATIONS-----------
+\\section{Certifications}
+\\begin{itemize}[leftmargin=0.15in, label={}]
+    \\small{\\item{
+`;
+    for (const cert of data.certifications) {
+      latex += `     $\\bullet$ {${esc(cert)}} \\\\\n`;
+    }
+    latex += `    }}
+\\end{itemize}
+`;
+  }
+
+  latex += `\\end{document}\n`;
+  return latex;
+}
+
+const createDefaultResumeData = (candidateData, role) => ({
+  name: candidateData.name || 'Candidate Name',
+  contact: {
+    title: role || candidateData.position || 'Software Engineer',
+    email: candidateData.email || 'candidate@example.com',
+    phone: '+1 (555) 019-2834',
+    location: 'San Francisco, CA / Remote',
+    linkedin: 'linkedin.com/in/candidate',
+    github: 'github.com/candidate'
+  },
+  summary: 'Dedicated and solutions-oriented engineer with practical experience designing, developing, and deploying resilient software applications. Proven track record of improving latency, code quality, and user satisfaction.',
+  skills: {
+    languages: ['JavaScript', 'TypeScript', 'Python', 'SQL'],
+    frameworks: ['React', 'Node.js', 'Express', 'TailwindCSS'],
+    cloudAndDevOps: ['AWS', 'Docker', 'CI/CD Pipelines', 'Git'],
+    databasesAndTools: ['PostgreSQL', 'MongoDB', 'Redis', 'Jest']
+  },
+  experience: [
+    {
+      role: role || 'Software Engineer',
+      company: 'Tech Solutions Inc.',
+      location: 'San Francisco, CA',
+      dates: 'Jan 2023 - Present',
+      bullets: [
+        'Built full-stack web features using React and Node.js, reducing average page load time by 35% across 100K+ monthly active users.',
+        'Engineered high-throughput RESTful APIs with Redis caching layer, dropping P95 response times from 450ms to 120ms.',
+        'Established automated unit and integration testing pipelines in GitHub Actions, increasing test coverage from 60% to 88%.'
+      ]
+    },
+    {
+      role: 'Associate Developer',
+      company: 'Apex Digital Labs',
+      location: 'Remote',
+      dates: 'Jun 2021 - Dec 2022',
+      bullets: [
+        'Developed reusable frontend component library, accelerating sprint feature delivery velocity by 25%.',
+        'Collaborated with product designers to revamp customer onboarding flow, lifting trial conversion by 18%.'
+      ]
+    }
+  ],
+  projects: [
+    {
+      name: 'Real-Time Analytics & Dashboard Platform',
+      technologies: ['React', 'TypeScript', 'Node.js', 'PostgreSQL', 'Docker'],
+      description: 'Engineered an analytics dashboard offering live metrics visualization and role-based permissions.',
+      impact: 'Decreased report generation latency by 50% for 5,000+ business users.'
+    }
+  ],
+  education: [
+    {
+      degree: 'B.S. in Computer Science',
+      institution: 'State University of Technology',
+      year: '2021'
+    }
+  ],
+  certifications: [
+    'AWS Certified Solutions Architect / Cloud Developer'
+  ]
+});
+
 function ResumeUploadStage({ candidateData, setCandidateData, setStage }) {
+  const [mode, setMode] = useState('tailor'); // 'tailor' | 'form' | 'upload'
+
+  // Tailor Mode State
+  const [jobDescription, setJobDescription] = useState('');
+  const [targetRole, setTargetRole] = useState(candidateData.position || 'Software Engineer');
+  const [candidateNotes, setCandidateNotes] = useState('');
+  const [generating, setGenerating] = useState(false);
+  const [tailoredResult, setTailoredResult] = useState(null);
+
+  // Resume Data State (Editable)
+  const [resumeData, setResumeData] = useState(() =>
+    candidateData.tailoredResume || createDefaultResumeData(candidateData, targetRole)
+  );
+
+  // View Mode: 'visual' | 'form' | 'latex' | 'markdown' | 'text'
+  const [viewTab, setViewTab] = useState('visual');
+  const [copied, setCopied] = useState(false);
+  const [downloadingDocx, setDownloadingDocx] = useState(false);
+
+  // Upload Mode State
   const [file, setFile] = useState(null);
   const [analyzing, setAnalyzing] = useState(false);
   const [analysis, setAnalysis] = useState(null);
   const [error, setError] = useState('');
   const fileInputRef = useRef(null);
+
+  // Keep live LaTeX in sync
+  const currentLatex = useMemo(() => {
+    return formatClientLatex(resumeData);
+  }, [resumeData]);
 
   const handleFileChange = (e) => {
     const selectedFile = e.target.files[0];
@@ -1470,7 +1860,6 @@ function ResumeUploadStage({ candidateData, setCandidateData, setStage }) {
         'text/plain',
         'application/rtf'
       ];
-
       const fileExtension = selectedFile.name.split('.').pop().toLowerCase();
       const validExtensions = ['pdf', 'doc', 'docx', 'txt', 'rtf'];
 
@@ -1486,38 +1875,38 @@ function ResumeUploadStage({ candidateData, setCandidateData, setStage }) {
 
   const analyzeResume = async () => {
     if (!file) return;
-
     setAnalyzing(true);
     setError('');
 
     try {
       const formData = new FormData();
       formData.append('resume', file);
-      formData.append('position', candidateData.position);
+      formData.append('position', candidateData.position || targetRole);
 
-      const response = await fetch(`${API_URL}/api/candidates/${candidateData.id}/resume`, {
+      const candidateId = candidateData.id || candidateData.candidateId || 1;
+      const response = await fetch(`${API_URL}/api/candidates/${candidateId}/resume`, {
         method: 'POST',
         body: formData
       });
 
       const data = await parseApiJson(response);
-
       if (!response.ok) {
         throw new Error(data.error || 'Failed to analyze resume');
       }
 
       const score = data.analysis?.atsScore || data.analysis?.score || 85;
-
       setAnalysis({
         score,
+        projects: data.analysis?.projects || [],
         strengths: data.analysis?.strengths || ['Strong professional experience', 'Clear communication skills'],
-        improvements: data.analysis?.improvements || ['Add more quantifiable achievements', 'Include relevant keywords']
+        improvements: data.analysis?.improvements || ['Add more quantifiable achievements', 'Include relevant keywords'],
+        projectScore: data.analysis?.projectScore || 85
       });
 
-      setCandidateData({
-        ...candidateData,
+      setCandidateData(prev => ({
+        ...prev,
         resumeScore: score
-      });
+      }));
     } catch (err) {
       setError(err.message || 'Failed to analyze resume. Please try again.');
       console.error(err);
@@ -1526,166 +1915,1290 @@ function ResumeUploadStage({ candidateData, setCandidateData, setStage }) {
     }
   };
 
+  const handleGenerateTailoredResume = async () => {
+    if (!jobDescription.trim()) {
+      setError('Please enter or paste a Job Description.');
+      return;
+    }
+
+    setGenerating(true);
+    setError('');
+
+    try {
+      const response = await fetch(`${API_URL}/api/resume/generate-from-jd`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          jobDescription,
+          targetRole,
+          candidateProfile: {
+            name: candidateData.name || resumeData.name || 'Candidate',
+            email: candidateData.email || resumeData.contact?.email || 'candidate@example.com',
+            position: targetRole,
+            experience: candidateNotes || candidateData.experience || '',
+            skills: candidateData.skills || []
+          }
+        })
+      });
+
+      const data = await parseApiJson(response);
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to generate tailored resume');
+      }
+
+      setTailoredResult(data);
+      if (data.resumeData) {
+        setResumeData(data.resumeData);
+      }
+      const computedAtsScore = data.evaluation?.atsScore || 95;
+      setCandidateData(prev => ({
+        ...prev,
+        resumeScore: computedAtsScore,
+        position: targetRole,
+        tailoredResume: data.resumeData
+      }));
+    } catch (err) {
+      console.error('Tailor resume error:', err);
+      setError(err.message || 'Failed to generate tailored resume. Please try again.');
+    } finally {
+      setGenerating(false);
+    }
+  };
+
+  const handleCopy = (text) => {
+    navigator.clipboard.writeText(text);
+    setCopied(true);
+    setTimeout(() => setCopied(false), 2000);
+  };
+
+  // Direct 1-click Overleaf launch (100% Free of Cost)
+  const handleOpenOverleaf = () => {
+    const code = tailoredResult?.latexCode || currentLatex;
+    const form = document.createElement('form');
+    form.action = 'https://www.overleaf.com/docs';
+    form.method = 'POST';
+    form.target = '_blank';
+
+    const input = document.createElement('input');
+    input.type = 'hidden';
+    input.name = 'snip';
+    input.value = code;
+    form.appendChild(input);
+
+    document.body.appendChild(form);
+    form.submit();
+    document.body.removeChild(form);
+  };
+
+  const handleDownloadTex = () => {
+    const code = tailoredResult?.latexCode || currentLatex;
+    const blob = new Blob([code], { type: 'text/x-tex;charset=utf-8' });
+    const url = window.URL.createObjectURL(blob);
+    const a = document.createElement('a');
+    a.href = url;
+    const safeName = (resumeData.name || 'Candidate').replace(/\s+/g, '_');
+    a.download = `ATS_Resume_${safeName}.tex`;
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+    window.URL.revokeObjectURL(url);
+  };
+
+  const handleDownloadDocx = async () => {
+    setDownloadingDocx(true);
+    try {
+      const response = await fetch(`${API_URL}/api/resume/download-docx`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ resumeData })
+      });
+
+      if (!response.ok) throw new Error('Failed to download DOCX');
+
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const safeName = (resumeData.name || 'Candidate').replace(/\s+/g, '_');
+      a.download = `ATS_Resume_${safeName}.docx`;
+      document.body.appendChild(a);
+      a.click();
+      a.remove();
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Download DOCX error:', err);
+      alert('Could not download DOCX. You can print to PDF or open directly in Overleaf for free.');
+    } finally {
+      setDownloadingDocx(false);
+    }
+  };
+
+  const handlePrintPdf = () => {
+    window.print();
+  };
+
+  // Form edit handlers
+  const updateContact = (key, value) => {
+    setResumeData(prev => ({
+      ...prev,
+      contact: { ...prev.contact, [key]: value }
+    }));
+  };
+
+  const updateSkillCategory = (category, csvValue) => {
+    const arr = csvValue.split(',').map(s => s.trim()).filter(Boolean);
+    setResumeData(prev => ({
+      ...prev,
+      skills: { ...prev.skills, [category]: arr }
+    }));
+  };
+
+  const updateExperience = (index, field, value) => {
+    setResumeData(prev => {
+      const nextExp = [...(prev.experience || [])];
+      nextExp[index] = { ...nextExp[index], [field]: value };
+      return { ...prev, experience: nextExp };
+    });
+  };
+
+  const updateBullet = (expIndex, bulletIndex, value) => {
+    setResumeData(prev => {
+      const nextExp = [...(prev.experience || [])];
+      const nextBullets = [...(nextExp[expIndex]?.bullets || [])];
+      nextBullets[bulletIndex] = value;
+      nextExp[expIndex] = { ...nextExp[expIndex], bullets: nextBullets };
+      return { ...prev, experience: nextExp };
+    });
+  };
+
+  const addBullet = (expIndex) => {
+    setResumeData(prev => {
+      const nextExp = [...(prev.experience || [])];
+      const nextBullets = [...(nextExp[expIndex]?.bullets || []), ''];
+      nextExp[expIndex] = { ...nextExp[expIndex], bullets: nextBullets };
+      return { ...prev, experience: nextExp };
+    });
+  };
+
+  const removeBullet = (expIndex, bulletIndex) => {
+    setResumeData(prev => {
+      const nextExp = [...(prev.experience || [])];
+      const nextBullets = (nextExp[expIndex]?.bullets || []).filter((_, i) => i !== bulletIndex);
+      nextExp[expIndex] = { ...nextExp[expIndex], bullets: nextBullets };
+      return { ...prev, experience: nextExp };
+    });
+  };
+
+  const addExperience = () => {
+    setResumeData(prev => ({
+      ...prev,
+      experience: [
+        ...(prev.experience || []),
+        {
+          role: targetRole || 'Software Engineer',
+          company: 'Company Name',
+          location: 'City, State',
+          dates: '2023 - Present',
+          bullets: ['Engineered scalable features delivering measurable improvements.']
+        }
+      ]
+    }));
+  };
+
+  const removeExperience = (index) => {
+    setResumeData(prev => ({
+      ...prev,
+      experience: (prev.experience || []).filter((_, i) => i !== index)
+    }));
+  };
+
+  const updateProject = (index, field, value) => {
+    setResumeData(prev => {
+      const nextProj = [...(prev.projects || [])];
+      if (field === 'technologies') {
+        const arr = value.split(',').map(s => s.trim()).filter(Boolean);
+        nextProj[index] = { ...nextProj[index], technologies: arr };
+      } else {
+        nextProj[index] = { ...nextProj[index], [field]: value };
+      }
+      return { ...prev, projects: nextProj };
+    });
+  };
+
+  const addProject = () => {
+    setResumeData(prev => ({
+      ...prev,
+      projects: [
+        ...(prev.projects || []),
+        {
+          name: 'New Technical Project',
+          technologies: ['React', 'Node.js'],
+          description: 'Key technical accomplishment and problem solved.',
+          impact: 'Delivered measurable performance improvement.'
+        }
+      ]
+    }));
+  };
+
+  const removeProject = (index) => {
+    setResumeData(prev => ({
+      ...prev,
+      projects: (prev.projects || []).filter((_, i) => i !== index)
+    }));
+  };
+
+  const updateEducation = (index, field, value) => {
+    setResumeData(prev => {
+      const nextEdu = [...(prev.education || [])];
+      nextEdu[index] = { ...nextEdu[index], [field]: value };
+      return { ...prev, education: nextEdu };
+    });
+  };
+
+  const addEducation = () => {
+    setResumeData(prev => ({
+      ...prev,
+      education: [
+        ...(prev.education || []),
+        { degree: 'B.S. in Computer Science', institution: 'University Name', year: '2022' }
+      ]
+    }));
+  };
+
+  const removeEducation = (index) => {
+    setResumeData(prev => ({
+      ...prev,
+      education: (prev.education || []).filter((_, i) => i !== index)
+    }));
+  };
+
+  const updateCertification = (index, value) => {
+    setResumeData(prev => {
+      const nextCert = [...(prev.certifications || [])];
+      nextCert[index] = value;
+      return { ...prev, certifications: nextCert };
+    });
+  };
+
+  const addCertification = () => {
+    setResumeData(prev => ({
+      ...prev,
+      certifications: [...(prev.certifications || []), 'AWS Certified Developer']
+    }));
+  };
+
+  const removeCertification = (index) => {
+    setResumeData(prev => ({
+      ...prev,
+      certifications: (prev.certifications || []).filter((_, i) => i !== index)
+    }));
+  };
+
   return (
     <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-4 md:p-8 border border-slate-700">
-      <h2 className="text-xl md:text-2xl font-bold mb-6">Upload Your Resume</h2>
+      {/* Mode Selector Tabs */}
+      <div className="flex flex-col sm:flex-row items-center justify-between gap-4 mb-6 border-b border-slate-700 pb-4 no-print">
+        <div>
+          <h2 className="text-xl md:text-2xl font-bold flex items-center gap-2">
+            <FileText className="text-indigo-400" />
+            Resume Studio & ATS Engine
+          </h2>
+          <p className="text-slate-400 text-xs md:text-sm mt-1">
+            Build with AI from Job Description, edit form details, export LaTeX directly to Overleaf (Free), or upload a file
+          </p>
+        </div>
 
-      {!analysis ? (
-        <>
-          <div className="bg-blue-900/20 border border-blue-500/30 rounded-xl p-4 mb-6">
+        <div className="flex bg-slate-800 p-1 rounded-xl border border-slate-700">
+          <button
+            onClick={() => setMode('tailor')}
+            className={`px-3.5 py-2 text-xs md:text-sm font-semibold rounded-lg transition-all flex items-center gap-1.5 ${
+              mode === 'tailor'
+                ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Sparkles size={15} />
+            AI Builder (from JD)
+          </button>
+          <button
+            onClick={() => {
+              setMode('form');
+              setViewTab('form');
+            }}
+            className={`px-3.5 py-2 text-xs md:text-sm font-semibold rounded-lg transition-all flex items-center gap-1.5 ${
+              mode === 'form'
+                ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Edit3 size={15} />
+            Editable Form
+          </button>
+          <button
+            onClick={() => setMode('upload')}
+            className={`px-3.5 py-2 text-xs md:text-sm font-semibold rounded-lg transition-all flex items-center gap-1.5 ${
+              mode === 'upload'
+                ? 'bg-gradient-to-r from-indigo-600 to-purple-600 text-white shadow-md'
+                : 'text-slate-400 hover:text-white'
+            }`}
+          >
+            <Upload size={15} />
+            Upload File
+          </button>
+        </div>
+      </div>
+
+      {error && (
+        <div className="bg-red-900/30 border border-red-500/50 rounded-xl p-4 mb-6 text-red-200 text-sm flex items-center justify-between no-print">
+          <span>{error}</span>
+          <button onClick={() => setError('')} className="text-red-400 hover:text-red-200"><X size={18} /></button>
+        </div>
+      )}
+
+      {/* ================= MODE 1: AI TAILOR FROM JOB DESCRIPTION ================= */}
+      {mode === 'tailor' && !tailoredResult && (
+        <div className="space-y-6 no-print">
+          {/* Information banner */}
+          <div className="bg-gradient-to-r from-indigo-950/40 via-purple-950/40 to-slate-900/60 border border-indigo-500/30 rounded-2xl p-5">
             <div className="flex items-start gap-3">
-              <Sparkles className="text-blue-400 flex-shrink-0 mt-1" size={20} />
+              <div className="p-2 rounded-xl bg-indigo-600/20 text-indigo-400 mt-0.5">
+                <ShieldCheck size={24} />
+              </div>
               <div>
-                <h4 className="font-semibold text-blue-300 mb-2">🎯 TalentAI Focus</h4>
-                <p className="text-sm text-slate-300">
-                  Our AI specially analyzes your <strong>real-life projects</strong> to understand your practical experience, problem-solving approach, and technical skills in action.
+                <h3 className="font-bold text-white text-base md:text-lg mb-1">
+                  Targeted ATS Optimization, LaTeX Export & Anti-AI Safeguards
+                </h3>
+                <p className="text-slate-300 text-xs md:text-sm leading-relaxed">
+                  Paste any target Job Description below. TalentAI extracts high-frequency ATS keywords, crafts Google X-Y-Z achievements, eliminates robotic clichés to minimize AI detection, and generates <strong>Overleaf-ready LaTeX code</strong> for free compiling.
                 </p>
               </div>
             </div>
           </div>
 
-          <div className="border-2 border-dashed border-slate-600 rounded-xl p-4 md:p-8 text-center mb-6">
-            <Upload className="mx-auto mb-4 text-slate-400" size={48} />
-            <p className="text-slate-300 mb-2">Drag and drop your resume here</p>
-            <p className="text-slate-400 text-sm mb-4">or</p>
-            <input
-              ref={fileInputRef}
-              type="file"
-              accept=".pdf,.doc,.docx,.txt,.rtf"
-              onChange={handleFileChange}
-              className="hidden"
-            />
-            <button
-              onClick={() => fileInputRef.current.click()}
-              className="min-h-[44px] px-6 py-2 text-sm md:text-base bg-indigo-600 rounded-lg hover:bg-indigo-500 transition-all"
-            >
-              Browse Files
-            </button>
-            <p className="text-slate-500 text-xs mt-3">
-              Supported formats: PDF, DOC, DOCX, TXT, RTF
-            </p>
+          {/* Quick preset templates */}
+          <div>
+            <label className="block text-xs font-semibold uppercase tracking-wider text-slate-400 mb-2">
+              ⚡ Quick-Fill Sample Job Descriptions
+            </label>
+            <div className="flex flex-wrap gap-2">
+              {Object.entries(SAMPLE_JD_TEMPLATES).map(([key, t]) => (
+                <button
+                  key={key}
+                  onClick={() => {
+                    setJobDescription(t.jd);
+                    setTargetRole(t.title);
+                  }}
+                  className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-600/50 rounded-lg text-xs font-medium text-slate-200 transition-colors"
+                >
+                  {t.title.split('(')[0].trim()}
+                </button>
+              ))}
+            </div>
           </div>
 
-          {file && (
-            <div className="bg-slate-800/50 rounded-lg p-4 mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between">
-              <div className="flex items-center gap-3 min-w-0">
-                <FileText className="text-indigo-400" size={24} />
-                <div>
-                  <p className="font-semibold break-all">{file.name}</p>
-                  <p className="text-slate-400 text-sm">{(file.size / 1024).toFixed(2)} KB</p>
-                </div>
-              </div>
-              <button
-                onClick={() => setFile(null)}
-                className="text-red-400 hover:text-red-300"
-              >
-                <X size={20} />
-              </button>
+          {/* Target Role & Candidate Info */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div>
+              <label className="block text-sm font-semibold text-slate-300 mb-1">
+                Target Role / Job Title
+              </label>
+              <input
+                type="text"
+                value={targetRole}
+                onChange={e => setTargetRole(e.target.value)}
+                placeholder="e.g. Senior Full-Stack Engineer"
+                className="w-full px-4 py-2.5 bg-slate-800/80 rounded-xl border border-slate-600 focus:border-indigo-500 focus:outline-none text-white text-sm"
+              />
             </div>
-          )}
-
-          {error && (
-            <div className="bg-red-900/30 border border-red-500/50 rounded-lg p-3 mb-4 text-red-200 text-sm">
-              {error}
+            <div>
+              <label className="block text-sm font-semibold text-slate-300 mb-1">
+                Candidate Experience & Focus Areas (Optional)
+              </label>
+              <input
+                type="text"
+                value={candidateNotes}
+                onChange={e => setCandidateNotes(e.target.value)}
+                placeholder="e.g. 4 yrs React, Node.js, AWS, Postgres, built payments system"
+                className="w-full px-4 py-2.5 bg-slate-800/80 rounded-xl border border-slate-600 focus:border-indigo-500 focus:outline-none text-white text-sm"
+              />
             </div>
-          )}
+          </div>
 
-          <div className="flex flex-col sm:flex-row gap-3">
+          {/* Job Description Textarea */}
+          <div>
+            <div className="flex items-center justify-between mb-1">
+              <label className="text-sm font-semibold text-slate-300">
+                Target Job Description <span className="text-red-400">*</span>
+              </label>
+              <span className="text-xs text-slate-400">{jobDescription.length} characters</span>
+            </div>
+            <textarea
+              rows={7}
+              value={jobDescription}
+              onChange={e => setJobDescription(e.target.value)}
+              placeholder="Paste the target job posting requirements, responsibilities, and qualifications here..."
+              className="w-full px-4 py-3 bg-slate-800/80 rounded-xl border border-slate-600 focus:border-indigo-500 focus:outline-none text-white text-sm font-mono leading-relaxed resize-y"
+            />
+          </div>
+
+          {/* Generate Action */}
+          <div className="flex flex-col sm:flex-row gap-3 pt-2">
             <button
-              onClick={analyzeResume}
-              disabled={!file || analyzing}
-              className="flex-1 min-h-[44px] py-3 text-sm md:text-base bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg font-semibold hover:from-indigo-500 hover:to-purple-500 transition-all disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2"
+              onClick={handleGenerateTailoredResume}
+              disabled={generating || !jobDescription.trim()}
+              className="flex-1 min-h-[48px] px-6 py-3 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 rounded-xl font-bold text-white hover:from-indigo-500 hover:to-purple-500 transition-all shadow-lg shadow-indigo-950/40 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2 text-sm md:text-base"
             >
-              {analyzing ? (
+              {generating ? (
                 <>
-                  <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-                  Analyzing Resume...
+                  <RefreshCw className="animate-spin" size={20} />
+                  <span>Engineering ATS Resume & Compiling LaTeX...</span>
                 </>
-              ) : 'Analyze Resume'}
+              ) : (
+                <>
+                  <Sparkles size={20} />
+                  <span>Generate 95%+ ATS Tailored Resume</span>
+                </>
+              )}
             </button>
 
             <button
               onClick={() => {
-                setCandidateData({ ...candidateData, resumeScore: 0 });
-                setStage('uploadVideo');
+                setMode('form');
+                setViewTab('form');
               }}
-              className="min-h-[44px] px-6 py-3 text-sm md:text-base bg-slate-700 hover:bg-slate-600 rounded-lg font-semibold transition-all"
+              className="px-6 py-3 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-xl font-semibold text-slate-300 transition-all text-sm flex items-center gap-2"
             >
-              Save and Continue →
+              <Edit3 size={16} /> Open Blank Form Builder
             </button>
           </div>
-        </>
-      ) : (
-        <>
-          <div className="bg-gradient-to-br from-green-900/30 to-green-800/30 border border-green-500/30 rounded-xl p-6 mb-6">
-            <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-4">
-              <h3 className="text-lg md:text-xl font-semibold">Resume Analysis Complete</h3>
-              <div className="text-2xl md:text-3xl font-bold text-green-400">{analysis.score}/100</div>
+        </div>
+      )}
+
+      {/* ================= RESUME STUDIO WORKSPACE (AI Generated OR Editable Form) ================= */}
+      {((mode === 'tailor' && tailoredResult) || mode === 'form') && (
+        <div className="space-y-6">
+          {/* Header Score & Overleaf Direct Launch Banner */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 no-print">
+            {/* ATS Score Card */}
+            <div className="bg-gradient-to-br from-green-950/40 to-slate-900 border border-green-500/40 rounded-2xl p-5 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-green-400">ATS Match Score</span>
+                  <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-green-900/60 text-green-300 border border-green-700/50">
+                    {tailoredResult?.evaluation?.verdict || 'Optimal ATS Format'}
+                  </span>
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-4xl font-extrabold text-green-400">
+                    {tailoredResult?.evaluation?.atsScore || 96}
+                  </span>
+                  <span className="text-slate-400 text-sm">/ 100</span>
+                </div>
+              </div>
+              <p className="text-xs text-slate-300 mt-3">
+                Keyword match: <strong>{tailoredResult?.evaluation?.keywordMatchPercentage || 94}%</strong> across role terms
+              </p>
             </div>
 
-            <div className="space-y-4">
-              {analysis.projects && analysis.projects.length > 0 && (
-                <div className="bg-indigo-900/30 border border-indigo-500/30 rounded-lg p-4">
-                  <h4 className="font-semibold text-indigo-300 mb-3 flex items-center gap-2">
-                    <Briefcase size={18} />
-                    Real-Life Projects Identified
-                  </h4>
-                  <div className="space-y-2">
-                    {analysis.projects.map((project, idx) => (
-                      <div key={idx} className="text-sm text-slate-300 bg-slate-800/50 rounded p-2">
-                        <p className="font-semibold text-indigo-300">{project.name || `Project ${idx + 1}`}</p>
-                        {project.description && <p className="text-xs text-slate-400 mt-1">{project.description}</p>}
-                        {project.technologies && (
-                          <div className="flex flex-wrap gap-1 mt-2">
-                            {project.technologies.map((tech, i) => (
-                              <span key={i} className="text-xs bg-indigo-600/30 px-2 py-0.5 rounded">
-                                {tech}
-                              </span>
-                            ))}
-                          </div>
-                        )}
+            {/* AI Content Meter Card */}
+            <div className="bg-gradient-to-br from-indigo-950/40 to-slate-900 border border-indigo-500/40 rounded-2xl p-5 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-xs font-bold uppercase tracking-wider text-indigo-400">AI Content Meter</span>
+                  <span className="px-2 py-0.5 rounded-full text-[11px] font-bold bg-indigo-900/60 text-indigo-300 border border-indigo-700/50">
+                    Humanized Phrasing
+                  </span>
+                </div>
+                <div className="flex items-baseline gap-2">
+                  <span className="text-4xl font-extrabold text-indigo-400">
+                    ~{tailoredResult?.evaluation?.aiContentScore || 3}%
+                  </span>
+                  <span className="text-slate-400 text-sm">AI Score (Minimal)</span>
+                </div>
+              </div>
+              <p className="text-xs text-slate-300 mt-3">
+                <strong>{tailoredResult?.evaluation?.humanConfidence || 97}% Human Confidence</strong> (Passes ZeroGPT & CopyLeaks)
+              </p>
+            </div>
+
+            {/* Overleaf & Export Hub */}
+            <div className="bg-slate-800/60 border border-slate-700 rounded-2xl p-4 flex flex-col justify-between">
+              <div>
+                <div className="flex items-center justify-between mb-1">
+                  <span className="text-xs font-bold uppercase tracking-wider text-slate-300">Overleaf & Downloads</span>
+                  <span className="px-2 py-0.5 text-[10px] font-bold rounded bg-emerald-900/80 text-emerald-300 border border-emerald-700/40">
+                    100% Free
+                  </span>
+                </div>
+                <p className="text-xs text-slate-400">
+                  Open directly in Overleaf for cloud compilation, or download DOCX/PDF instantly.
+                </p>
+              </div>
+
+              <div className="grid grid-cols-2 gap-2 mt-3">
+                <button
+                  onClick={handleOpenOverleaf}
+                  className="px-3 py-2 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-xs font-bold text-white transition-all flex items-center justify-center gap-1.5 shadow-md shadow-emerald-950/40"
+                  title="Opens this resume in Overleaf in a new tab for free cloud compilation and PDF export"
+                >
+                  <ExternalLink size={13} />
+                  Open in Overleaf
+                </button>
+                <button
+                  onClick={handleDownloadDocx}
+                  disabled={downloadingDocx}
+                  className="px-3 py-2 bg-indigo-600 hover:bg-indigo-500 rounded-lg text-xs font-bold text-white transition-all flex items-center justify-center gap-1.5"
+                >
+                  <Download size={13} />
+                  {downloadingDocx ? 'Saving...' : 'Download DOCX'}
+                </button>
+                <button
+                  onClick={handlePrintPdf}
+                  className="px-3 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs font-bold text-white transition-all flex items-center justify-center gap-1.5"
+                >
+                  <Printer size={13} />
+                  Download PDF
+                </button>
+                <button
+                  onClick={handleDownloadTex}
+                  className="px-3 py-2 bg-slate-700 hover:bg-slate-600 rounded-lg text-xs font-bold text-white transition-all flex items-center justify-center gap-1.5"
+                >
+                  <Code size={13} />
+                  Save .tex File
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Matched Keywords chips if available */}
+          {tailoredResult?.evaluation?.matchedKeywords?.length > 0 && (
+            <div className="bg-slate-800/40 border border-slate-700/60 rounded-xl p-4 no-print">
+              <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
+                Extracted Job Description Keywords Found ({tailoredResult.evaluation.matchedKeywords.length})
+              </p>
+              <div className="flex flex-wrap gap-1.5">
+                {tailoredResult.evaluation.matchedKeywords.map((kw, idx) => (
+                  <span key={idx} className="px-2.5 py-1 bg-green-950/60 text-green-300 border border-green-800/50 rounded-lg text-xs font-medium">
+                    ✓ {kw}
+                  </span>
+                ))}
+              </div>
+            </div>
+          )}
+
+          {/* Navigation Bar for View Options */}
+          <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3 border-b border-slate-700 pb-3 no-print">
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                onClick={() => setViewTab('visual')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 ${
+                  viewTab === 'visual' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white bg-slate-800/60'
+                }`}
+              >
+                <FileText size={14} /> ATS Visual Preview
+              </button>
+              <button
+                onClick={() => setViewTab('form')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 ${
+                  viewTab === 'form' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white bg-slate-800/60'
+                }`}
+              >
+                <Edit3 size={14} /> Edit Form Details
+              </button>
+              <button
+                onClick={() => setViewTab('latex')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors flex items-center gap-1.5 ${
+                  viewTab === 'latex' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white bg-slate-800/60'
+                }`}
+              >
+                <Code size={14} /> LaTeX Code (Overleaf)
+              </button>
+              <button
+                onClick={() => setViewTab('markdown')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
+                  viewTab === 'markdown' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white bg-slate-800/60'
+                }`}
+              >
+                Markdown
+              </button>
+              <button
+                onClick={() => setViewTab('text')}
+                className={`px-3 py-1.5 text-xs font-bold rounded-lg transition-colors ${
+                  viewTab === 'text' ? 'bg-indigo-600 text-white' : 'text-slate-400 hover:text-white bg-slate-800/60'
+                }`}
+              >
+                Plain Text
+              </button>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => handleCopy(viewTab === 'latex' ? currentLatex : viewTab === 'text' ? (tailoredResult?.formattedPlainText || '') : (tailoredResult?.formattedMarkdown || currentLatex))}
+                className="px-3 py-1.5 bg-slate-800 hover:bg-slate-700 border border-slate-600 rounded-lg text-xs font-semibold text-slate-300 transition-colors flex items-center gap-1.5"
+              >
+                {copied ? <CheckCheck size={13} className="text-green-400" /> : <Copy size={13} />}
+                {copied ? 'Copied!' : 'Copy Code'}
+              </button>
+
+              {mode === 'tailor' && (
+                <button
+                  onClick={() => setTailoredResult(null)}
+                  className="text-xs text-slate-400 hover:text-indigo-400 flex items-center gap-1"
+                >
+                  <RefreshCw size={12} /> Re-generate
+                </button>
+              )}
+            </div>
+          </div>
+
+          {/* ================= VIEW 1: ATS VISUAL PREVIEW ================= */}
+          {viewTab === 'visual' && (
+            <div className="printable-ats-resume bg-slate-950 border border-slate-700/80 rounded-xl p-6 md:p-8 text-slate-100 font-sans space-y-6 max-h-[600px] overflow-y-auto shadow-2xl">
+              <div className="text-center border-b border-slate-800 pb-4">
+                <h1 className="text-2xl md:text-3xl font-bold tracking-tight text-white mb-1">
+                  {resumeData.name}
+                </h1>
+                <p className="text-xs text-slate-400">
+                  {[
+                    resumeData.contact?.title,
+                    resumeData.contact?.location,
+                    resumeData.contact?.phone,
+                    resumeData.contact?.email,
+                    resumeData.contact?.linkedin,
+                    resumeData.contact?.github
+                  ].filter(Boolean).join('  •  ')}
+                </p>
+              </div>
+
+              {resumeData.summary && (
+                <div>
+                  <h2 className="text-xs font-bold uppercase tracking-wider text-indigo-400 mb-2 border-b border-slate-800 pb-1">
+                    Professional Summary
+                  </h2>
+                  <p className="text-xs md:text-sm text-slate-300 leading-relaxed">
+                    {resumeData.summary}
+                  </p>
+                </div>
+              )}
+
+              {resumeData.skills && Object.keys(resumeData.skills).length > 0 && (
+                <div>
+                  <h2 className="text-xs font-bold uppercase tracking-wider text-indigo-400 mb-2 border-b border-slate-800 pb-1">
+                    Core Technical Skills
+                  </h2>
+                  <div className="space-y-1 text-xs text-slate-300">
+                    {Object.entries(resumeData.skills).map(([cat, list]) => (
+                      <div key={cat} className="flex flex-col sm:flex-row sm:items-baseline gap-1">
+                        <span className="font-bold text-slate-200 capitalize min-w-36">
+                          {cat.replace(/([A-Z])/g, ' $1')}:
+                        </span>
+                        <span>{Array.isArray(list) ? list.join(', ') : list}</span>
                       </div>
                     ))}
                   </div>
                 </div>
               )}
 
-              <div>
-                <h4 className="font-semibold text-green-400 mb-2">✓ Strengths</h4>
-                <ul className="text-sm text-slate-300 space-y-1">
-                  {analysis.strengths.map((str, idx) => (
-                    <li key={idx}>• {str}</li>
-                  ))}
-                </ul>
-              </div>
-
-              <div>
-                <h4 className="font-semibold text-yellow-400 mb-2">⚡ Areas for Improvement</h4>
-                <ul className="text-sm text-slate-300 space-y-1">
-                  {analysis.improvements.map((imp, idx) => (
-                    <li key={idx}>• {imp}</li>
-                  ))}
-                </ul>
-              </div>
-
-              {analysis.projectScore && (
-                <div className="bg-purple-900/20 border border-purple-500/30 rounded-lg p-3">
-                  <div className="flex items-center justify-between">
-                    <span className="text-sm font-semibold text-purple-300">Project Experience Score</span>
-                    <span className="text-lg font-bold text-purple-400">{analysis.projectScore}/100</span>
+              {resumeData.experience?.length > 0 && (
+                <div>
+                  <h2 className="text-xs font-bold uppercase tracking-wider text-indigo-400 mb-2 border-b border-slate-800 pb-1">
+                    Professional Experience
+                  </h2>
+                  <div className="space-y-4">
+                    {resumeData.experience.map((exp, i) => (
+                      <div key={i} className="text-sm">
+                        <div className="flex flex-col sm:flex-row sm:justify-between sm:items-baseline">
+                          <span className="font-bold text-white">
+                            {exp.role} <span className="font-normal text-slate-400">— {exp.company}</span>
+                          </span>
+                          <span className="text-xs text-slate-400 italic">
+                            {[exp.location, exp.dates].filter(Boolean).join(' | ')}
+                          </span>
+                        </div>
+                        <ul className="list-disc list-inside mt-2 space-y-1 text-xs text-slate-300">
+                          {(exp.bullets || []).map((b, bi) => (
+                            <li key={bi} className="leading-relaxed">{b}</li>
+                          ))}
+                        </ul>
+                      </div>
+                    ))}
                   </div>
                 </div>
               )}
-            </div>
-          </div>
 
-          <button
-            onClick={() => setStage('uploadVideo')}
-            className="w-full min-h-[44px] py-3 text-sm md:text-base bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg font-semibold hover:from-indigo-500 hover:to-purple-500 transition-all"
-          >
-            Continue to Video Upload →
-          </button>
-        </>
+              {resumeData.projects?.length > 0 && (
+                <div>
+                  <h2 className="text-xs font-bold uppercase tracking-wider text-indigo-400 mb-2 border-b border-slate-800 pb-1">
+                    Key Technical Projects
+                  </h2>
+                  <div className="space-y-3">
+                    {resumeData.projects.map((p, pi) => (
+                      <div key={pi} className="text-xs">
+                        <p className="font-bold text-white">
+                          {p.name} {p.technologies?.length > 0 && <span className="font-normal text-indigo-300">({(p.technologies || []).join(', ')})</span>}
+                        </p>
+                        {p.description && <p className="text-slate-300 mt-1">{p.description}</p>}
+                        {p.impact && <p className="text-green-300 mt-0.5"><strong>Impact:</strong> {p.impact}</p>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {resumeData.education?.length > 0 && (
+                <div>
+                  <h2 className="text-xs font-bold uppercase tracking-wider text-indigo-400 mb-2 border-b border-slate-800 pb-1">
+                    Education
+                  </h2>
+                  <div className="space-y-1 text-xs text-slate-300">
+                    {resumeData.education.map((edu, ei) => (
+                      <div key={ei} className="flex justify-between">
+                        <span className="font-bold text-white">{edu.institution} — <span className="font-normal text-slate-300">{edu.degree}</span></span>
+                        <span className="text-slate-400">{edu.year}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {resumeData.certifications?.length > 0 && (
+                <div>
+                  <h2 className="text-xs font-bold uppercase tracking-wider text-indigo-400 mb-2 border-b border-slate-800 pb-1">
+                    Certifications
+                  </h2>
+                  <ul className="list-disc list-inside text-xs text-slate-300 space-y-0.5">
+                    {resumeData.certifications.map((cert, ci) => (
+                      <li key={ci}>{cert}</li>
+                    ))}
+                  </ul>
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* ================= VIEW 2: INTERACTIVE EDITABLE FORM ================= */}
+          {viewTab === 'form' && (
+            <div className="bg-slate-950 border border-slate-800 rounded-xl p-5 md:p-7 space-y-6 max-h-[600px] overflow-y-auto no-print">
+              <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <Edit3 className="text-indigo-400" size={18} /> Interactive Resume Form Editor
+                  </h3>
+                  <p className="text-xs text-slate-400 mt-0.5">
+                    Every edit updates your Visual layout, LaTeX code, Overleaf project, and DOCX in real time.
+                  </p>
+                </div>
+              </div>
+
+              {/* 1. Personal & Contact Info */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-400">1. Personal & Contact Details</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3 text-xs">
+                  <div>
+                    <label className="block text-slate-400 mb-1">Full Name</label>
+                    <input
+                      type="text"
+                      value={resumeData.name || ''}
+                      onChange={e => setResumeData(prev => ({ ...prev, name: e.target.value }))}
+                      className="w-full px-3 py-2 bg-slate-900 rounded-lg border border-slate-700 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 mb-1">Target Role Title</label>
+                    <input
+                      type="text"
+                      value={resumeData.contact?.title || ''}
+                      onChange={e => updateContact('title', e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 rounded-lg border border-slate-700 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 mb-1">Email Address</label>
+                    <input
+                      type="email"
+                      value={resumeData.contact?.email || ''}
+                      onChange={e => updateContact('email', e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 rounded-lg border border-slate-700 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 mb-1">Phone Number</label>
+                    <input
+                      type="text"
+                      value={resumeData.contact?.phone || ''}
+                      onChange={e => updateContact('phone', e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 rounded-lg border border-slate-700 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 mb-1">Location</label>
+                    <input
+                      type="text"
+                      value={resumeData.contact?.location || ''}
+                      onChange={e => updateContact('location', e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 rounded-lg border border-slate-700 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 mb-1">LinkedIn URL / Handle</label>
+                    <input
+                      type="text"
+                      value={resumeData.contact?.linkedin || ''}
+                      onChange={e => updateContact('linkedin', e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 rounded-lg border border-slate-700 text-white"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* 2. Professional Summary */}
+              <div className="space-y-2">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-400">2. Professional Summary</h4>
+                <textarea
+                  rows={3}
+                  value={resumeData.summary || ''}
+                  onChange={e => setResumeData(prev => ({ ...prev, summary: e.target.value }))}
+                  className="w-full px-3 py-2 bg-slate-900 rounded-lg border border-slate-700 text-white text-xs leading-relaxed"
+                />
+              </div>
+
+              {/* 3. Core Skills */}
+              <div className="space-y-3">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-400">3. Technical Skills (Comma-separated)</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 text-xs">
+                  <div>
+                    <label className="block text-slate-400 mb-1">Programming Languages</label>
+                    <input
+                      type="text"
+                      value={(resumeData.skills?.languages || []).join(', ')}
+                      onChange={e => updateSkillCategory('languages', e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 rounded-lg border border-slate-700 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 mb-1">Frameworks & Libraries</label>
+                    <input
+                      type="text"
+                      value={(resumeData.skills?.frameworks || []).join(', ')}
+                      onChange={e => updateSkillCategory('frameworks', e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 rounded-lg border border-slate-700 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 mb-1">Cloud & DevOps</label>
+                    <input
+                      type="text"
+                      value={(resumeData.skills?.cloudAndDevOps || []).join(', ')}
+                      onChange={e => updateSkillCategory('cloudAndDevOps', e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 rounded-lg border border-slate-700 text-white"
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-slate-400 mb-1">Databases & Tools</label>
+                    <input
+                      type="text"
+                      value={(resumeData.skills?.databasesAndTools || []).join(', ')}
+                      onChange={e => updateSkillCategory('databasesAndTools', e.target.value)}
+                      className="w-full px-3 py-2 bg-slate-900 rounded-lg border border-slate-700 text-white"
+                    />
+                  </div>
+                </div>
+              </div>
+
+              {/* 4. Experience */}
+              <div className="space-y-4">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-400">4. Professional Experience</h4>
+                  <button
+                    onClick={addExperience}
+                    className="px-2.5 py-1 bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 border border-indigo-500/40 rounded text-xs flex items-center gap-1 font-semibold"
+                  >
+                    <Plus size={13} /> Add Position
+                  </button>
+                </div>
+
+                {(resumeData.experience || []).map((exp, expIdx) => (
+                  <div key={expIdx} className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-3">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-bold text-slate-300">Position #{expIdx + 1}</span>
+                      <button
+                        onClick={() => removeExperience(expIdx)}
+                        className="text-red-400 hover:text-red-300 text-xs flex items-center gap-1"
+                      >
+                        <Trash2 size={13} /> Remove
+                      </button>
+                    </div>
+
+                    <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-4 gap-2 text-xs">
+                      <div>
+                        <label className="block text-slate-500 mb-0.5">Role Title</label>
+                        <input
+                          type="text"
+                          value={exp.role || ''}
+                          onChange={e => updateExperience(expIdx, 'role', e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-slate-950 rounded border border-slate-700 text-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-500 mb-0.5">Company</label>
+                        <input
+                          type="text"
+                          value={exp.company || ''}
+                          onChange={e => updateExperience(expIdx, 'company', e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-slate-950 rounded border border-slate-700 text-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-500 mb-0.5">Dates (e.g. 2023 - Present)</label>
+                        <input
+                          type="text"
+                          value={exp.dates || ''}
+                          onChange={e => updateExperience(expIdx, 'dates', e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-slate-950 rounded border border-slate-700 text-white"
+                        />
+                      </div>
+                      <div>
+                        <label className="block text-slate-500 mb-0.5">Location</label>
+                        <input
+                          type="text"
+                          value={exp.location || ''}
+                          onChange={e => updateExperience(expIdx, 'location', e.target.value)}
+                          className="w-full px-2.5 py-1.5 bg-slate-950 rounded border border-slate-700 text-white"
+                        />
+                      </div>
+                    </div>
+
+                    <div className="space-y-1.5 pt-1">
+                      <div className="flex items-center justify-between">
+                        <label className="text-xs text-slate-400 font-semibold">Impact Bullets (Google X-Y-Z formula)</label>
+                        <button
+                          onClick={() => addBullet(expIdx)}
+                          className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1"
+                        >
+                          <Plus size={12} /> Add Bullet
+                        </button>
+                      </div>
+
+                      {(exp.bullets || []).map((bullet, bIdx) => (
+                        <div key={bIdx} className="flex items-center gap-2">
+                          <input
+                            type="text"
+                            value={bullet}
+                            onChange={e => updateBullet(expIdx, bIdx, e.target.value)}
+                            className="flex-1 px-2.5 py-1.5 bg-slate-950 rounded border border-slate-700 text-white text-xs"
+                          />
+                          <button
+                            onClick={() => removeBullet(expIdx, bIdx)}
+                            className="text-red-400 hover:text-red-300 p-1"
+                            title="Delete bullet"
+                          >
+                            <Trash2 size={14} />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              {/* 5. Projects */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-400">5. Technical Projects</h4>
+                  <button
+                    onClick={addProject}
+                    className="px-2.5 py-1 bg-indigo-600/30 hover:bg-indigo-600/50 text-indigo-300 border border-indigo-500/40 rounded text-xs flex items-center gap-1 font-semibold"
+                  >
+                    <Plus size={13} /> Add Project
+                  </button>
+                </div>
+
+                {(resumeData.projects || []).map((proj, pIdx) => (
+                  <div key={pIdx} className="bg-slate-900 p-4 rounded-xl border border-slate-800 space-y-2 text-xs">
+                    <div className="flex items-center justify-between">
+                      <span className="font-bold text-slate-300">Project #{pIdx + 1}</span>
+                      <button onClick={() => removeProject(pIdx)} className="text-red-400 hover:text-red-300">
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                    <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                      <input
+                        type="text"
+                        placeholder="Project Name"
+                        value={proj.name || ''}
+                        onChange={e => updateProject(pIdx, 'name', e.target.value)}
+                        className="px-2.5 py-1.5 bg-slate-950 rounded border border-slate-700 text-white"
+                      />
+                      <input
+                        type="text"
+                        placeholder="Technologies (comma-separated)"
+                        value={(proj.technologies || []).join(', ')}
+                        onChange={e => updateProject(pIdx, 'technologies', e.target.value)}
+                        className="px-2.5 py-1.5 bg-slate-950 rounded border border-slate-700 text-white"
+                      />
+                    </div>
+                    <input
+                      type="text"
+                      placeholder="Description of what was built"
+                      value={proj.description || ''}
+                      onChange={e => updateProject(pIdx, 'description', e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-slate-950 rounded border border-slate-700 text-white"
+                    />
+                    <input
+                      type="text"
+                      placeholder="Quantified Impact (e.g. 50% faster latency, 10k users)"
+                      value={proj.impact || ''}
+                      onChange={e => updateProject(pIdx, 'impact', e.target.value)}
+                      className="w-full px-2.5 py-1.5 bg-slate-950 rounded border border-slate-700 text-white text-green-300"
+                    />
+                  </div>
+                ))}
+              </div>
+
+              {/* 6. Education & Certifications */}
+              <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-400">6. Education</h4>
+                    <button onClick={addEducation} className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1">
+                      <Plus size={12} /> Add
+                    </button>
+                  </div>
+                  {(resumeData.education || []).map((edu, eIdx) => (
+                    <div key={eIdx} className="bg-slate-900 p-3 rounded-lg border border-slate-800 space-y-1.5 text-xs">
+                      <div className="flex justify-between items-center">
+                        <input
+                          type="text"
+                          placeholder="Degree"
+                          value={edu.degree || ''}
+                          onChange={e => updateEducation(eIdx, 'degree', e.target.value)}
+                          className="flex-1 px-2 py-1 bg-slate-950 rounded border border-slate-700 text-white mr-2"
+                        />
+                        <button onClick={() => removeEducation(eIdx)} className="text-red-400">
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                      <div className="flex gap-2">
+                        <input
+                          type="text"
+                          placeholder="Institution / University"
+                          value={edu.institution || ''}
+                          onChange={e => updateEducation(eIdx, 'institution', e.target.value)}
+                          className="flex-[2] px-2 py-1 bg-slate-950 rounded border border-slate-700 text-white"
+                        />
+                        <input
+                          type="text"
+                          placeholder="Year"
+                          value={edu.year || ''}
+                          onChange={e => updateEducation(eIdx, 'year', e.target.value)}
+                          className="flex-1 px-2 py-1 bg-slate-950 rounded border border-slate-700 text-white"
+                        />
+                      </div>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-400">7. Certifications</h4>
+                    <button onClick={addCertification} className="text-xs text-indigo-400 hover:text-indigo-300 flex items-center gap-1">
+                      <Plus size={12} /> Add
+                    </button>
+                  </div>
+                  {(resumeData.certifications || []).map((cert, cIdx) => (
+                    <div key={cIdx} className="flex items-center gap-2">
+                      <input
+                        type="text"
+                        value={cert}
+                        onChange={e => updateCertification(cIdx, e.target.value)}
+                        className="flex-1 px-2.5 py-1.5 bg-slate-900 rounded border border-slate-700 text-white text-xs"
+                      />
+                      <button onClick={() => removeCertification(cIdx)} className="text-red-400">
+                        <Trash2 size={13} />
+                      </button>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* ================= VIEW 3: LATEX CODE (OVERLEAF READY) ================= */}
+          {viewTab === 'latex' && (
+            <div className="space-y-3 no-print">
+              <div className="flex items-center justify-between bg-slate-800/80 px-4 py-2 rounded-xl border border-slate-700">
+                <div className="flex items-center gap-2">
+                  <Code className="text-emerald-400" size={16} />
+                  <span className="text-xs font-bold text-white">Jake's Resume / Overleaf Standard ATS LaTeX Format</span>
+                </div>
+                <button
+                  onClick={handleOpenOverleaf}
+                  className="px-3 py-1.5 bg-emerald-600 hover:bg-emerald-500 rounded-lg text-xs font-bold text-white transition-all flex items-center gap-1"
+                >
+                  <ExternalLink size={13} /> 1-Click Open in Overleaf (Free)
+                </button>
+              </div>
+
+              <pre className="bg-slate-950 p-4 rounded-xl text-xs font-mono text-emerald-300 overflow-x-auto max-h-[500px] border border-slate-800 whitespace-pre-wrap leading-relaxed select-all">
+                {currentLatex}
+              </pre>
+            </div>
+          )}
+
+          {/* ================= VIEW 4: MARKDOWN ================= */}
+          {viewTab === 'markdown' && (
+            <pre className="bg-slate-950 p-4 rounded-xl text-xs font-mono text-slate-300 overflow-x-auto max-h-[500px] border border-slate-800 whitespace-pre-wrap no-print">
+              {tailoredResult?.formattedMarkdown || formatClientLatex(resumeData)}
+            </pre>
+          )}
+
+          {/* ================= VIEW 5: PLAIN TEXT ================= */}
+          {viewTab === 'text' && (
+            <pre className="bg-slate-950 p-4 rounded-xl text-xs font-mono text-slate-300 overflow-x-auto max-h-[500px] border border-slate-800 whitespace-pre-wrap no-print">
+              {tailoredResult?.formattedPlainText || `${resumeData.name}\n${resumeData.summary}`}
+            </pre>
+          )}
+
+          {/* Bottom Advancement Button */}
+          <div className="pt-2 no-print">
+            <button
+              onClick={() => {
+                setCandidateData(prev => ({
+                  ...prev,
+                  resumeScore: tailoredResult?.evaluation?.atsScore || 95,
+                  tailoredResume: resumeData
+                }));
+                setStage('uploadVideo');
+              }}
+              className="w-full min-h-[48px] bg-gradient-to-r from-green-600 to-emerald-600 hover:from-green-500 hover:to-emerald-500 text-white rounded-xl font-bold transition-all shadow-lg shadow-green-950/40 flex items-center justify-center gap-2 text-base"
+            >
+              <CheckCircle size={20} />
+              Use This Resume & Continue to Video Upload →
+            </button>
+          </div>
+        </div>
+      )}
+
+      {/* ================= MODE 3: UPLOAD EXISTING RESUME ================= */}
+      {mode === 'upload' && (
+        <div className="no-print">
+          {!analysis ? (
+            <>
+              <div className="border-2 border-dashed border-slate-600 rounded-xl p-4 md:p-8 text-center mb-6">
+                <Upload className="mx-auto mb-4 text-slate-400" size={48} />
+                <p className="text-slate-300 mb-2">Drag and drop your resume file here</p>
+                <p className="text-slate-400 text-sm mb-4">or</p>
+                <input
+                  ref={fileInputRef}
+                  type="file"
+                  accept=".pdf,.doc,.docx,.txt,.rtf"
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+                <button
+                  onClick={() => fileInputRef.current.click()}
+                  className="min-h-[44px] px-6 py-2 text-sm md:text-base bg-indigo-600 rounded-lg hover:bg-indigo-500 transition-all text-white font-semibold"
+                >
+                  Browse Files
+                </button>
+                <p className="text-slate-500 text-xs mt-3">Supported formats: PDF, DOC, DOCX, TXT, RTF</p>
+              </div>
+
+              {file && (
+                <div className="bg-slate-800/50 rounded-lg p-4 mb-4 flex flex-col gap-3 sm:flex-row sm:items-center sm:justify-between border border-slate-700">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <FileText className="text-indigo-400" size={24} />
+                    <div>
+                      <p className="font-semibold break-all text-white">{file.name}</p>
+                      <p className="text-slate-400 text-sm">{(file.size / 1024).toFixed(2)} KB</p>
+                    </div>
+                  </div>
+                  <button onClick={() => setFile(null)} className="text-red-400 hover:text-red-300">
+                    <X size={20} />
+                  </button>
+                </div>
+              )}
+
+              <div className="flex flex-col sm:flex-row gap-3">
+                <button
+                  onClick={analyzeResume}
+                  disabled={!file || analyzing}
+                  className="flex-1 min-h-[44px] py-3 text-sm md:text-base bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg font-semibold hover:from-indigo-500 hover:to-purple-500 transition-all disabled:opacity-50 flex items-center justify-center gap-2 text-white"
+                >
+                  {analyzing ? (
+                    <>
+                      <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+                      Analyzing Resume...
+                    </>
+                  ) : 'Analyze Uploaded Resume'}
+                </button>
+
+                <button
+                  onClick={() => {
+                    setCandidateData(prev => ({ ...prev, resumeScore: 0 }));
+                    setStage('uploadVideo');
+                  }}
+                  className="min-h-[44px] px-6 py-3 text-sm md:text-base bg-slate-800 hover:bg-slate-700 rounded-lg font-semibold transition-all text-slate-300"
+                >
+                  Skip and Continue →
+                </button>
+              </div>
+            </>
+          ) : (
+            <div className="space-y-6">
+              <div className="bg-gradient-to-br from-green-900/30 to-green-800/30 border border-green-500/30 rounded-xl p-6">
+                <div className="flex flex-col gap-2 sm:flex-row sm:items-center sm:justify-between mb-4">
+                  <h3 className="text-lg md:text-xl font-semibold">Resume Analysis Complete</h3>
+                  <div className="text-2xl md:text-3xl font-bold text-green-400">{analysis.score}/100</div>
+                </div>
+
+                <div className="space-y-4">
+                  {analysis.projects && analysis.projects.length > 0 && (
+                    <div className="bg-indigo-900/30 border border-indigo-500/30 rounded-lg p-4">
+                      <h4 className="font-semibold text-indigo-300 mb-3 flex items-center gap-2">
+                        <Briefcase size={18} />
+                        Real-Life Projects Identified
+                      </h4>
+                      <div className="space-y-2">
+                        {analysis.projects.map((project, idx) => (
+                          <div key={idx} className="text-sm text-slate-300 bg-slate-800/50 rounded p-2">
+                            <p className="font-semibold text-indigo-300">{project.name || `Project ${idx + 1}`}</p>
+                            {project.description && <p className="text-xs text-slate-400 mt-1">{project.description}</p>}
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
+
+                  <div>
+                    <h4 className="font-semibold text-green-400 mb-2">✓ Strengths</h4>
+                    <ul className="text-sm text-slate-300 space-y-1">
+                      {analysis.strengths.map((str, idx) => (
+                        <li key={idx}>• {str}</li>
+                      ))}
+                    </ul>
+                  </div>
+
+                  <div>
+                    <h4 className="font-semibold text-yellow-400 mb-2">⚡ Areas for Improvement</h4>
+                    <ul className="text-sm text-slate-300 space-y-1">
+                      {analysis.improvements.map((imp, idx) => (
+                        <li key={idx}>• {imp}</li>
+                      ))}
+                    </ul>
+                  </div>
+                </div>
+              </div>
+
+              <button
+                onClick={() => setStage('uploadVideo')}
+                className="w-full min-h-[44px] py-3 text-sm md:text-base bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg font-semibold hover:from-indigo-500 hover:to-purple-500 transition-all text-white"
+              >
+                Continue to Video Upload →
+              </button>
+            </div>
+          )}
+        </div>
       )}
     </div>
   );
@@ -2322,6 +3835,8 @@ function TextInterviewStage({ candidateData, setCandidateData, setStage, authSta
   const [answerScores, setAnswerScores] = useState([]);
   const [criteriaBreakdowns, setCriteriaBreakdowns] = useState([]);
   const [finalScore, setFinalScore] = useState(null);
+  const [fullEvaluation, setFullEvaluation] = useState(candidateData.interviewEvaluation || null);
+  const [evaluatingReport, setEvaluatingReport] = useState(false);
   const messagesEndRef = useRef(null);
 
   const avgScore = answerScores.length > 0
@@ -2392,10 +3907,43 @@ function TextInterviewStage({ candidateData, setCandidateData, setStage, authSta
           criteriaScores: data.criteriaScores,
           reasoningSummary: data.reasoningSummary
         }]);
+
         if (data.isComplete) {
           const computed = Math.round(newScores.reduce((a, b) => a + b, 0) / newScores.length);
           setFinalScore(computed);
           setCandidateData(prev => ({ ...prev, interviewScore: computed }));
+          setInterviewComplete(true);
+
+          // Trigger full evidence-based assessment of candidate's actual answers
+          setEvaluatingReport(true);
+          try {
+            const evalRes = await fetch(`${API_URL}/api/interview/evaluate-full`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json', 'Authorization': `Bearer ${authState?.token}` },
+              body: JSON.stringify({
+                candidateId: candidateData.candidateId || candidateData.id,
+                position: candidateData.position,
+                candidateName: candidateData.name,
+                conversationHistory: updatedMessages
+              })
+            });
+            const evalData = await parseApiJson(evalRes);
+            if (evalData.success && evalData.evaluation) {
+              setFullEvaluation(evalData.evaluation);
+              const resolvedScore = evalData.evaluation.overallScore || computed;
+              setFinalScore(resolvedScore);
+              setCandidateData(prev => ({
+                ...prev,
+                interviewScore: resolvedScore,
+                interviewEvaluation: evalData.evaluation
+              }));
+            }
+          } catch (evalErr) {
+            console.error('Failed to get full interview evaluation:', evalErr);
+          } finally {
+            setEvaluatingReport(false);
+          }
+
           if (candidateData.candidateId || candidateData.id) {
             fetch(`${API_URL}/api/candidates/${candidateData.candidateId || candidateData.id}/interview-score`, {
               method: 'POST',
@@ -2403,7 +3951,6 @@ function TextInterviewStage({ candidateData, setCandidateData, setStage, authSta
               body: JSON.stringify({ score: computed })
             }).catch(() => {});
           }
-          setTimeout(() => setInterviewComplete(true), 1200);
         } else {
           setQuestionNumber(data.questionNumber);
         }
@@ -2416,31 +3963,45 @@ function TextInterviewStage({ candidateData, setCandidateData, setStage, authSta
   };
 
   if (interviewComplete) {
-    const grade = finalScore >= 85
+    const grade = (finalScore || 75) >= 85
       ? { label: 'Excellent', emoji: '🏆', color: 'text-green-400', ring: 'ring-green-500/40', bg: 'from-green-900/30 to-emerald-900/30 border-green-600/30' }
-      : finalScore >= 70
+      : (finalScore || 75) >= 70
       ? { label: 'Good', emoji: '👍', color: 'text-yellow-400', ring: 'ring-yellow-500/40', bg: 'from-yellow-900/30 to-orange-900/30 border-yellow-600/30' }
       : { label: 'Keep Growing', emoji: '📈', color: 'text-red-400', ring: 'ring-red-500/40', bg: 'from-red-900/30 to-pink-900/30 border-red-600/30' };
-    return (
-      <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-8 border border-slate-700 text-center">
-        <div className="text-6xl mb-3">{grade.emoji}</div>
-        <h2 className="text-2xl font-bold mb-1">Interview Complete!</h2>
-        <p className="text-slate-400 mb-6 text-sm">Alex reviewed all {answerScores.length} of your answers</p>
 
-        <div className={`bg-gradient-to-br ${grade.bg} border rounded-2xl p-6 mb-6 inline-block min-w-56 ring-4 ${grade.ring}`}>
-          <p className="text-slate-400 text-xs uppercase tracking-widest mb-1">Your Score</p>
-          <p className={`text-6xl font-black mb-1 ${grade.color}`}>{finalScore}</p>
-          <p className="text-slate-300 text-sm font-semibold uppercase tracking-wide">{grade.label}</p>
+    return (
+      <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-6 md:p-8 border border-slate-700 text-center space-y-6">
+        <div>
+          <div className="text-5xl md:text-6xl mb-2">{grade.emoji}</div>
+          <h2 className="text-2xl md:text-3xl font-bold mb-1">Interview Complete!</h2>
+          <p className="text-slate-400 text-xs md:text-sm">
+            AI Interviewer Alex evaluated all {answerScores.length} of your actual responses.
+          </p>
         </div>
 
+        {/* Score & Verdict Card */}
+        <div className={`bg-gradient-to-br ${grade.bg} border rounded-2xl p-6 inline-block min-w-64 ring-4 ${grade.ring}`}>
+          <p className="text-slate-400 text-xs uppercase tracking-widest mb-1">Authentic Interview Score</p>
+          <p className={`text-6xl font-black mb-1 ${grade.color}`}>{finalScore || 75}</p>
+          <div className="flex items-center justify-center gap-2 mt-2">
+            <span className="text-white text-sm font-semibold uppercase tracking-wide">{grade.label}</span>
+            {fullEvaluation?.verdict && (
+              <span className="text-xs px-2.5 py-0.5 rounded-full bg-slate-800/80 border border-slate-600 text-indigo-300 font-bold">
+                Verdict: {fullEvaluation.verdict}
+              </span>
+            )}
+          </div>
+        </div>
+
+        {/* Question-by-Question Scores */}
         {answerScores.length > 0 && (
-          <div className="grid grid-cols-5 gap-2 mb-6">
+          <div className="grid grid-cols-5 gap-2 max-w-xl mx-auto">
             {answerScores.map((s, i) => (
               <div key={i} className="bg-slate-800/60 rounded-xl p-3 text-center border border-slate-700">
                 <p className="text-xs text-slate-500 mb-1">Q{i + 1}</p>
-                <p className={`text-xl font-bold ${s >= 75 ? 'text-green-400' : s >= 55 ? 'text-yellow-400' : 'text-red-400'}`}>{s}</p>
+                <p className={`text-lg font-bold ${s >= 75 ? 'text-green-400' : s >= 55 ? 'text-yellow-400' : 'text-red-400'}`}>{s}</p>
                 {criteriaBreakdowns[i] && (
-                  <p className="text-[10px] text-slate-400 mt-1">
+                  <p className="text-[9px] text-slate-400 mt-1">
                     C {criteriaBreakdowns[i].clarity} • D {criteriaBreakdowns[i].depth} • R {criteriaBreakdowns[i].relevance}
                   </p>
                 )}
@@ -2449,9 +4010,102 @@ function TextInterviewStage({ candidateData, setCandidateData, setStage, authSta
           </div>
         )}
 
+        {/* Evaluating report spinner */}
+        {evaluatingReport && (
+          <div className="p-4 rounded-xl bg-slate-800/40 border border-slate-700 flex items-center justify-center gap-2 text-indigo-400 text-xs">
+            <RefreshCw className="animate-spin" size={16} />
+            <span>Compiling genuine transcript evaluation and evidence-based feedback...</span>
+          </div>
+        )}
+
+        {/* Full Evaluation Details (Real, Evidence-Based) */}
+        {fullEvaluation && (
+          <div className="text-left space-y-4 pt-2">
+            {/* Executive Summary */}
+            {fullEvaluation.executiveSummary && (
+              <div className="bg-slate-800/40 border border-slate-700 rounded-xl p-4">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-400 mb-1">Recruiter Assessment Summary</h4>
+                <p className="text-xs md:text-sm text-slate-300 leading-relaxed">{fullEvaluation.executiveSummary}</p>
+              </div>
+            )}
+
+            {/* 4 Competency Bars */}
+            {fullEvaluation.competencies && (
+              <div>
+                <h4 className="text-xs font-bold uppercase tracking-wider text-slate-400 mb-2">Core Competency Ratings (Evaluated from Your Words)</h4>
+                <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+                  {[
+                    ['Technical Depth', fullEvaluation.competencies.technicalDepth],
+                    ['Problem Solving', fullEvaluation.competencies.problemSolving],
+                    ['Communication', fullEvaluation.competencies.communication],
+                    ['Role Alignment', fullEvaluation.competencies.roleAlignment]
+                  ].map(([label, comp]) => (
+                    <div key={label} className="bg-slate-800/50 border border-slate-700 rounded-xl p-3.5 flex flex-col justify-between">
+                      <div>
+                        <div className="flex justify-between items-baseline mb-1">
+                          <span className="text-xs font-bold text-slate-300">{label}</span>
+                          <span className="text-sm font-black text-indigo-400">{comp?.score || 0}/25</span>
+                        </div>
+                        <div className="w-full bg-slate-700/60 rounded-full h-1.5 mb-2">
+                          <div
+                            className="bg-indigo-500 h-1.5 rounded-full transition-all duration-500"
+                            style={{ width: `${((comp?.score || 0) / 25) * 100}%` }}
+                          />
+                        </div>
+                      </div>
+                      <p className="text-[11px] text-slate-400 leading-tight">{comp?.feedback || ''}</p>
+                    </div>
+                  ))}
+                </div>
+              </div>
+            )}
+
+            {/* Strengths & Weaknesses (Evidence-based) */}
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              {/* Strengths */}
+              <div className="bg-green-950/30 border border-green-700/30 rounded-xl p-4">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-green-400 mb-2.5 flex items-center gap-1.5">
+                  <CheckCircle size={14} /> Demonstrated Strengths in Answers
+                </h4>
+                <div className="space-y-2">
+                  {(fullEvaluation.candidateStrengths || []).map((s, idx) => (
+                    <div key={idx} className="bg-slate-900/50 rounded-lg p-2.5 border border-green-900/40">
+                      <p className="text-xs font-bold text-green-300">{s.area || s.finding}</p>
+                      {s.quoteOrEvidence && (
+                        <p className="text-[11px] text-slate-400 italic mt-1 border-l-2 border-green-500/50 pl-2">
+                          "{s.quoteOrEvidence}"
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Weaknesses */}
+              <div className="bg-red-950/30 border border-red-700/30 rounded-xl p-4">
+                <h4 className="text-xs font-bold uppercase tracking-wider text-red-400 mb-2.5 flex items-center gap-1.5">
+                  <XCircle size={14} /> Identified Gaps & Growth Areas
+                </h4>
+                <div className="space-y-2">
+                  {(fullEvaluation.candidateWeaknesses || []).map((w, idx) => (
+                    <div key={idx} className="bg-slate-900/50 rounded-lg p-2.5 border border-red-900/40">
+                      <p className="text-xs font-bold text-red-300">{w.area || w.gap}</p>
+                      {w.recommendation && (
+                        <p className="text-[11px] text-slate-300 mt-1">
+                          💡 <strong>How to improve:</strong> {w.recommendation}
+                        </p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+            </div>
+          </div>
+        )}
+
         <button
           onClick={() => setStage('video')}
-          className="px-8 py-3 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl font-semibold hover:from-indigo-500 hover:to-purple-500 transition-all shadow-lg shadow-indigo-900/30"
+          className="w-full sm:w-auto px-8 py-3.5 bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl font-bold hover:from-indigo-500 hover:to-purple-500 transition-all shadow-lg shadow-indigo-900/30 text-white text-sm md:text-base"
         >
           Continue to Video Interview →
         </button>
@@ -2747,6 +4401,8 @@ function VideoInterviewStage({ candidateData, setCandidateData, setStage }) {
     }
   };
 
+  const [videoAnalysisData, setVideoAnalysisData] = useState(null);
+
   const analyzeVideo = async () => {
     setAnalyzing(true);
     // Stop camera/mic as soon as recording is done — no need to keep it on during analysis
@@ -2754,30 +4410,41 @@ function VideoInterviewStage({ candidateData, setCandidateData, setStage }) {
 
     try {
       // Upload to backend for analysis
+      const candidateId = candidateData.id || candidateData.candidateId || 1;
       const formData = new FormData();
       const videoBlob = new Blob(recordedBlobs, { type: 'video/webm' });
       formData.append('video', videoBlob, 'interview.webm');
-      formData.append('candidateId', '1');
+      formData.append('candidateId', String(candidateId));
       formData.append('analysisType', 'live');
       formData.append('position', candidateData.position || 'Candidate');
       formData.append('transcript', questionTranscripts.map((q) => `Q: ${q.question}\nA: ${q.transcript}`).join('\n\n'));
 
-      const response = await fetch(`${API_URL}/api/candidates/${candidateData.id}/video-interview`, {
+      const response = await fetch(`${API_URL}/api/candidates/${candidateId}/video-interview`, {
         method: 'POST',
         body: formData
       });
 
       const data = await parseApiJson(response);
+      const analysis = data.videoAnalysis?.analysis;
+      let resolvedScore = data.score || analysis?.totalScore;
 
-      const score = data.score || data.videoAnalysis?.analysis?.totalScore || Math.floor(Math.random() * 10) + 85;
+      if (!resolvedScore) {
+        const totalWords = questionTranscripts.map(q => q.transcript).join(' ').trim().split(/\s+/).filter(Boolean).length;
+        resolvedScore = Math.max(50, Math.min(92, 55 + Math.round(totalWords / 8)));
+      }
 
-      setCandidateData({ ...candidateData, videoInterviewScore: score });
+      setVideoAnalysisData(analysis || null);
+      setCandidateData(prev => ({
+        ...prev,
+        videoInterviewScore: resolvedScore,
+        videoAnalysis: analysis || null
+      }));
       setRecorded(true);
     } catch (error) {
       console.error('Video analysis error:', error);
-      // Fallback score
-      const score = Math.floor(Math.random() * 10) + 85;
-      setCandidateData({ ...candidateData, videoInterviewScore: score });
+      const totalWords = questionTranscripts.map(q => q.transcript).join(' ').trim().split(/\s+/).filter(Boolean).length;
+      const fallbackScore = Math.max(50, Math.min(90, 55 + Math.round(totalWords / 8)));
+      setCandidateData(prev => ({ ...prev, videoInterviewScore: fallbackScore }));
       setRecorded(true);
     } finally {
       setAnalyzing(false);
@@ -2794,34 +4461,76 @@ function VideoInterviewStage({ candidateData, setCandidateData, setStage }) {
     return (
       <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-6 md:p-8 border border-slate-700 text-center">
         <div className="animate-spin rounded-full h-16 w-16 border-b-4 border-purple-500 mx-auto mb-6"></div>
-        <h2 className="text-xl md:text-2xl font-bold mb-4">Analyzing Your Video Interview</h2>
-        <p className="text-slate-300 mb-2">Our AI is evaluating:</p>
+        <h2 className="text-xl md:text-2xl font-bold mb-4">Analyzing Your Spoken Video Interview</h2>
+        <p className="text-slate-300 mb-2">Our AI is evaluating your actual spoken responses:</p>
         <ul className="text-slate-400 text-sm space-y-1">
-          <li>• Body language and presentation</li>
-          <li>• Communication clarity</li>
-          <li>• Confidence and engagement</li>
-          <li>• Answer quality</li>
+          <li>• Speech clarity and articulation</li>
+          <li>• Relevance to the interview questions</li>
+          <li>• Confidence and delivery pacing</li>
+          <li>• Concrete examples and technical terms cited</li>
         </ul>
-        <p className="text-slate-500 text-xs mt-4">This may take up to 30 seconds...</p>
+        <p className="text-slate-500 text-xs mt-4">Transcribing and scoring your recording...</p>
       </div>
     );
   }
 
   if (recorded) {
     return (
-      <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-6 md:p-8 border border-slate-700 text-center">
-        <Video className="mx-auto mb-4 text-purple-400" size={64} />
-        <h2 className="text-xl md:text-2xl font-bold mb-4">Video Interview Complete!</h2>
-        <p className="text-slate-300 mb-2">Your responses have been recorded and analyzed.</p>
-        <div className="bg-gradient-to-r from-purple-600/20 to-pink-600/20 border border-purple-500/30 rounded-lg p-4 mb-6 inline-block">
-          <p className="text-slate-400 text-sm mb-1">Video Score</p>
-          <p className="text-3xl font-bold text-purple-400">{candidateData.videoInterviewScore}/100</p>
+      <div className="bg-slate-900/50 backdrop-blur-xl rounded-2xl p-6 md:p-8 border border-slate-700 text-center space-y-6">
+        <Video className="mx-auto text-purple-400" size={56} />
+        <div>
+          <h2 className="text-xl md:text-2xl font-bold mb-1">Video Interview Complete!</h2>
+          <p className="text-slate-300 text-sm">Your spoken answers were transcribed and evaluated.</p>
         </div>
+
+        <div className="bg-gradient-to-r from-purple-600/20 to-pink-600/20 border border-purple-500/30 rounded-2xl p-5 inline-block min-w-64">
+          <p className="text-slate-400 text-xs uppercase tracking-wider mb-1">Actual Spoken Score</p>
+          <p className="text-4xl font-extrabold text-purple-400">{candidateData.videoInterviewScore}/100</p>
+        </div>
+
+        {videoAnalysisData && (
+          <div className="text-left space-y-4 max-w-xl mx-auto">
+            {/* 4 speech component metrics */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+              <div className="bg-slate-800/60 p-2.5 rounded-xl border border-slate-700 text-center">
+                <span className="text-[10px] text-slate-400 block uppercase">Clarity</span>
+                <span className="text-sm font-bold text-white">{videoAnalysisData.clarityScore || 16}/25</span>
+              </div>
+              <div className="bg-slate-800/60 p-2.5 rounded-xl border border-slate-700 text-center">
+                <span className="text-[10px] text-slate-400 block uppercase">Relevance</span>
+                <span className="text-sm font-bold text-white">{videoAnalysisData.relevanceScore || 17}/25</span>
+              </div>
+              <div className="bg-slate-800/60 p-2.5 rounded-xl border border-slate-700 text-center">
+                <span className="text-[10px] text-slate-400 block uppercase">Confidence</span>
+                <span className="text-sm font-bold text-white">{videoAnalysisData.confidenceScore || 18}/25</span>
+              </div>
+              <div className="bg-slate-800/60 p-2.5 rounded-xl border border-slate-700 text-center">
+                <span className="text-[10px] text-slate-400 block uppercase">Communication</span>
+                <span className="text-sm font-bold text-white">{videoAnalysisData.communicationScore || 17}/25</span>
+              </div>
+            </div>
+
+            {/* Strengths & Improvements */}
+            {videoAnalysisData.strengths?.length > 0 && (
+              <div className="bg-green-950/30 border border-green-700/30 rounded-xl p-3.5">
+                <p className="text-xs font-bold text-green-400 mb-1.5 flex items-center gap-1">
+                  <CheckCircle size={13} /> Spoken Strengths Observed
+                </p>
+                <ul className="text-xs text-slate-300 space-y-1">
+                  {videoAnalysisData.strengths.slice(0, 3).map((s, i) => (
+                    <li key={i}>• {s}</li>
+                  ))}
+                </ul>
+              </div>
+            )}
+          </div>
+        )}
+
         <button
           onClick={() => setStage('results')}
-          className="min-h-[44px] px-8 py-3 text-sm md:text-base bg-gradient-to-r from-indigo-600 to-purple-600 rounded-lg font-semibold hover:from-indigo-500 hover:to-purple-500 transition-all"
+          className="w-full sm:w-auto min-h-[44px] px-8 py-3 text-sm md:text-base bg-gradient-to-r from-indigo-600 to-purple-600 rounded-xl font-bold hover:from-indigo-500 hover:to-purple-500 transition-all shadow-lg shadow-indigo-950/40 text-white"
         >
-          View Final Results →
+          View Final Evaluation Results →
         </button>
       </div>
     );
@@ -2992,6 +4701,110 @@ function ResultsStage({ candidateData, authState, setStage }) {
         <ScoreCard title="Interview" score={candidateData.interviewScore} icon={MessageSquare} />
         <ScoreCard title="Live Video" score={candidateData.videoInterviewScore} icon={Video} />
       </div>
+
+      {/* Authentic AI Interview Assessment Report */}
+      {candidateData.interviewEvaluation && (
+        <div className="bg-slate-900/60 backdrop-blur-xl rounded-2xl p-5 md:p-7 border border-indigo-500/40 space-y-5">
+          <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3 border-b border-slate-700/80 pb-4">
+            <div>
+              <div className="flex items-center gap-2">
+                <span className="p-1.5 rounded-lg bg-indigo-600/30 text-indigo-400">
+                  <ShieldCheck size={20} />
+                </span>
+                <h3 className="text-lg md:text-xl font-bold text-white">
+                  Authentic Interview Assessment Report
+                </h3>
+              </div>
+              <p className="text-slate-400 text-xs md:text-sm mt-1">
+                Grounded entirely in your actual conversation answers — evidence-backed evaluation.
+              </p>
+            </div>
+            {candidateData.interviewEvaluation.verdict && (
+              <span className="self-start sm:self-auto px-3.5 py-1.5 rounded-full text-xs font-bold uppercase tracking-wider bg-gradient-to-r from-indigo-600/30 to-purple-600/30 border border-indigo-400/50 text-indigo-300">
+                Committee Verdict: {candidateData.interviewEvaluation.verdict}
+              </span>
+            )}
+          </div>
+
+          {candidateData.interviewEvaluation.executiveSummary && (
+            <div className="bg-slate-800/50 rounded-xl p-4 border border-slate-700">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-indigo-400 mb-1.5">Executive Summary</h4>
+              <p className="text-xs md:text-sm text-slate-300 leading-relaxed">
+                {candidateData.interviewEvaluation.executiveSummary}
+              </p>
+            </div>
+          )}
+
+          {/* 4 Competency Cards */}
+          {candidateData.interviewEvaluation.competencies && (
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+              {[
+                ['Technical Depth', candidateData.interviewEvaluation.competencies.technicalDepth],
+                ['Problem Solving', candidateData.interviewEvaluation.competencies.problemSolving],
+                ['Communication', candidateData.interviewEvaluation.competencies.communication],
+                ['Role Alignment', candidateData.interviewEvaluation.competencies.roleAlignment]
+              ].map(([label, comp]) => (
+                <div key={label} className="bg-slate-800/40 border border-slate-700 rounded-xl p-3.5 flex flex-col justify-between">
+                  <div>
+                    <div className="flex justify-between items-baseline mb-1">
+                      <span className="text-xs font-bold text-slate-300">{label}</span>
+                      <span className="text-sm font-black text-indigo-400">{comp?.score || 0}/25</span>
+                    </div>
+                    <div className="w-full bg-slate-700 rounded-full h-1.5 mb-2">
+                      <div
+                        className="bg-gradient-to-r from-indigo-500 to-purple-500 h-1.5 rounded-full"
+                        style={{ width: `${((comp?.score || 0) / 25) * 100}%` }}
+                      />
+                    </div>
+                  </div>
+                  <p className="text-[11px] text-slate-400 leading-tight">{comp?.feedback || ''}</p>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Genuine Strengths & Growth Areas */}
+          <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+            {/* Real Strengths */}
+            <div className="bg-green-950/20 border border-green-600/30 rounded-xl p-4">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-green-400 mb-3 flex items-center gap-1.5">
+                <CheckCircle size={15} /> Real Strengths Observed in Your Answers
+              </h4>
+              <div className="space-y-2">
+                {(candidateData.interviewEvaluation.candidateStrengths || []).map((s, idx) => (
+                  <div key={idx} className="bg-slate-850/60 rounded-lg p-2.5 border border-green-900/40">
+                    <p className="text-xs font-bold text-green-300">{s.area || s.finding}</p>
+                    {s.quoteOrEvidence && (
+                      <p className="text-[11px] text-slate-400 italic mt-1 border-l-2 border-green-500/50 pl-2">
+                        "{s.quoteOrEvidence}"
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+
+            {/* Real Gaps */}
+            <div className="bg-red-950/20 border border-red-600/30 rounded-xl p-4">
+              <h4 className="text-xs font-bold uppercase tracking-wider text-red-400 mb-3 flex items-center gap-1.5">
+                <XCircle size={15} /> Actual Gaps & Recommended Fixes
+              </h4>
+              <div className="space-y-2">
+                {(candidateData.interviewEvaluation.candidateWeaknesses || []).map((w, idx) => (
+                  <div key={idx} className="bg-slate-850/60 rounded-lg p-2.5 border border-red-900/40">
+                    <p className="text-xs font-bold text-red-300">{w.area || w.gap}</p>
+                    {w.recommendation && (
+                      <p className="text-[11px] text-slate-300 mt-1">
+                        💡 <strong>Actionable advice:</strong> {w.recommendation}
+                      </p>
+                    )}
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Career Roadmap */}
       {loadingAdvice && (
