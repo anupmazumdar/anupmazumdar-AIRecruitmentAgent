@@ -2649,6 +2649,210 @@ app.put('/api/candidates/:id/status', authenticateToken, async (req, res) => {
 
 // ==================== JD-BASED ATS RESUME BUILDER & OPTIMIZER ====================
 
+// One-click: Convert raw uploaded resume text → structured ATS-friendly resume
+// No form filling required. Extracts all data directly from the candidate's existing resume text.
+app.post('/api/resume/enhance-from-upload', async (req, res) => {
+  try {
+    const { resumeText, targetRole, candidateName, candidateEmail } = req.body;
+    if (!resumeText || typeof resumeText !== 'string' || resumeText.trim().length < 50) {
+      return res.status(400).json({ error: 'Resume text is required to enhance.' });
+    }
+
+    const role = String(targetRole || 'Software Engineer').trim();
+    const text = String(resumeText || '');
+    const lower = text.toLowerCase();
+    const lines = text.split(/\r?\n/).map(l => l.trim()).filter(Boolean);
+
+    // ── 1. Extract Name
+    const nameFromReq = String(candidateName || '').trim();
+    let detectedName = nameFromReq;
+    if (!detectedName) {
+      // First non-empty line that looks like a person's name (2–4 capitalized words, no @)
+      for (const line of lines.slice(0, 6)) {
+        if (/^[A-Z][a-z]+(\s[A-Z][a-z]+){1,3}$/.test(line) && !line.includes('@')) {
+          detectedName = line;
+          break;
+        }
+      }
+    }
+    detectedName = detectedName || 'Candidate';
+
+    // ── 2. Extract Contact Info
+    const emailMatch = text.match(/[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/);
+    const phoneMatch = text.match(/(?:\+?\d{1,3}[\s-]?)?\(?\d{3}\)?[\s-]?\d{3}[\s-]?\d{4}|\+91[\s-]?\d{10}|\b\d{10}\b/);
+    const linkedinMatch = text.match(/linkedin\.com\/in\/([a-zA-Z0-9_-]+)/i);
+    const githubMatch = text.match(/github\.com\/([a-zA-Z0-9_-]+)/i);
+    const locationMatch = text.match(/\b([A-Z][a-z]+(?:,\s*[A-Z]{2})?|[A-Z][a-z]+,\s*India)\b/);
+
+    // ── 3. Extract Summary
+    let summary = '';
+    const summaryIdx = lines.findIndex(l => /^(?:summary|professional summary|career summary|objective|profile|about me)\b/i.test(l));
+    if (summaryIdx >= 0) {
+      const summaryLines = [];
+      for (let i = summaryIdx + 1; i < Math.min(lines.length, summaryIdx + 5); i++) {
+        if (/^[A-Z][A-Z\s&]+$/.test(lines[i]) || lines[i].length < 4) break;
+        summaryLines.push(lines[i]);
+      }
+      summary = summaryLines.join(' ').trim().slice(0, 400);
+    }
+    if (!summary) {
+      // Auto-generate from role and detected tech
+      summary = `${role} with hands-on experience building scalable systems and delivering measurable business value.`;
+    }
+
+    // ── 4. Extract Skills by category
+    const TECH_CATEGORIES = {
+      Languages: ['javascript', 'typescript', 'python', 'java', 'c++', 'c#', 'golang', 'rust', 'php', 'swift', 'kotlin', 'ruby', 'r', 'scala'],
+      Frontend: ['react', 'next.js', 'vue', 'angular', 'svelte', 'html', 'css', 'tailwind', 'sass', 'redux', 'webpack', 'vite'],
+      Backend: ['node.js', 'express', 'django', 'flask', 'fastapi', 'spring boot', 'laravel', '.net', 'graphql', 'rest api', 'microservices', 'grpc'],
+      'Databases & Cloud': ['postgresql', 'mysql', 'mongodb', 'redis', 'elasticsearch', 'aws', 'gcp', 'azure', 'firebase', 'dynamodb', 'supabase'],
+      'DevOps & Tools': ['docker', 'kubernetes', 'ci/cd', 'github actions', 'jenkins', 'terraform', 'linux', 'git', 'nginx', 'kafka']
+    };
+    const extractedSkills = {};
+    for (const [category, keywords] of Object.entries(TECH_CATEGORIES)) {
+      const found = keywords.filter(k => lower.includes(k));
+      if (found.length > 0) extractedSkills[category] = found.map(k => k.split(' ').map(w => w.charAt(0).toUpperCase() + w.slice(1)).join(' '));
+    }
+
+    // ── 5. Extract Work Experience
+    const experience = [];
+    const expIdx = lines.findIndex(l => /^(?:work\s+experience|professional\s+experience|employment|experience|career\s+history)\b/i.test(l));
+    if (expIdx >= 0) {
+      let currentRole = null;
+      for (let i = expIdx + 1; i < Math.min(lines.length, expIdx + 60); i++) {
+        const line = lines[i];
+        if (/^(?:education|projects|certifications|skills|awards|references)\b/i.test(line)) break;
+
+        // Pattern: "Job Title | Company | Date" or "Job Title at Company (Date)"
+        const roleMatch = line.match(/^(.+?)\s*[|@–-]\s*(.+?)\s*[|@–-]\s*(\d{4}.+)/);
+        const roleMatch2 = line.match(/^(.+?)\s+(?:at|@)\s+(.+?)\s*[\(|](.+?)[\)|\n]/i);
+        const dateOnlyLine = line.match(/\b(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)?\s*\d{4}\s*[-–]\s*(?:jan|feb|mar|apr|may|jun|jul|aug|sep|oct|nov|dec)?\s*(?:\d{4}|present|current)/i);
+
+        if (roleMatch || roleMatch2) {
+          if (currentRole) experience.push(currentRole);
+          const m = roleMatch || roleMatch2;
+          currentRole = {
+            role: (m[1] || role).trim(),
+            company: (m[2] || 'Company').trim(),
+            dates: (m[3] || '').trim().slice(0, 30),
+            location: locationMatch ? locationMatch[1] : '',
+            bullets: []
+          };
+        } else if (dateOnlyLine && lines[i - 1] && !currentRole) {
+          // Previous line is likely company, line before that is job title
+          currentRole = {
+            role: (lines[i - 2] || role).trim(),
+            company: (lines[i - 1] || 'Company').trim(),
+            dates: line.trim().slice(0, 30),
+            location: '',
+            bullets: []
+          };
+        } else if (currentRole && (line.startsWith('-') || line.startsWith('•') || line.startsWith('*'))) {
+          const bullet = line.replace(/^[-•*]\s*/, '').trim();
+          if (bullet.length > 10) currentRole.bullets.push(bullet);
+        }
+      }
+      if (currentRole) experience.push(currentRole);
+    }
+
+    // ── 6. Extract Projects
+    const projects = [];
+    const projIdx = lines.findIndex(l => /^(?:key\s+|featured\s+|academic\s+|personal\s+)?projects?\b/i.test(l));
+    if (projIdx >= 0) {
+      for (let i = projIdx + 1; i < Math.min(lines.length, projIdx + 35); i++) {
+        const line = lines[i];
+        if (/^(?:education|experience|skills|certifications|awards)\b/i.test(line)) break;
+        if (line.length > 4 && line.length < 100 && !line.startsWith('-') && !line.startsWith('•') && !line.startsWith('*')) {
+          const desc = lines[i + 1] && (lines[i + 1].startsWith('-') || lines[i + 1].startsWith('•') || lines[i + 1].startsWith('*'))
+            ? lines[i + 1].replace(/^[-•*]\s*/, '')
+            : 'Built scalable features with measurable impact.';
+          const pLower = (line + ' ' + desc).toLowerCase();
+          const pTech = Object.values(TECH_CATEGORIES).flat().filter(k => pLower.includes(k.toLowerCase()));
+          projects.push({
+            name: line.replace(/[:|–-].*$/, '').trim(),
+            technologies: pTech.slice(0, 5),
+            description: desc,
+            impact: 'Delivered production-grade solution addressing real user needs.'
+          });
+          if (projects.length >= 4) break;
+        }
+      }
+    }
+
+    // ── 7. Extract Education
+    const education = [];
+    const eduIdx = lines.findIndex(l => /^(?:education|academic\s+background|qualifications)\b/i.test(l));
+    if (eduIdx >= 0) {
+      for (let i = eduIdx + 1; i < Math.min(lines.length, eduIdx + 20); i++) {
+        const line = lines[i];
+        if (/^(?:experience|projects|skills|certifications)\b/i.test(line)) break;
+        const degreeMatch = line.match(/(?:b\.?tech|b\.?e|b\.?s|m\.?tech|m\.?s|mca|bca|bachelor|master|diploma|phd|b\.?com)/i);
+        const yearMatch = line.match(/\b(20\d{2}|19\d{2})\b/);
+        if (degreeMatch) {
+          education.push({
+            degree: line.trim().slice(0, 80),
+            institution: (lines[i + 1] || '').trim().slice(0, 80),
+            year: yearMatch ? yearMatch[0] : ''
+          });
+          i++;
+        }
+      }
+    }
+
+    // ── 8. Extract Certifications
+    const certifications = [];
+    const certIdx = lines.findIndex(l => /^certifications?\b/i.test(l));
+    if (certIdx >= 0) {
+      for (let i = certIdx + 1; i < Math.min(lines.length, certIdx + 10); i++) {
+        const line = lines[i];
+        if (/^(?:education|experience|skills|projects)\b/i.test(line)) break;
+        const cert = line.replace(/^[-•*\d.]\s*/, '').trim();
+        if (cert.length > 4) certifications.push(cert);
+      }
+    }
+
+    // ── 9. Assemble structured resume for the existing ATS generation pipeline
+    const structuredProfile = {
+      name: detectedName,
+      email: emailMatch ? emailMatch[0] : (String(candidateEmail || '')).trim(),
+      phone: phoneMatch ? phoneMatch[0] : '',
+      linkedin: linkedinMatch ? `linkedin.com/in/${linkedinMatch[1]}` : '',
+      github: githubMatch ? `github.com/${githubMatch[1]}` : '',
+      location: locationMatch ? locationMatch[1] : '',
+      summary,
+      skills: extractedSkills,
+      experience,
+      projects,
+      education,
+      certifications
+    };
+
+    // Build a synthetic JD from the candidate's own extracted skills
+    // This ensures keyword alignment without needing an external JD
+    const allSkills = Object.values(extractedSkills).flat().join(', ');
+    const syntheticJD = `We are looking for a ${role} with expertise in ${allSkills || 'software engineering'}. 
+The ideal candidate should have hands-on experience building scalable systems, working with modern frameworks and cloud infrastructure, and delivering measurable business results.
+Required: ${allSkills || 'Strong programming fundamentals, system design, and problem-solving skills'}.`;
+
+    // Use the existing JD-based resume generation pipeline
+    const result = await generateResumeFromJD({
+      jobDescription: syntheticJD,
+      candidateProfile: structuredProfile,
+      targetRole: role
+    });
+
+    return res.json({
+      success: true,
+      ...result,
+      extractedProfile: structuredProfile,
+      message: 'Resume enhanced to ATS-friendly format using your uploaded resume data.'
+    });
+  } catch (error) {
+    console.error('Resume enhancement error:', error);
+    return res.status(500).json({ error: error.message || 'Failed to enhance resume.' });
+  }
+});
+
 // Generate tailored ATS resume from Job Description with minimum AI content
 app.post('/api/resume/generate-from-jd', async (req, res) => {
   try {
@@ -2940,7 +3144,8 @@ Focus on:
 
       res.json({
         success: true,
-        analysis: validated
+        analysis: validated,
+        resumeText // Pass back so frontend can use for one-click enhancement
       });
     } catch (aiError) {
       console.error('AI analysis error:', aiError);

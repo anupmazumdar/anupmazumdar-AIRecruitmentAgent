@@ -1914,6 +1914,8 @@ function ResumeUploadStage({ candidateData, setCandidateData, setStage, authStat
   const [analysis, setAnalysis] = useState(null);
   const [error, setError] = useState('');
   const [docValidationWarning, setDocValidationWarning] = useState(null);
+  const [enhancing, setEnhancing] = useState(false);
+  const rawResumeTextRef = React.useRef(''); // Stores extracted text from last upload
   const fileInputRef = useRef(null);
 
   // Keep live LaTeX in sync
@@ -1988,6 +1990,8 @@ function ResumeUploadStage({ candidateData, setCandidateData, setStage, authStat
       }
 
       const score = data.analysis?.atsScore || data.analysis?.score || 85;
+      // Store the raw resume text for one-click enhancement
+      rawResumeTextRef.current = data.analysis?.resumeText || data.resumeText || '';
       setAnalysis({
         score,
         projects: data.analysis?.projects || [],
@@ -2005,6 +2009,47 @@ function ResumeUploadStage({ candidateData, setCandidateData, setStage, authStat
       console.error(err);
     } finally {
       setAnalyzing(false);
+    }
+  };
+
+  const handleEnhanceResume = async () => {
+    setEnhancing(true);
+    setError('');
+    try {
+      const response = await fetch(`${API_URL}/api/resume/enhance-from-upload`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          resumeText: rawResumeTextRef.current || file?.name || '',
+          targetRole: candidateData.position || targetRole || 'Software Engineer',
+          candidateName: candidateData.name || authState?.user?.name || '',
+          candidateEmail: candidateData.email || authState?.user?.email || ''
+        })
+      });
+
+      const data = await parseApiJson(response);
+      if (!response.ok || !data.success) {
+        throw new Error(data.error || 'Failed to enhance resume');
+      }
+
+      // Load enhanced resume into studio
+      if (data.resumeData) {
+        setResumeData(data.resumeData);
+      }
+      const atsScore = data.evaluation?.atsScore || 92;
+      setTailoredResult(data);
+      setCandidateData(prev => ({
+        ...prev,
+        resumeScore: atsScore,
+        tailoredResume: data.resumeData
+      }));
+      // Switch to studio view
+      setMode('tailor');
+    } catch (err) {
+      console.error('Enhance resume error:', err);
+      setError(err.message || 'Failed to enhance resume. Please try again.');
+    } finally {
+      setEnhancing(false);
     }
   };
 
@@ -3327,6 +3372,46 @@ function ResumeUploadStage({ candidateData, setCandidateData, setStage, authStat
                   </div>
                 </div>
               </div>
+
+              {/* One-click ATS Enhancement Button — shown when score is below 85 */}
+              {analysis.score < 85 && (
+                <div className="bg-gradient-to-br from-indigo-950/60 to-purple-950/60 border border-indigo-500/40 rounded-xl p-5">
+                  <div className="flex items-start gap-3">
+                    <div className="p-2 rounded-lg bg-indigo-600/20 text-indigo-400 shrink-0 mt-0.5">
+                      <Sparkles size={20} />
+                    </div>
+                    <div className="flex-1">
+                      <h4 className="font-bold text-indigo-300 text-sm mb-1">
+                        Your ATS score is {analysis.score}/100 — Let AI enhance it instantly
+                      </h4>
+                      <p className="text-xs text-slate-400 mb-3 leading-relaxed">
+                        TalentAI will read your uploaded resume and automatically rebuild it into a clean,
+                        keyword-optimized, ATS-ready format — no form filling required.
+                      </p>
+                      <button
+                        onClick={handleEnhanceResume}
+                        disabled={enhancing}
+                        className="w-full min-h-[44px] px-5 py-2.5 bg-gradient-to-r from-indigo-600 via-purple-600 to-pink-600 hover:from-indigo-500 hover:to-purple-500 rounded-xl font-bold text-white transition-all shadow-lg shadow-indigo-950/40 disabled:opacity-60 flex items-center justify-center gap-2 text-sm"
+                      >
+                        {enhancing ? (
+                          <><RefreshCw className="animate-spin" size={16} /> Rebuilding your resume into ATS format...</>
+                        ) : (
+                          <><Sparkles size={16} /> ✨ One-Click: Enhance to ATS-Friendly Resume</>  
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {analysis.score >= 85 && (
+                <div className="bg-green-950/30 border border-green-500/30 rounded-xl p-4 flex items-center gap-3">
+                  <CheckCheck size={20} className="text-green-400 shrink-0" />
+                  <p className="text-sm text-green-300">
+                    <strong>Great ATS score!</strong> Your resume is well-optimized. Click continue to proceed.
+                  </p>
+                </div>
+              )}
 
               <button
                 onClick={() => setStage('uploadVideo')}
