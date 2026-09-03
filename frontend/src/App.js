@@ -2657,7 +2657,7 @@ function ResumeUploadStage({ candidateData, setCandidateData, setStage, authStat
           {tailoredResult?.evaluation?.matchedKeywords?.length > 0 && (
             <div className="bg-slate-800/40 border border-slate-700/60 rounded-xl p-4 no-print">
               <p className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-2">
-                Extracted Job Description Keywords Found ({tailoredResult.evaluation.matchedKeywords.length})
+                Matched Role Keywords in Your Resume ({tailoredResult.evaluation.matchedKeywords.length})
               </p>
               <div className="flex flex-wrap gap-1.5">
                 {tailoredResult.evaluation.matchedKeywords.map((kw, idx) => (
@@ -2666,6 +2666,40 @@ function ResumeUploadStage({ candidateData, setCandidateData, setStage, authStat
                   </span>
                 ))}
               </div>
+            </div>
+          )}
+
+          {/* Actionable Missing Details & ATS Improvement Recommendations */}
+          {tailoredResult?.evaluation?.missingRecommendations?.length > 0 && (
+            <div className="bg-gradient-to-r from-amber-950/40 via-purple-950/30 to-slate-900/60 border border-amber-500/40 rounded-xl p-4 no-print">
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-amber-400 text-base">💡</span>
+                <h4 className="text-xs font-bold text-amber-300 uppercase tracking-wider">
+                  What's Missing to Reach a Perfect ATS Score (Actionable Recommendations)
+                </h4>
+              </div>
+              <ul className="space-y-1.5 text-xs text-slate-300">
+                {tailoredResult.evaluation.missingRecommendations.map((rec, idx) => (
+                  <li key={idx} className="flex items-start gap-2">
+                    <span className="text-amber-400 shrink-0 font-bold">•</span>
+                    <span>{rec}</span>
+                  </li>
+                ))}
+              </ul>
+              {tailoredResult.evaluation.missingKeywords?.length > 0 && (
+                <div className="mt-3 pt-3 border-t border-amber-500/20">
+                  <span className="text-[11px] font-semibold text-slate-400 block mb-1.5">
+                    Target Role Keywords You Can Add If You Have Experience:
+                  </span>
+                  <div className="flex flex-wrap gap-1.5">
+                    {tailoredResult.evaluation.missingKeywords.map((mkw, idx) => (
+                      <span key={idx} className="px-2 py-0.5 bg-amber-900/40 text-amber-200 border border-amber-700/40 rounded text-xs">
+                        + {mkw}
+                      </span>
+                    ))}
+                  </div>
+                </div>
+              )}
             </div>
           )}
 

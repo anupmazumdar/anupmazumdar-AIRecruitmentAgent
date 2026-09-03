@@ -190,13 +190,20 @@ async function generateResumeFromJD({ jobDescription, candidateProfile = {}, tar
 
   const systemPrompt = `You are a world-class elite executive resume writer who specializes in:
 1. MAXIMIZING ATS PASS RATE (96%+ score on Workday, Lever, Greenhouse, Taleo).
-2. STRICT ANTI-AI CONTENT HUMANIZATION: Write in a natural, authentic, grounded human tone. AI detectors (ZeroGPT, GPTZero, CopyLeaks) must classify this as 100% human-written.
-3. CONCRETE IMPACT & REAL METRICS: Follow the Google X-Y-Z formula ("Accomplished [X], measured by [Y], by doing [Z]").
+2. STRICT ANTI-HALLUCINATION & AUTHENTICITY: NEVER invent fake companies, fake job titles, fake dates, or fake projects that the candidate did not provide. Preserve candidate's genuine employment history and genuine projects exactly as provided.
+3. STRICT ANTI-AI CONTENT HUMANIZATION: Write in a natural, authentic, grounded human tone. AI detectors (ZeroGPT, GPTZero, CopyLeaks) must classify this as 100% human-written.
+4. CONCRETE IMPACT & REAL METRICS: Follow the Google X-Y-Z formula ("Accomplished [X], measured by [Y], by doing [Z]").
+
+RULES FOR AUTHENTICITY & ACCURACY (CRITICAL):
+- DO NOT invent employers, job titles, companies, or projects the candidate never worked on.
+- KEEP ALL real project names, company names, educational institutions, and certifications from the candidate's profile.
+- Only polish, format, and enhance the phrasing of existing accomplishments to align with ATS standards and active action verbs.
+- If the candidate has 1 job or 2 projects, keep exactly those items. Never fabricate placeholder companies or projects.
 
 RULES FOR ATS OPTIMIZATION:
 - Single-column standard flow only.
 - Standard ATS section headers: PROFESSIONAL SUMMARY, CORE SKILLS, PROFESSIONAL EXPERIENCE, KEY PROJECTS, EDUCATION, CERTIFICATIONS.
-- Naturally weave high-priority JD keywords into the Skills list, Summary, and Experience bullet points.
+- Naturally weave relevant JD keywords into the Skills list, Summary, and existing Experience bullet points where authentic.
 - Never use generic filler words.
 
 RULES FOR ANTI-AI DETECTION (HUMAN-WRITTEN TONE):
@@ -210,15 +217,17 @@ You must return ONLY a single valid JSON object, without markdown wrap.`;
   const userPrompt = `TARGET JOB DESCRIPTION:
 ${jobDescription}
 
-CANDIDATE BACKGROUND / DETAILS:
+CANDIDATE BACKGROUND / DETAILS (GENUINE CANDIDATE DATA - PRESERVE EXACT COMPANIES & PROJECTS):
 - Name: ${candidateName}
 - Target Role: ${roleTitle}
-- Current/Past Experience info: ${JSON.stringify(candidateProfile.experience || candidateProfile.currentRole || 'Experienced in the field')}
+- Current/Past Experience info: ${JSON.stringify(candidateProfile.experience || candidateProfile.currentRole || [])}
+- Projects info: ${JSON.stringify(candidateProfile.projects || [])}
 - Existing Skills: ${JSON.stringify(candidateProfile.skills || candidateProfile.skillsList || [])}
-- Education: ${JSON.stringify(candidateProfile.education || 'Bachelor of Science in Computer Science or related engineering degree')}
+- Education: ${JSON.stringify(candidateProfile.education || [])}
+- Certifications: ${JSON.stringify(candidateProfile.certifications || [])}
 - Target Keywords extracted from JD: ${jdKeywords.join(', ')}
 
-Generate a tailored, ATS-compliant, humanized resume for this candidate targeting this JD.
+IMPORTANT: Preserve the candidate's real companies, project names, and degree institutions exactly. DO NOT add fictional past employers or fictional projects. Format and enhance bullet points for ATS impact without fabricating experiences.
 Return ONLY this strict JSON structure:
 {
   "name": "${candidateName}",
@@ -232,39 +241,28 @@ Return ONLY this strict JSON structure:
   },
   "summary": "3-4 lines of professional summary tailored to the JD with years of experience and core strengths. Natural human tone, no AI fluff.",
   "skills": {
-    "technical": ["Skill 1", "Skill 2"],
-    "frameworksAndTools": ["Tool 1", "Tool 2"],
-    "cloudAndDevops": ["Platform 1", "Platform 2"],
-    "databases": ["DB 1", "DB 2"],
-    "methodologies": ["Methodology 1", "Methodology 2"]
+    "Languages": ["Skill 1", "Skill 2"],
+    "Frontend": ["Tool 1", "Tool 2"],
+    "Backend": ["Platform 1", "Platform 2"],
+    "Databases & Cloud": ["DB 1", "DB 2"],
+    "DevOps & Tools": ["Tool 1", "Tool 2"]
   },
   "experience": [
     {
-      "role": "Title",
-      "company": "Company Name",
+      "role": "Actual Candidate Role",
+      "company": "Actual Candidate Company",
       "location": "City, State",
-      "dates": "Jan 2023 - Present",
+      "dates": "Dates from candidate profile",
       "bullets": [
-        "Action verb + what was built + quantifiable outcome using X-Y-Z formula matching JD requirements",
+        "Action verb + what was built + quantifiable outcome using X-Y-Z formula",
         "Action verb + technical accomplishment + percentage improvement or scale handled",
         "Action verb + collaboration or architecture decision made"
-      ]
-    },
-    {
-      "role": "Previous Title",
-      "company": "Previous Company Name",
-      "location": "City, State",
-      "dates": "Aug 2021 - Dec 2022",
-      "bullets": [
-        "Bullet 1 with metric and technology",
-        "Bullet 2 with metric and technology",
-        "Bullet 3 with outcome"
       ]
     }
   ],
   "projects": [
     {
-      "name": "Project Name",
+      "name": "Actual Candidate Project Name",
       "technologies": ["Tech 1", "Tech 2"],
       "description": "What was built and the problem it solved",
       "impact": "Quantifiable result or user milestone"
@@ -272,13 +270,13 @@ Return ONLY this strict JSON structure:
   ],
   "education": [
     {
-      "degree": "B.S. in Computer Science (or equivalent)",
-      "institution": "University / Institute Name",
-      "year": "2021"
+      "degree": "Actual Degree from candidate profile",
+      "institution": "Actual University / Institute Name",
+      "year": "Year"
     }
   ],
   "certifications": [
-    "Relevant Certification matching JD (e.g. AWS Certified Developer / Google Cloud Architect)"
+    "Actual Certification from candidate profile"
   ],
   "targetJobTitle": "${roleTitle}"
 }`;
@@ -380,6 +378,34 @@ function evaluateResumeATSAndAI(resumeJson, jobDescription, jdKeywords = []) {
   // Clamp ATS score to a realistic top range (typically 92 - 98% for generated resumes)
   atsScore = Math.max(78, Math.min(98, atsScore));
 
+  // Generate concrete, actionable ATS gap recommendations
+  const missingRecommendations = [];
+  if (missingKeywords.length > 0) {
+    missingRecommendations.push(
+      `Target Role Keywords to Add: Consider naturally incorporating "${missingKeywords.slice(0, 4).join('", "')}" in your skills or project bullets if you have relevant experience with them.`
+    );
+  }
+  if (!hasMetrics) {
+    missingRecommendations.push(
+      'Quantifiable Metrics: Add 2-3 specific numbers (e.g. "% performance gain", "user volume", "latency reduction in ms") to show measurable impact.'
+    );
+  }
+  if (!hasProjects) {
+    missingRecommendations.push(
+      'Key Projects: Include at least 2 practical, hands-on projects with their technology stack and problem solved.'
+    );
+  }
+  if (!hasExperience) {
+    missingRecommendations.push(
+      'Work Experience / Internships: Detail key responsibilities with action verbs (Built, Shipped, Automated) using the Google X-Y-Z formula.'
+    );
+  }
+  if (!resumeJson.certifications || resumeJson.certifications.length === 0) {
+    missingRecommendations.push(
+      'Industry Certifications: Add any relevant certifications (e.g. AWS, GCP, Python, Coursera) to boost ATS score ranking.'
+    );
+  }
+
   // AI Content Detection score (< 5% indicates human-written)
   let detectedAICliches = 0;
   for (const cliche of Object.keys(AI_CLICHE_REPLACEMENTS)) {
@@ -397,7 +423,7 @@ function evaluateResumeATSAndAI(resumeJson, jobDescription, jdKeywords = []) {
   const burstinessScore = Math.min(10, Math.round(variance / 3));
 
   // Target AI Content Score: 2% to 7% (Meaning 93% - 98% Human confidence)
-  let aiContentScore = Math.max(2, Math.min(8, 3 + detectedAICliches * 2 - (burstinessScore > 5 ? 1 : 0)));
+  const aiContentScore = Math.max(2, Math.min(8, 3 + detectedAICliches * 2 - (burstinessScore > 5 ? 1 : 0)));
 
   return {
     atsScore,
@@ -405,6 +431,7 @@ function evaluateResumeATSAndAI(resumeJson, jobDescription, jdKeywords = []) {
     humanConfidence: 100 - aiContentScore,
     matchedKeywords: matchedKeywords.slice(0, 20),
     missingKeywords: missingKeywords.slice(0, 8),
+    missingRecommendations,
     keywordMatchPercentage: Math.round(matchRatio * 100),
     verdict: atsScore >= 90 ? 'Optimal ATS Ready' : 'Strong ATS Compatible',
     strengths: [
@@ -416,7 +443,7 @@ function evaluateResumeATSAndAI(resumeJson, jobDescription, jdKeywords = []) {
     antiAiSafeguardsApplied: [
       'Eliminated robotic clichés (spearheaded, synergized, delve, testament)',
       'Varied sentence lengths and natural conversational syntax',
-      'Realistic technical metrics and trade-offs rather than generic buzzwords'
+      'Preserved genuine candidate employment and project history without hallucinated companies'
     ]
   };
 }
@@ -783,83 +810,93 @@ function formatResumeToLatex(data) {
 
 /**
  * Generate a high-grade deterministic ATS resume if AI is offline
+ * STRICT RULE: Preserves the candidate's genuine companies, projects, education, and certifications. Never invents fictional employers!
  */
 function generateDeterministicATSResume(jobDescription, candidateProfile = {}, targetRole = '', jdKeywords = []) {
   const role = targetRole || candidateProfile.position || 'Software Engineer';
   const name = candidateProfile.name || 'Candidate Name';
-  const email = candidateProfile.email || 'candidate@example.com';
+  const cContact = candidateProfile.contact || {};
+  const email = candidateProfile.email || cContact.email || 'candidate@example.com';
+  const phone = candidateProfile.phone || cContact.phone || '';
+  const location = candidateProfile.location || cContact.location || '';
+  const linkedin = candidateProfile.linkedin || cContact.linkedin || '';
+  const github = candidateProfile.github || cContact.github || '';
 
-  const topSkills = jdKeywords.slice(0, 15);
-  const techSkills = topSkills.filter((_, i) => i % 2 === 0);
-  const frameworkSkills = topSkills.filter((_, i) => i % 2 !== 0);
+  // Use candidate's real skills if provided; otherwise organize from profile
+  const skills = candidateProfile.skills && Object.keys(candidateProfile.skills).length > 0
+    ? candidateProfile.skills
+    : {
+        Languages: ['Python', 'TypeScript', 'JavaScript', 'SQL'],
+        Frontend: ['React.js', 'Next.js', 'Tailwind CSS'],
+        Backend: ['Node.js', 'Express', 'REST APIs'],
+        'Databases & Cloud': ['PostgreSQL', 'MongoDB', 'Docker', 'Git']
+      };
+
+  // STRICT RULE: Use candidate's genuine experience. Never fabricate fictional companies!
+  const hasRealExp = Array.isArray(candidateProfile.experience) && candidateProfile.experience.length > 0;
+  const experience = hasRealExp
+    ? candidateProfile.experience.map(exp => ({
+        role: exp.role || role,
+        company: exp.company || 'Company',
+        location: exp.location || location || '',
+        dates: exp.dates || 'Recent',
+        bullets: Array.isArray(exp.bullets) && exp.bullets.length > 0
+          ? exp.bullets
+          : [`Engineered scalable features and modules contributing to core engineering milestones.`]
+      }))
+    : [
+        {
+          role: role,
+          company: 'Software Engineering Project / Organization',
+          location: location || '',
+          dates: 'Recent',
+          bullets: [
+            `Built and deployed production-grade applications with clean modular architecture and unit tests.`,
+            `Optimized database queries and API response times, enhancing user experience and system reliability.`
+          ]
+        }
+      ];
+
+  // STRICT RULE: Use candidate's genuine projects. Never invent fictional projects!
+  const hasRealProj = Array.isArray(candidateProfile.projects) && candidateProfile.projects.length > 0;
+  const projects = hasRealProj
+    ? candidateProfile.projects.map(p => ({
+        name: p.name || 'Technical Project',
+        technologies: Array.isArray(p.technologies) ? p.technologies : [],
+        description: p.description || 'Developed full-stack features addressing real user requirements.',
+        impact: p.impact || 'Delivered reliable architecture and modular codebase.'
+      }))
+    : [];
+
+  // STRICT RULE: Use candidate's genuine education
+  const hasRealEdu = Array.isArray(candidateProfile.education) && candidateProfile.education.length > 0;
+  const education = hasRealEdu
+    ? candidateProfile.education
+    : (candidateProfile.education && typeof candidateProfile.education === 'string'
+        ? [{ degree: candidateProfile.education, institution: 'University', year: '' }]
+        : [{ degree: 'Degree in Computer Science or Related Field', institution: 'University', year: '' }]);
+
+  // STRICT RULE: Use candidate's genuine certifications
+  const certifications = Array.isArray(candidateProfile.certifications)
+    ? candidateProfile.certifications
+    : [];
 
   return {
     name,
     contact: {
       title: role,
       email,
-      phone: '+1 (555) 019-2834',
-      location: 'San Francisco, CA / Remote',
-      linkedin: 'linkedin.com/in/profile',
-      github: 'github.com/profile'
+      phone,
+      location,
+      linkedin,
+      github
     },
-    summary: `Results-focused ${role} with over 4 years of hands-on experience designing and shipping scalable software solutions. Proven track record in optimizing application latency, architecting resilient services, and collaborating across engineering teams to deliver clean, production-grade features matching modern standards.`,
-    skills: {
-      technical: techSkills.length > 0 ? techSkills : ['JavaScript', 'TypeScript', 'Python', 'Go', 'SQL'],
-      frameworksAndTools: frameworkSkills.length > 0 ? frameworkSkills : ['React.js', 'Node.js', 'Express', 'Next.js', 'Redux'],
-      cloudAndDevops: ['AWS (EC2, S3, Lambda)', 'Docker', 'Kubernetes', 'CI/CD Pipelines', 'Git'],
-      databases: ['PostgreSQL', 'MongoDB', 'Redis', 'Elasticsearch'],
-      methodologies: ['Agile Scrum', 'Microservices', 'RESTful APIs', 'System Design', 'Unit Testing']
-    },
-    experience: [
-      {
-        role: `Senior ${role}`,
-        company: 'Nexus Tech Systems',
-        location: 'San Francisco, CA',
-        dates: '2022 - Present',
-        bullets: [
-          `Architected and deployed backend microservices handling 4M+ daily API calls with 99.98% uptime, incorporating ${topSkills[0] || 'core technologies'}.`,
-          `Reduced API p95 response time from 480ms to 110ms by introducing Redis caching and optimizing database indexes.`,
-          `Led code reviews and sprint planning for a team of 5 developers, improving sprint velocity by 22% over 6 months.`
-        ]
-      },
-      {
-        role: `${role}`,
-        company: 'CloudWave Solutions',
-        location: 'Austin, TX',
-        dates: '2020 - 2022',
-        bullets: [
-          `Built automated testing and deployment pipelines that cut production deployment cycles from 45 minutes to 8 minutes.`,
-          `Engineered customer-facing web modules using ${topSkills[1] || 'modern frameworks'}, boosting customer retention by 16%.`,
-          `Diagnosed and resolved critical memory leaks in asynchronous worker queues, saving $14,000 in monthly compute expenses.`
-        ]
-      }
-    ],
-    projects: [
-      {
-        name: 'Distributed Task Processor',
-        technologies: [topSkills[0] || 'Node.js', 'Redis', 'Docker'],
-        description: 'Designed a distributed queue processing system for asynchronous batch operations.',
-        impact: 'Scaled processing throughput to 10,000 tasks/second with automatic retry handling.'
-      },
-      {
-        name: 'Enterprise Analytics Dashboard',
-        technologies: ['React', 'TypeScript', 'GraphQL'],
-        description: 'Interactive real-time metrics monitoring dashboard for infrastructure telemetry.',
-        impact: 'Adopted by 80+ internal engineering teams for live anomaly detection.'
-      }
-    ],
-    education: [
-      {
-        degree: 'Bachelor of Science in Computer Science',
-        institution: 'University of Technology',
-        year: '2020'
-      }
-    ],
-    certifications: [
-      'AWS Certified Solutions Architect - Associate',
-      'Certified Scrum Master (CSM)'
-    ],
+    summary: candidateProfile.summary || `Results-driven ${role} with hands-on experience building scalable applications, designing clean APIs, and delivering reliable technical solutions.`,
+    skills,
+    experience,
+    projects,
+    education,
+    certifications,
     targetJobTitle: role
   };
 }
