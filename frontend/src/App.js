@@ -973,31 +973,71 @@ function CandidatePortal({ setUserType, subscription, authState, logout }) {
         </div>
       </div>
 
-      {/* Progress Bar */}
-      <div className="max-w-5xl mx-auto mb-8 overflow-x-auto">
-        <div className="flex min-w-[880px] items-center justify-between">
-          {stages.map((s, idx) => {
-            const Icon = s.icon;
-            const isCompleted = idx < currentStageIndex;
-            const isCurrent = idx === currentStageIndex;
+      {/* Perfectly Aligned Stepper Progress Bar */}
+      <div className="max-w-5xl mx-auto mb-10 overflow-x-auto px-2 pb-2">
+        <div className="min-w-[820px] relative">
+          {/* Background Track Line - positioned at vertical center of 40px circle (top: 20px) */}
+          <div className="absolute top-5 left-8 right-8 h-0.5 bg-slate-800 -translate-y-1/2 z-0">
+            {/* Active progress highlight fill */}
+            <div
+              className="h-full bg-gradient-to-r from-green-500 via-indigo-500 to-indigo-600 transition-all duration-500 ease-out"
+              style={{
+                width: `${Math.min(100, Math.max(0, (currentStageIndex / (stages.length - 1)) * 100))}%`
+              }}
+            />
+          </div>
 
-            return (
-              <div key={s.id} className="flex items-center flex-1 last:flex-none">
-                <div className="flex flex-col items-center">
-                  <div className={`w-10 h-10 rounded-full flex items-center justify-center transition-all ${isCompleted ? 'bg-green-500' : isCurrent ? 'bg-indigo-500 ring-4 ring-indigo-500/30' : 'bg-slate-700'
-                    }`}>
-                    {isCompleted ? <CheckCircle size={20} /> : <Icon size={20} />}
+          {/* Stepper Nodes - mathematically distributed with justify-between */}
+          <div className="relative z-10 flex items-start justify-between">
+            {stages.map((s, idx) => {
+              const Icon = s.icon;
+              const isCompleted = idx < currentStageIndex;
+              const isCurrent = idx === currentStageIndex;
+
+              return (
+                <div
+                  key={s.id}
+                  className="flex flex-col items-center group cursor-pointer"
+                  onClick={() => {
+                    if (idx <= currentStageIndex) {
+                      setStage(s.id);
+                    }
+                  }}
+                  title={isCompleted ? `Return to ${s.label}` : isCurrent ? `Current: ${s.label}` : s.label}
+                >
+                  {/* Step Circle with crisp ring and elevation */}
+                  <div
+                    className={`w-10 h-10 rounded-full flex items-center justify-center transition-all duration-300 shadow-lg ${
+                      isCompleted
+                        ? 'bg-green-500 text-white shadow-green-500/25 ring-4 ring-slate-900'
+                        : isCurrent
+                        ? 'bg-indigo-600 text-white shadow-indigo-500/40 ring-4 ring-indigo-500/30 scale-110'
+                        : 'bg-slate-800 text-slate-400 border border-slate-700 ring-4 ring-slate-900 group-hover:border-slate-500 group-hover:text-slate-300'
+                    }`}
+                  >
+                    {isCompleted ? (
+                      <CheckCircle size={20} />
+                    ) : (
+                      <Icon size={18} />
+                    )}
                   </div>
-                  <span className={`mt-1 text-xs ${isCurrent ? 'text-indigo-400 font-semibold' : 'text-slate-400'}`}>
+
+                  {/* Aligned Label with fixed width to prevent uneven spacing */}
+                  <span
+                    className={`mt-2.5 text-[11px] md:text-xs text-center w-20 md:w-24 leading-snug transition-colors ${
+                      isCurrent
+                        ? 'text-indigo-400 font-bold'
+                        : isCompleted
+                        ? 'text-slate-300 font-medium'
+                        : 'text-slate-500'
+                    }`}
+                  >
                     {s.label}
                   </span>
                 </div>
-                {idx < stages.length - 1 && (
-                  <div className={`flex-1 h-1 mx-2 rounded ${isCompleted ? 'bg-green-500' : 'bg-slate-700'}`}></div>
-                )}
-              </div>
-            );
-          })}
+              );
+            })}
+          </div>
         </div>
       </div>
 

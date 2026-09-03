@@ -189,11 +189,38 @@ async function extractTextFromDocument(filePathOrBuffer, mimeType) {
   const filePath = Buffer.isBuffer(filePathOrBuffer) ? '' : filePathOrBuffer;
 
   try {
-    if (mimeType === 'application/pdf' || filePath.endsWith('.pdf') || mimeType === 'application/pdf') {
-      // PDF extraction - lazy load to avoid serverless startup crash
-      const pdf = getPdf();
-      const data = await pdf(buffer);
-      return data.text;
+    if (mimeType === 'application/pdf' || (filePath && filePath.endsWith('.pdf')) || (!mimeType && !filePath)) {
+      // PDF extraction - support both pdf-parse v1 (function) and v2 (PDFParse class)
+      const pdfModule = getPdf();
+      let extractedText = '';
+
+      if (typeof pdfModule === 'function') {
+        const data = await pdfModule(buffer);
+        extractedText = data.text || '';
+      } else if (pdfModule && pdfModule.PDFParse) {
+        const parser = new pdfModule.PDFParse({ data: buffer });
+        await parser.load();
+        const res = await parser.getText();
+        await parser.destroy();
+        extractedText = typeof res === 'string' ? res : (res?.text || '');
+      }
+
+      if (!extractedText || !extractedText.trim()) {
+        // Resilient fallback: extract stream text strings from PDF buffer
+        const raw = buffer.toString('binary');
+        const textBlocks = [];
+        const regex = /BT[\s\S]*?ET/g;
+        let match;
+        while ((match = regex.exec(raw)) !== null) {
+          const strMatch = match[0].match(/\((.*?)\)\s*Tj/g);
+          if (strMatch) {
+            textBlocks.push(strMatch.map(s => s.replace(/[()]/g, '').replace(/Tj$/, '').trim()).join(' '));
+          }
+        }
+        extractedText = textBlocks.join('\n') || buffer.toString('utf-8').replace(/[^\x20-\x7E\n\r\t]/g, ' ');
+      }
+
+      return extractedText;
     } else if (
       mimeType === 'application/vnd.openxmlformats-officedocument.wordprocessingml.document' ||
       filePath.endsWith('.docx') ||
@@ -220,6 +247,13 @@ async function extractTextFromDocument(filePathOrBuffer, mimeType) {
     }
   } catch (error) {
     console.error('Text extraction error:', error);
+    // Graceful last-resort text recovery from buffer
+    try {
+      const recovered = buffer.toString('utf-8').replace(/[^\x20-\x7E\n\r\t]/g, ' ').trim();
+      if (recovered && recovered.length > 50) {
+        return recovered;
+      }
+    } catch (e) {}
     throw new Error('Failed to extract text from document');
   }
 }
